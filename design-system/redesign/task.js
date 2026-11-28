@@ -33,14 +33,14 @@
   const NET_HINT = "网络请求超时，请检查网络或代理后再试", DISK_HINT = "磁盘剩余空间不足，请清理磁盘空间或更换存放位置后再试";
   const SLOW_TIP = "下载慢或在重试。可以检查网络或代理；网络恢复后会自动接着下载，不需要重新开始。"; // 程序原话，进悬停
   // 程序 LEFTOVER_HINT；「服务器页」照重构以后的叫法改成「首页」（首页提示浮层里的「没建完的文件夹」）
-  const LEFTOVER_HINT = "文件夹没删干净：这次建了一半的会列在首页上方「没建完的文件夹」里，到那里处理。";
+  const LEFTOVER_HINT = "文件夹未能自动清理：会列在首页上方「未建完的文件夹」中，可前往处理。";
   const EXPORT_PATH = "D:\\MC\\交接包\\生存服-朋友-交接包-20261127-221530.mdpack";
   const CREATE_STEPS = ["解析版本信息", "准备 Java 运行时", "下载服务端核心", "安装服务端", "写入配置文件", "生成启动脚本"]; // inst/install.go createSteps
 
   // 新建 / 导入整合包这两种是同一类任务（Go 里 kind 为空），说法同程序 TASK_KINDS[""]
   const T_CREATE = { title: "正在创建服务器", sub: "正在下载 Java 和服务端。", done: "服务器已建好", doneSub: "Java、服务端与配置均已就绪",
-    fail: "服务器没有建好", cx: "已取消创建", cxBtn: "取消创建", failHint: "已下载的文件有缓存，再试一次很快。", go: "完成，进入控制台" };
-  const ASK_CREATE = { title: s => `取消创建<span class="nw">「${esc(s.name)}」？</span>`, body: "建了一半的文件夹会删掉，已经下载的文件留在缓存里。", keep: "继续创建" };
+    fail: "服务器创建失败", cx: "已取消创建", cxBtn: "取消创建", failHint: "已下载的文件有缓存，再试一次很快。", go: "完成，进入控制台" };
+  const ASK_CREATE = { title: s => `取消创建<span class="nw">「${esc(s.name)}」？</span>`, body: "将删除未建完的文件夹，已下载的文件会保留在缓存中。", keep: "继续创建" };
 
   // Forge / NeoForge 的建服过程（下载安装器、预放原版服务端、跑官方安装器），导入整合包多两步
   const forgeOps = o => [
@@ -96,25 +96,25 @@
         warnings: [
           { kind: "cf-unresolved", merged: true },
           { kind: "import-pending", merged: true },
-          { kind: "import-skipped", title: "2 个文件没有装进来", note: "导入时跳过了这些文件，原因写在每一项后面。只给客户端用的本来就不该装在服务器上；要用别的，导入完成以后自己放进服务器文件夹。",
+          { kind: "import-skipped", title: "2 个文件未安装", note: "导入时已跳过这些文件，原因见各项说明。仅客户端文件无需安装到服务端；其余文件可在导入完成后手动放入服务器文件夹。",
             items: [{ name: "mods/oculus-mc1.21.1-1.8.0.jar（整合包清单里写明只给客户端用）", mono: true }, { name: "mods/sodiumextras-neoforge-1.0.7.jar（整合包清单里写明只给客户端用）", mono: true }] },
           // 程序这条告警下面有一颗「去「设置 → 启动与内存」换 Java」；模组名是编的
-          { kind: "java-req", title: "有模组要求 Java 25，这台服务器现在是 Java 21",
-            note: "这只是提醒，不影响导入结果。装着这样的模组启动可能失败或部分功能不工作；要换的话到「设置 → 启动与内存」里选（MineDeck 可以自动下载便携版），也可以先保持现状。",
-            items: [{ name: "example-optimizer" }], act: ["gojava", "去换 Java", "去「设置 → 启动与内存」换 Java"] },
+          { kind: "java-req", title: "有模组需要 Java 25，当前使用 Java 21",
+            note: "此提示不影响本次导入。保留这些模组可能导致启动失败或功能异常；可在「设置 → 启动与内存」更换 Java（支持自动下载便携版），也可暂保持现状。",
+            items: [{ name: "example-optimizer" }], act: ["gojava", "更换 Java", "前往「设置 → 启动与内存」更换 Java"] },
         ],
         pending: [
-          { id: "p1", p: "mods/toughasnails-neoforge-1.21.1-10.0.0.jar", why: "没有 CurseForge API Key", note: "「Tough As Nails」：没有填 CurseForge API Key，不能自动下载。保留本地已有的文件，或者手动放一份", opts: ["skip", "local"], url: "https://www.curseforge.com/minecraft/mc-mods/tough-as-nails" },
-          { id: "p2", p: "mods/sophisticatedbackpacks-1.21.1-3.23.4.jar", why: "站点不在允许列表里", host: "mediafilez.forgecdn.net", note: "下载地址不在 MineDeck 允许的站点列表里（只允许 Modrinth、GitHub、GitLab），确认站点可信后才能下载", opts: ["skip", "local", "trust"], url: "https://mediafilez.forgecdn.net/files/5/8/sophisticatedbackpacks-1.21.1-3.23.4.jar" },
-          { id: "p3", p: "mods/custom-tweaks-1.0.jar", why: "整合包没给校验值", note: "整合包没有提供这个文件的校验值，自动下载没法核对，不能用下载替代你手里的文件", opts: ["skip", "local"] },
+          { id: "p1", p: "mods/toughasnails-neoforge-1.21.1-10.0.0.jar", why: "未配置 CurseForge API Key", note: "「Tough As Nails」：未填写 CurseForge API Key，无法自动下载。可保留本地已有文件，或手动放入后指定路径。", opts: ["skip", "local"], url: "https://www.curseforge.com/minecraft/mc-mods/tough-as-nails" },
+          { id: "p2", p: "mods/sophisticatedbackpacks-1.21.1-3.23.4.jar", why: "站点不在允许列表中", host: "mediafilez.forgecdn.net", note: "下载地址不在 MineDeck 允许列表中（仅允许 Modrinth、GitHub、GitLab），确认站点可信后方可下载。", opts: ["skip", "local", "trust"], url: "https://mediafilez.forgecdn.net/files/5/8/sophisticatedbackpacks-1.21.1-3.23.4.jar" },
+          { id: "p3", p: "mods/custom-tweaks-1.0.jar", why: "整合包未提供校验值", note: "整合包未提供该文件的校验值，无法核对下载内容，不可自动下载替代本地文件。", opts: ["skip", "local"] },
         ],
-        skipped: [{ id: "p0", p: "mods/jei-1.21.1-neoforge-19.21.0.247.jar", why: "整合包没给校验值", note: "整合包没有提供这个文件的校验值，自动下载没法核对，不能用下载替代你手里的文件", opts: ["skip", "local"] }],
+        skipped: [{ id: "p0", p: "mods/jei-1.21.1-neoforge-19.21.0.247.jar", why: "整合包未提供校验值", note: "整合包未提供该文件的校验值，无法核对下载内容，不可自动下载替代本地文件。", opts: ["skip", "local"] }],
       },
       go: s => link("detail.html", { kind: s.detail, tab: "addons" }) },
 
     adopt: { label: "接管", from: "new", srv: SRV.old, edit: ["import.html", { flow: "adopt" }],
-      T: { title: "正在接管服务器", sub: "正在检查文件夹、准备 Java。世界和配置不会动（换了端口的只改端口这一项）。", done: "服务器已接管", doneSub: "已经收进 MineDeck，可以在这里启动和管理了",
-        fail: "服务器没有接管成", failHint: "服务器文件夹里的东西没有被删掉或改坏，可以再试一次。", go: "完成，进入控制台" },
+      T: { title: "正在接管服务器", sub: "正在检查文件夹并准备 Java。不会改动现有存档与配置（更改端口时仅更新端口项）。", done: "服务器已接管", doneSub: "已添加至 MineDeck，可直接启动和管理",
+        fail: "服务器接管失败", failHint: "服务器文件夹中的原有文件未被删除或修改，可重试。", go: "完成，进入控制台" },
       steps: ["检查服务器文件夹", "准备 Java 运行时", "登记到 MineDeck"],
       ops: (s, st) => [
         { s: 0 }, { l: "服务器文件夹：D:\\MC\\怀旧服" }, { l: "启动方式：paper-1.16.5-794.jar" },
@@ -130,9 +130,9 @@
       go: s => link("detail.html", { kind: s.detail }) },
 
     java: { label: "Java", from: "inst", srv: SRV.friend,
-      T: { title: "正在更换 Java", sub: "本机没有这个版本的 Java，正在下载一份（不改系统里的 Java）。", done: "Java 已换好", doneSub: "下次启动这台服务器时生效",
-        fail: "Java 没有换成", failHint: "这台服务器还在用原来的 Java，可以返回重试。", go: "完成，回到服务器" },
-      cover: "Java 21", steps: ["准备 Java 运行时", "换上新的 Java"], showDoneSub: true,
+      T: { title: "正在更换 Java", sub: "本机未检测到该版本的 Java，正在下载便携版运行时（不影响系统 Java 环境）。", done: "Java 已更换", doneSub: "下次启动这台服务器时生效",
+        fail: "Java 更换失败", failHint: "服务器仍使用原有 Java，可返回重试。", go: "完成，返回服务器" },
+      cover: "Java 21", steps: ["准备 Java 运行时", "应用新 Java"], showDoneSub: true,
       ops: () => [
         { s: 0 }, { l: "需要 Java 21，开始下载便携式运行时（不影响系统环境）" }, { l: "按 Adoptium 公布的 SHA-256 从清华镜像下载 OpenJDK21U-jdk_x64_windows_hotspot_21.0.5_11.zip" },
         { m: "run", f: .52 }, { m: "slow", f: .52 }, { m: "fail", f: .52 }, { p: "下载 Java 21", b: 195.6 * MB },
@@ -143,8 +143,8 @@
       go: s => link("detail.html", { kind: s.detail, tab: "settings", sub: "jvm" }) },
 
     export: { label: "导出", from: "inst", srv: SRV.friend,
-      T: { title: "正在导出交接包", sub: "正在把世界、配置、模组和插件打包成一个文件。服务器不会被改动。", done: "交接包已导出", doneSub: "交接包已生成，文件位置在这一页的日志里",
-        fail: "交接包没有导出成", failHint: "没有留下不完整的包，可以重试（包的特征见任务日志）。", go: "完成" },
+      T: { title: "正在导出交接包", sub: "正在将存档、配置、模组和插件打包为单个文件，不会改动原服务器。", done: "交接包已导出", doneSub: "交接包已生成，文件位置在这一页的日志里",
+        fail: "交接包导出失败", failHint: "未保留不完整的交接包，可重试（详情见任务日志）。", go: "完成" },
       steps: ["收集清单", "打包交接包", "收尾"],
       ops: () => [
         { s: 0 }, { l: "含世界、配置、模组与名单（logs、崩溃报告与锁定文件不进包）" }, { l: "插件 12 个" }, { l: "待打包 1834 个文件、486.2 MB" },
@@ -157,11 +157,11 @@
       go: () => link("home.html") },
 
     import: { label: "导入", from: "new", srv: SRV.handed, edit: ["import.html", { flow: "transfer" }],
-      T: { title: "正在导入交接包", sub: "正在准备 Java、下载核心并解包。世界、配置、模组和插件都会保留。", done: "交接包已导入",
-        doneSub: "世界、配置、模组和插件都带过来了，可以启动了。没带过来的东西列在下面的日志里",
-        fail: "交接包没有导入成", failHint: "半成品的文件夹已经清理干净，可以重试。", go: "完成，进入控制台" },
+      T: { title: "正在导入交接包", sub: "正在准备 Java、下载核心并解包。存档、配置、模组和插件均会保留。", done: "交接包已导入",
+        doneSub: "存档、配置、模组和插件均已导入，可以启动。未随包导入的项目见下方日志",
+        fail: "交接包导入失败", failHint: "已清理未完成的文件夹，可重试。", go: "完成，进入控制台" },
       steps: ["校验交接包", "准备 Java 运行时", "下载服务端核心", "安装服务端", "解包服务器文件", "生成启动脚本"],
-      showDoneSub: () => "没带过来的东西列在下面的日志里", // doneSub 的后半句（前半句和标题说的一样）
+      showDoneSub: () => "未随包导入的项目见下方日志", // doneSub 的后半句（前半句和标题说的一样）
       ops: () => [
         { s: 0 }, { l: "交接包：生存服 · 朋友（paper 1.21.4，2026-11-27 22:15 导出，交接）" }, { l: "包内清单：世界 388.1 MB、模组 0 个、插件 12 个" }, { l: "包里没有：logs、崩溃报告" },
         { s: 1 }, { l: "交接的那台用 Java 21（来自 A 的 instance.json）" }, { l: `使用本机已安装的 Java 21（21.0.5）: ${JDK21}` }, { l: `Java 就绪: ${JDK21}` },
@@ -178,10 +178,10 @@
       go: s => link("detail.html", { kind: s.detail }) },
 
     server: { label: "服务端", from: "new", srv: SRV.sky, cancel: true, edit: ["import.html", { flow: "modpack" }],
-      T: { title: "正在导入服务端", sub: "正在解压服务端文件、准备 Java。世界、模组、插件和配置用压缩包里的。", done: "服务端已导入", doneSub: "世界、模组、插件和配置都是压缩包里的那份，可以启动了",
-        fail: "服务端没有导入成", cx: "已取消导入", cxBtn: "取消导入", failHint: "半成品的文件夹已经清理干净，可以重试。", go: "完成，进入控制台" },
-      ask: { title: s => `取消导入<span class="nw">「${esc(s.name)}」？</span>`, body: "解压了一半的文件夹会删掉。", keep: "继续导入" },
-      steps: ["解压服务端文件", "识别核心和版本", "准备 Java", "登记到 MineDeck"], cxText: "已取消，没有创建服务器",
+      T: { title: "正在导入服务端", sub: "正在解压服务端文件并准备 Java，沿用压缩包中的存档、模组、插件和配置。", done: "服务端已导入", doneSub: "已沿用压缩包中的存档、模组、插件和配置，可以直接启动",
+        fail: "服务端导入失败", cx: "已取消导入", cxBtn: "取消导入", failHint: "已清理未完成的文件夹，可重试。", go: "完成，进入控制台" },
+      ask: { title: s => `取消导入<span class="nw">「${esc(s.name)}」？</span>`, body: "将删除未解压完的文件夹。", keep: "继续导入" },
+      steps: ["解压服务端文件", "识别核心和版本", "准备 Java 运行时", "登记到 MineDeck"], cxText: "已取消，没有创建服务器",
       ops: (s, st) => [
         { s: 0 }, { l: "按现成服务端解压（文件在最外层）" }, { l: "解压了 2416 个文件" },
         { s: 1 }, { l: "按接管已有服务器的办法认出：purpur 1.21.4，启动文件 purpur-1.21.4-2416.jar" },
@@ -196,17 +196,28 @@
       fail: { pre: ["清华镜像这条路没走通（读取超时），切换 Adoptium 官方源"], err: "多次尝试后仍下载失败（github.com: 读取超时；objects.githubusercontent.com: 读取超时）", hint: NET_HINT,
         leftover: "remove MineDeck\\servers\\空岛服\\world\\session.lock: The process cannot access the file because it is being used by another process." },
       partial: { warnings: [
-        { kind: "mc-from-log", title: "版本号是从日志里认出来的", note: "服务端 jar 里没写 Minecraft 版本，1.21.4 是从压缩包里的 logs/latest.log 认出来的，是这台服务器上一次开服时的版本。版本号决定用哪个 Java、要不要加 log4shell 防护；要是后来换过服务端，这里就不对了，可以先解压，用「新建服务器 → 接管已有服务器」自己填版本。" },
-        { kind: "script-jvm", title: "启动脚本里的 JVM 参数带过来 3 个，没带 1 个",
-          note: "带过来的在「设置 → 启动与内存」的自定义 JVM 参数里：-XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Dusing.aikars.flags=https://mcflags.emc.gs。它们是给原来那个 Java 写的，换了大版本以后有的可能不认（比如老的 -XX:+UseConcMarkSweepGC），开不了服就到那里删掉。只带调性能的几类（-XX: 的开关和数值、-Xss 这几样、-D 里不是 Java 自己的设置的）；内存按导入页上填的；能让 Java 另外加载程序、执行命令、往别处写文件、改代理的和日志配置一律不带，需要的话确认可信以后到「设置 → 启动与内存」里自己加。",
+        { kind: "mc-from-log", title: "版本号通过日志识别", note: "服务端 jar 未标注 Minecraft 版本，1.21.4 识别自压缩包中的 logs/latest.log（上次开服版本）。版本号决定所选 Java 及是否启用 log4shell 防护；若后续更换过服务端，建议先解压并通过「新建服务器 → 接管本地服」手动指定版本。" },
+        { kind: "script-jvm", title: "已导入 3 项启动脚本 JVM 参数，忽略 1 项",
+          note: "已导入项可在「设置 → 启动与内存」的自定义 JVM 参数中查看：-XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Dusing.aikars.flags=https://mcflags.emc.gs。若更换 Java 大版本后不兼容可前往移除。仅自动导入性能调优参数，内存按导入页上填的；涉及加载外部程序、执行命令、改写代理或日志配置的参数默认忽略，确认可信后可手动添加。",
           items: [{ name: "-javaagent:authlib-injector.jar（能让 Java 另外加载程序）", mono: true }] },
       ] },
       go: s => link("detail.html", { kind: s.detail }) },
 
     cart: { label: "清单", from: "inst", srv: SRV.friend,
-      T: { title: "正在安装待装清单", sub: "正在下载清单里的内容和它们的前置，放进服务器的 mods 或 plugins 文件夹。", done: "待装清单已装好", doneSub: "新装的内容要重启服务器后才会生效",
-        fail: "待装清单没有装成", failHint: "可以回到这台服务器的「插件」或「模组」页，在待装清单里再装一次。已经下载的文件有缓存，重试很快。", go: "完成，进入控制台" },
-      cover: "待装清单 3 项", steps: ["挑版本、补前置", "下载文件", "放入本地文件", "核对本地依赖"], showDoneSub: true,
+      T: { title: "正在安装待装清单",
+        sub: s => /^(mohist|banner|arclight|taiyitist)$/i.test(s.core)
+          ? "正在下载清单中的插件与模组及其前置，将放入服务器的 plugins / mods 文件夹。"
+          : /^(fabric|forge|neoforge|quilt)$/i.test(s.core)
+            ? "正在下载清单中的模组及其前置，将放入服务器的 mods 文件夹。"
+            : "正在下载清单中的插件及其前置，将放入服务器的 plugins 文件夹。",
+        done: "待装清单已安装", doneSub: "新安装的内容需重启服务器后生效",
+        fail: "待装清单安装失败",
+        failHint: s => {
+          const tab = /^(mohist|banner|arclight|taiyitist)$/i.test(s.core) ? "插件和模组" : /^(fabric|forge|neoforge|quilt)$/i.test(s.core) ? "模组" : "插件";
+          return `可返回服务器的「${tab}」页在待装清单中重新安装。已下载的文件有缓存，重试速度较快。`;
+        },
+        go: "完成，进入控制台" },
+      cover: "待装清单 3 项", steps: ["匹配版本与前置", "下载文件", "放入本地文件", "核对本地依赖"], showDoneSub: true,
       ops: (s, st) => [
         { s: 0 }, { l: "待装清单里有 3 个 Modrinth 项目：LuckPerms、EssentialsX、Chunky" },
         { s: 1 }, { m: "fail" }, { l: "[1/3] LuckPerms：LuckPerms-Bukkit-5.4.145.jar（1.9 MiB）" }, { p: "下载 LuckPerms-Bukkit-5.4.145.jar", b: 1.9 * MB },
@@ -221,34 +232,34 @@
       fail: { pre: ["[1/3] LuckPerms：LuckPerms-Bukkit-5.4.145.jar（1.9 MiB）", "  失败：多次尝试后仍下载失败（cdn.modrinth.com: 读取超时）", "[2/3] EssentialsX：EssentialsX-2.20.1.jar（3.1 MiB）",
         "  失败：多次尝试后仍下载失败（cdn.modrinth.com: 读取超时）", "[3/3] Chunky：Chunky-Bukkit-1.4.28.jar（0.4 MiB）", "  失败：多次尝试后仍下载失败（cdn.modrinth.com: 读取超时）"],
         err: "多次尝试后仍下载失败（cdn.modrinth.com: 读取超时）", hint: NET_HINT },
-      partial: { warnings: [{ kind: "download-failed", title: "1 个文件没下载成功", note: "待装清单先不动：检查网络或代理后再装一次，已经装上的会自动跳过，只补没装上的。",
-        items: [{ name: "EssentialsX-2.20.1.jar", mono: true }], act: ["retry", "再装一次"] }] },
+      partial: { warnings: [{ kind: "download-failed", title: "1 个文件下载失败", note: "待装清单保持不变：请检查网络或代理后重试，已安装的文件会自动跳过。",
+        items: [{ name: "EssentialsX-2.20.1.jar", mono: true }], act: ["retry", "重试"] }] },
       go: s => link("detail.html", { kind: s.detail }) },
 
     map: { label: "地图", from: "inst", srv: SRV.friend, mapName: "天空之城 SkyCity",
-      T: { title: "正在更换地图", sub: "导入地图，或者换回导入前的地图。出错时会自动退回原来的世界。", done: "地图已处理完", doneSub: "可以到这台服务器的「世界与备份 → 换地图」里查看",
-        fail: "地图没有处理完", cx: "已取消换地图", cxSub: "没有替换任何文件，原来的世界没动。", failHint: "所有文件都还在。到这台服务器的「世界与备份 → 换地图」里看现在用的是哪一份。",
-        go: "完成，回到这台服务器" },
-      cover: "天空之城 SkyCity", steps: ["核对地图和服务器", "复制地图到暂存区", "停服并占用这台服务器", "换上新地图", "完成"], cxText: "已取消，没有替换任何文件",
+      T: { title: "正在更换地图", sub: "导入地图或换回导入前的地图，出错时将自动退回原有存档。", done: "地图更换完成", doneSub: "可在「世界与备份 → 换地图」中查看",
+        fail: "地图更换失败", cx: "已取消更换地图", cxSub: "未替换任何文件，原有存档保持不变。", failHint: "原有文件均未丢失，可在「世界与备份 → 换地图」查看当前使用的存档。",
+        go: "完成，返回服务器" },
+      cover: "天空之城 SkyCity", steps: ["核对地图和服务器", "复制地图到暂存区", "停止并锁定服务器", "换上新地图", "完成"], cxText: "已取消，没有替换任何文件",
       // 结果是一句给人看的话（worldimport service.go runImport 的返回值），做完放在标题下面
       ops: () => [
-        { s: 0 }, { l: "开始导入：天空之城 SkyCity（SkyCity_v2.1.zip）" }, { l: "核对通过：地图和这台服务器对得上" },
+        { s: 0 }, { l: "开始导入：天空之城 SkyCity（SkyCity_v2.1.zip）" }, { l: "核对通过：地图与当前服务器兼容" },
         { s: 1 }, { m: "cancel", f: .4 }, { m: "run", f: .46 }, { m: "slow", f: .46 }, { p: "复制地图", b: 1126 * MB }, { l: "地图已复制到暂存区（1.1 GB）" },
-        { s: 2 }, { l: "正在停止服务器（等它自己保存退出，不会强制结束）…" }, { l: "服务器已保存并退出，占用这台服务器" },
-        { s: 3 }, { m: "fail" }, { l: "原来的世界移进恢复点：world、world_nether、world_the_end" }, { l: "新地图已换上" },
-        { s: 4 }, { l: "导入前的世界留在恢复点里（2.3 GB），随时可以在「世界与备份 → 换地图」里换回来" },
-        { fin: "「生存服 · 朋友」的地图文件已导入，还没开服试过。服务器保持停止，启动后进服看看是不是这张地图" },
+        { s: 2 }, { l: "正在停止服务器（等它自己保存退出，不会强制结束）…" }, { l: "服务器已保存并退出，已锁定当前服务器" },
+        { s: 3 }, { m: "fail" }, { l: "原存档已移入恢复点：world、world_nether、world_the_end" }, { l: "新地图已替换完成" },
+        { s: 4 }, { l: "导入前的存档留在恢复点里（2.3 GB），随时可以在「世界与备份 → 换地图」里换回来" },
+        { fin: "「生存服 · 朋友」的地图存档已导入。服务器当前已停止，启动后可进服确认" },
       ],
       slow: { idle: 47 },
-      fail: { pre: [], err: "导入中断，已恢复到导入前的世界：rename MineDeck\\servers\\生存服 · 朋友\\world: Access is denied.", hint: "没有读写权限，请检查文件夹权限或关闭占用它的程序" },
+      fail: { pre: [], err: "导入中断，已退回导入前的存档：rename MineDeck\\servers\\生存服 · 朋友\\world: Access is denied.", hint: "没有读写权限，请检查文件夹权限或关闭占用它的程序" },
       go: s => link("detail.html", { kind: s.detail, tab: "world", sub: "map" }) },
   };
   // 接管时文件夹里已经有一份不是官方的 log4j 配置（inst/install.go warnAdoptedCustomLog4j、log4j_migrate.go log4jXMLConflictParts 拼出来的原话）
-  var LOG4J_TITLE = "log4shell 防护：这台 1.16.5 的服务器没有套上 Mojang 的日志配置，等于没防";
-  var LOG4J_NOTE = "服务器文件夹里已经有一份 log4j2_112-116.xml，内容和官方的不一样（可能是自己改过的），MineDeck 没有覆盖它，也没有替它补上引用。要用官方的那份，把这个文件改名或挪走以后重开 MineDeck；要用自己的，在「设置 → 启动与内存」里加上 -Dlog4j.configurationFile=log4j2_112-116.xml";
+  var LOG4J_TITLE = "log4shell 防护未生效：此 1.16.5 服务器未应用 Mojang 官方日志配置";
+  var LOG4J_NOTE = "服务器文件夹中已存在非官方的 log4j2_112-116.xml，MineDeck 未覆盖也未自动引用。如需使用官方配置，请重命名或移走该文件后重启 MineDeck；如需使用自定义配置，请在「设置 → 启动与内存」添加 -Dlog4j.configurationFile=log4j2_112-116.xml。";
   Object.assign(KINDS.adopt.partial.warnings[0], { title: LOG4J_TITLE, note: LOG4J_NOTE });
   // 并进「没装上的文件」那一块的两条告警（同一件事程序说了三遍：「N 个文件需手动补装」「N 个文件待处理」和处理面板），说明进那一格分段的悬停
-  const PEND_TIP = "这些文件没法自动下载。逐个处理导入才算补完整：用本地已有的文件代替、跳过，或（地址在别的站点的）确认站点后下载。跳过的以后还能在这台服务器的详情页里再处理。";
+  const PEND_TIP = "这些文件无法自动下载，需逐项选择处理方式：用本地文件代替、跳过，或在确认第三方站点可信后下载。已跳过的文件后续仍可在服务器详情页处理。";
   const ACT = { skip: "跳过", local: "用本地文件代替", trust: "信任站点并下载" };
 
   // ================= 草图参数 =================
@@ -342,7 +353,7 @@
     thinBar($(".tk2-log"));
   }
   function buildGone() {
-    $("#tk2-page").innerHTML = `<div class="tk2-gone"><span class="tk2-si2" title="后台任务只记在这一次运行里，MineDeck 重开以后就找不到了"><i data-ic="clock"></i></span><div class="tk2-t1">任务不存在</div></div>`;
+    $("#tk2-page").innerHTML = `<div class="tk2-gone"><span class="tk2-si2" title="后台任务记录仅在本次运行期间保留，重启 MineDeck 后将清空"><i data-ic="clock"></i></span><div class="tk2-t1">任务不存在</div></div>`;
     hy($("#tk2-page"));
   }
 
@@ -363,7 +374,8 @@
   function headModel() {
     const K = T.K, tt = !T.ended ? K.T.title : T.cancelled ? (K.T.cx || "已取消") : T.err ? K.T.fail : K.T.done;
     // 程序页头下面那一行说明（K.sub、做完的 doneSub）进标题的悬停；页面上那一行只留会改变结果、要人记住的
-    const tip = !T.ended ? K.T.sub : !T.err && !T.cancelled && !doneSubShown() ? K.T.doneSub : "";
+    const val = v => typeof v === "function" ? v(T.srv) : v;
+    const tip = !T.ended ? val(K.T.sub) : !T.err && !T.cancelled && !doneSubShown() ? val(K.T.doneSub) : "";
     return `<span${tip ? ` title="${esc(tip)}"` : ""}>${esc(tt)}</span>`;
   }
   const doneSubShown = () => T.kind === "export" || T.kind === "map" || !!T.K.showDoneSub;
@@ -371,8 +383,8 @@
     const K = T.K;
     if (ST === "lost") return `<span class="tk2-warn" title="连不上 MineDeck（Failed to fetch）">${icon("warn")}无法刷新任务进度，正在自动重试</span>`
       + `<button type="button" class="tk2-ib" data-act="copylost" title="复制报错信息">${icon("copy")}</button>`;
-    if (!T.ended) return esc(T.cancelling ? "正在取消，清理半成品，请勿关闭程序" : "请勿关闭程序");
-    if (T.cancelled) return esc((K.T.cxSub || "没有留下半成品。").replace(/。$/, ""));
+    if (!T.ended) return esc(T.cancelling ? "正在取消并清理未完成文件，请勿关闭程序" : "请勿关闭程序");
+    if (T.cancelled) return esc((K.T.cxSub || "没有留下未完成文件。").replace(/。$/, ""));
     if (T.err) return "";
     if (T.kind === "export") return `<span><span class="mono">${esc(T.result)}</span><button type="button" class="tk2-ib" data-act="copypath" title="复制路径">${icon("copy")}</button>`
       + (LOCAL ? `<button type="button" class="tk2-ib" data-act="opendir" title="打开所在文件夹">${icon("folder")}</button>` : "") + `</span>`;
@@ -538,15 +550,15 @@
   // ---- 没装上的文件（照 commons 的 M_pending；程序 pendingPanel） ----
   const hasTrust = () => [...T.pending, ...T.skipped].some(x => x.opts.includes("trust"));
   function pbarHTML() {
-    return (hasTrust() ? `<button type="button" class="tk2-b sm" data-act="trustall" title="只选上面还没选处理方式、可从外部站点下载的文件；已跳过的、缺校验值的、已经选了别的处理方式的不动，也不会自动勾选风险确认">全选可下载项</button>`
-      + `<button type="button" class="tk2-b sm" data-act="ackall" title="给选了「信任站点并下载」的都勾上风险确认。下载成功后才按域名记住，不会把外部站点放进默认允许列表">确认这些站点的风险</button>` : "")
-      + `<span class="tk2-sp"></span>` + (LOCAL ? `<button type="button" class="tk2-ib" data-act="openinst" title="打开服务器文件夹：里面的「导入待决清单.txt」列着没装上的文件，处理时点了「跳过」的也在；CurseForge 上没法自动下载的另有一份「未解析模组清单.txt」">${icon("folder")}</button>` : "");
+    return (hasTrust() ? `<button type="button" class="tk2-b sm" data-act="trustall" title="仅选中下方尚未指定处理方式且可从外部站点下载的文件；已跳过、缺少校验值或已选其他方式的项保持不变，且不会自动勾选风险确认。">全选可下载项</button>`
+      + `<button type="button" class="tk2-b sm" data-act="ackall" title="为所有已选「信任站点并下载」的项勾选风险确认。仅在下载成功后按域名记录，不会加入默认允许列表。">确认这些站点的风险</button>` : "")
+      + `<span class="tk2-sp"></span>` + (LOCAL ? `<button type="button" class="tk2-ib" data-act="openinst" title="打开服务器文件夹：其中「导入待决清单.txt」列出所有未安装文件（含已跳过项）；CurseForge 无法自动下载的项另存于「未解析模组清单.txt」。">${icon("folder")}</button>` : "");
   }
   const segLg = x => `<div class="tk2-seg lg" data-pseg="${x.id}"><i class="tk2-sgl"></i>${x.opts.map(o => `<span data-v="${o}"${x.act === o ? ` class="on"` : ""}>${ACT[o]}</span>`).join("")}</div>`;
   const moreHTML = x => x.act === "local" ? `<input class="tk2-inp" data-k="lpath" placeholder="本地文件或文件夹的完整路径" title="填文件夹时按文件名匹配" spellcheck="false" autocomplete="off" value="${esc(x.path)}">`
-    : x.act === "trust" ? `<span class="tk2-ck${x.ack ? " on" : ""}" data-act="ack" role="checkbox" aria-checked="${x.ack}" title="${esc(`我已知晓风险，信任来自「${x.host}」的下载。该站点不在默认允许列表里；下载后仍按整合包里的校验值核对，对不上就不装。\n下载成功后按域名记住（不含端口），以后同站点不再重复确认。`)}"><span class="tk2-bx">${icon("check")}</span>信任 <span class="mono">${esc(x.host)}</span> 的下载</span>` : "";
+    : x.act === "trust" ? `<span class="tk2-ck${x.ack ? " on" : ""}" data-act="ack" role="checkbox" aria-checked="${x.ack}" title="${esc(`我已知晓风险，信任来自「${x.host}」的下载。该站点不在默认允许列表中，下载后仍按整合包校验值核对，校验不通过则不安装。\n下载成功后按域名（不含端口）记录，后续同站点不再重复确认。`)}"><span class="tk2-bx">${icon("check")}</span>信任 <span class="mono">${esc(x.host)}</span> 的下载</span>` : "";
   const pndHTML = (x, skipped) => `<div class="tk2-pnd${skipped ? " skipped" : ""}" data-pid="${x.id}"><div class="tk2-pr1"><span class="tk2-pp" title="${esc(x.p)}">${esc(x.p)}</span>`
-    + (skipped ? `<span class="tk2-tag">已跳过</span>` : "") + (x.url ? `<button type="button" class="tk2-ib" data-act="ext" title="在浏览器里打开下载地址">${icon("share")}</button>` : "") + `</div>`
+    + (skipped ? `<span class="tk2-tag">已跳过</span>` : "") + (x.url ? `<button type="button" class="tk2-ib" data-act="ext" title="在浏览器中打开下载地址">${icon("share")}</button>` : "") + `</div>`
     + `<div class="tk2-pwhy" title="${esc(x.note)}">${esc(x.why)}${x.host ? ` · <span class="host">${esc(x.host)}</span>` : ""}</div>`
     + segLg(x) + `<div class="tk2-pmore">${moreHTML(x)}</div>${x.err ? `<div class="tk2-perr">${icon("warn")}<span>${esc(x.err)}</span></div>` : ""}</div>`;
   const foldHTML = () => T.skipped.length ? `<button type="button" class="tk2-pfold" data-act="pfold"><span>已跳过的 ${T.skipped.length} 个</span>${icon("chevronDown")}</button>` : "";
@@ -557,8 +569,8 @@
   }
   // 清单空了：都处理完（没有跳过的）或者只剩跳过的（程序：「跳过了 N 个文件，它们没有装上」，说明进悬停）
   const doneLine = () => !T.pending.length ? (T.skipped.length
-    ? `<div class="tk2-pdone info" title="要的话在下面换成用本地文件代替${T.skipped.some(x => x.opts.includes("trust")) ? "或信任站点下载" : ""}；不要就不用管。">${icon("info")}跳过了 ${T.skipped.length} 个文件，它们没有装上</div>`
-    : `<div class="tk2-pdone">${icon("check")}没装上的文件都处理完了</div>`) : "";
+    ? `<div class="tk2-pdone info" title="如需补装，可在下方改为「用本地文件代替」${T.skipped.some(x => x.opts.includes("trust")) ? "或「信任站点并下载」" : ""}；无需补装则可忽略。">${icon("info")}已跳过 ${T.skipped.length} 个文件，未安装</div>`
+    : `<div class="tk2-pdone">${icon("check")}没装上的文件已全部处理完成</div>`) : "";
   const pendBody = () => doneLine() + T.pending.map(x => pndHTML(x, false)).join("") + foldHTML();
   const pv = () => $('#tk2-views > [data-v="pend"]');
   const itemOf = id => T.pending.find(x => x.id === id) || T.skipped.find(x => x.id === id);
@@ -579,12 +591,12 @@
   function trustAll() {
     let n = 0;
     $$('.tk2-pnd:not(.skipped)', pv()).forEach(row => { const x = itemOf(row.dataset.pid); if (x && !x.act && x.opts.includes("trust")) { pndPick($("[data-pseg]", row), "trust"); n++; } });
-    if (!n) pmsg("没有可信任下载的项", true);
+    if (!n) pmsg("没有可从外部站点下载的项", true);
   }
   function ackAll() {
     let n = 0;
     $$(".tk2-pnd", pv()).forEach(row => { const x = itemOf(row.dataset.pid); if (x && x.act === "trust" && !x.ack) { x.ack = true; const ck = $('[data-act="ack"]', row); ck?.classList.add("on"); ck?.classList.remove("bad"); ck?.setAttribute("aria-checked", "true"); n++; } });
-    if (!n && !$$(".tk2-pnd", pv()).some(r => itemOf(r.dataset.pid)?.act === "trust")) pmsg("请先选「信任站点并下载」，再确认风险", true);
+    if (!n && !$$(".tk2-pnd", pv()).some(r => itemOf(r.dataset.pid)?.act === "trust")) pmsg("请先选择「信任站点并下载」，再确认风险", true);
   }
   let applying = false, trustFailed = false;
   async function applyPending() {
@@ -597,7 +609,7 @@
       if (x.act === "trust" && !x.ack) { const ck = $('[data-act="ack"]', r); ck.classList.add("bad"); ck.scrollIntoView({ block: "nearest", behavior: "smooth" }); shake(ck); return; }
     }
     const go = rows.filter(r => itemOf(r.dataset.pid)?.act);
-    if (!go.length) { pmsg("先给至少一个文件选处理方式"); shake($('[data-k="plw"]', root)); return; }
+    if (!go.length) { pmsg("请至少为一个文件选择处理方式"); shake($('[data-k="plw"]', root)); return; }
     applying = true;
     const btn = $('[data-act="apply"]', root); btn.setAttribute("aria-disabled", "true"); $(".tk2-pl", btn).innerHTML = `${icon("spinner", "tk2-spin")}正在处理`;
     go.forEach(r => r.classList.add("busy"));
@@ -674,7 +686,7 @@
   // ================= 底部：胶囊和左右两颗按钮 =================
   function pillSpecs() {
     const K = T?.K;
-    const away = () => ({ k: "away", t: !K || K.from === "new" ? "回到主页" : "回到这台服务器", tip: "任务在后台接着做，首页上方能看到进度" });
+    const away = () => ({ k: "away", t: !K || K.from === "new" ? "返回主页" : "返回服务器", tip: "任务将在后台继续运行，可在首页上方查看进度" });
     if (ST === "gone") return [null, DOCK === "sink" ? away() : null];
     let L = null, R = null;
     const edit = tip => DRAFT && K.edit ? { k: "edit", t: "返回修改", back: true, tip } : null;
@@ -682,12 +694,13 @@
       if (!T.cancelling && K.T.cxBtn && ST !== "lost") L = { k: "cancel", t: K.T.cxBtn };
       if (DOCK === "sink") R = away();
     } else if (T.cancelled) {
-      L = edit("之前填的都还在，点「返回修改」接着改。");
-      if (T.kind === "map") R = { k: "go", t: "回到这台服务器", pri: true };
+      L = edit("已填写的配置会保留，点击「返回修改」可返回表单继续调整。");
+      if (T.kind === "map") R = { k: "go", t: "返回服务器", pri: true };
     } else if (T.err) {
-      L = edit("点「返回修改」回到刚才的表单，填过的都在。");
-      if (T.kind === "map") R = { k: "go", t: "回到这台服务器", pri: true, tip: K.T.failHint };
-      else if (DRAFT) R = { k: "retry", t: "重试", ic: "refresh", pri: true, tip: T.leftover ? "" : K.T.failHint };
+      const failHint = typeof K.T.failHint === "function" ? K.T.failHint(T.srv) : K.T.failHint;
+      L = edit("已填写的配置会保留，点击「返回修改」可返回表单继续调整。");
+      if (T.kind === "map") R = { k: "go", t: "返回服务器", pri: true, tip: failHint };
+      else if (DRAFT) R = { k: "retry", t: "重试", ic: "refresh", pri: true, tip: T.leftover ? "" : failHint };
     } else R = { k: "go", t: K.T.go, ic: "check", pri: true };
     if (DOCK === "sink" && !L && !R) R = away();
     return [L, R];

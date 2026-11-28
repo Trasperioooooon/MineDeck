@@ -45,28 +45,30 @@
   const setAttr = (el, k, v) => { if (el.getAttribute(k) !== String(v)) el.setAttribute(k, v); };
 
   const PLAT = { openfrp: "OpenFrp", sakura: "樱花穿透", custom: "自建 frps" };
+  // 平台名拼进句子里：英文开头的（OpenFrp）和旁边的汉字之间带空格，中文的不带；挨着标点的那一边传 ""
+  const platIn = (k, l = " ", r = " ") => /^[A-Za-z]/.test(PLAT[k]) ? l + PLAT[k] + r : PLAT[k];
   // ---- 程序原话（app.js renderTunnels、accounts.go），收进悬停 ----
   const TIP = {
     openfrp: "OpenFrp 部分基于 OpenFrp OPENAPI（github.com/ZGIT-Network/OPENFRP-APIDOC）。此项目由社区开发，OpenFrp 官方不负责除节点问题以外的技术支持，"
-      + "MineDeck 本身的问题请到 GitHub Issues 反馈。\n签到和购买都只打开官网，MineDeck 不代签、不代下单。",
-    sakura: "连上以后，新建服务器和各台服务器的「联机」里就能直接用它建隧道、用平台上已有的。访问密钥用 Windows 加密存在这台电脑上。\n签到和购买都只打开官网，MineDeck 不代签、不代下单。",
+      + "MineDeck 本身的问题请到 GitHub Issues 反馈。\n签到与购买仅打开官方网页，MineDeck 不代签、不代下单。",
+    sakura: "连接后，可在新建向导与各服务器的「联机」页中直接创建或选用平台已有隧道。访问密钥通过 Windows 加密保存在本机。\n签到与购买仅打开官方网页，MineDeck 不代签、不代下单。",
     frps: "有自己的 frp 服务器才用这个。填好以后，各台服务器「联机」里打开「自建 frps」就连这一台，每台只要再定一个公网端口",
     auth: "通过 OpenFrp 远程授权连接。MineDeck 不会接收或保存账号密码。",
-    signOF: "OpenFrp 签到需要在官方控制台完成人机验证，MineDeck 不代签。\n点了在浏览器里打开 console.openfrp.net",
-    signSK: "SakuraFrp 签到需要在官网登录后完成，访问密钥不能签到。\n点了在浏览器里打开 www.natfrp.com/user/",
-    buy: "只打开官方页面，MineDeck 不代下单、不代收。",
-    getKey: "在浏览器里打开樱花官网的用户信息页，复制上面的「访问密钥」",
-    lost: "之前保存的凭据在这台电脑上读不出来（可能换了电脑或 Windows 用户），请重新连接。",
-    ro: "在局域网里打开时只能看连接状态，连接、签到、创建和导入隧道请在运行 MineDeck 的这台电脑上操作。",
-    last: "隧道停着，这是上次连上时拿到的地址。樱花、OpenFrp 的地址一般不变，启动后会刷新",
-    broken: "凭据无法解开，请删除后重新添加\n凭据加密绑定当前电脑和 Windows 用户，换了就解不开",
-    list: "平时在各台服务器的「联机」里管，这里只是总览；点一行跳到那台服务器",
-    loadErr: "原来的隧道和凭据都还在文件里，没有动过。读出来之前不能添加、修改或删除隧道，免得把它们盖掉；处理好以后这里会自动刷新。",
+    signOF: "OpenFrp 签到需在官方控制台完成人机验证，MineDeck 不代签。\n点击将在浏览器中打开 console.openfrp.net。",
+    signSK: "樱花穿透（SakuraFrp）签到需在官网登录后完成，访问密钥无法用于签到。\n点击将在浏览器中打开 www.natfrp.com/user/。",
+    buy: "仅打开官方网页，MineDeck 不代下单、不代收款。",
+    getKey: "在浏览器中打开樱花穿透官网的用户信息页，复制「访问密钥」",
+    lost: "已保存的凭据在本机无法解密（可能已更换电脑或 Windows 用户），请重新连接账号。",
+    ro: "局域网访问时仅可查看连接状态；连接、签到、购买和自建 frps 的设置请在运行 MineDeck 的电脑上操作。",
+    last: "隧道当前已停止，此处显示上次运行时获取的地址。樱花穿透与 OpenFrp 的地址通常保持不变，再次启动后将自动刷新。",
+    broken: "凭据无法解密，请删除此隧道后在服务器「联机」页中重新配置。\n凭据加密绑定本机与当前 Windows 用户，更换电脑或用户后无法解密。",
+    list: "此处为全部隧道总览，日常管理请前往各服务器的「联机」页；点击已绑定的隧道行可前往对应服务器。",
+    loadErr: "原有隧道与凭据仍保留在配置文件中，未被修改。在成功读取前无法添加、修改或删除隧道，以免覆盖原数据；处理后此处会自动刷新，也可点击「重试」。",
     // 程序 natfrpFrpcSteps 的几步（「回到这里点启动」改成了到联机里启动）；路径用存储位置那页的程序数据文件夹
-    frpc: "1. 登录樱花（SakuraFrp）的管理面板，打开「软件下载」。\n2. 下载 frpc 的 Windows amd64 版，得到一个 .exe 文件（下到的是压缩包就先解压）。\n"
-      + "3. 把这个 exe 放进 D:\\MineDeck\\runtimes\\frpc\\natfrp，文件名用 frpc.exe 或 frpc_windows_amd64.exe 都行。\n"
-      + "4. 回到服务器的「联机」里启动隧道。放过以后又不见了的，多半是被杀毒软件删了，到 Windows 安全中心的「保护历史记录」里恢复。\n"
-      + "OpenFrp 和自己的 frps 用的 frpc，MineDeck 会自己下载，不用管。",
+    frpc: "1. 登录樱花穿透（SakuraFrp）管理面板，进入「软件下载」。\n2. 下载 Windows amd64 版 frpc，获取 .exe 文件（如为压缩包请先解压）。\n"
+      + "3. 将该文件放入 D:\\MineDeck\\runtimes\\frpc\\natfrp，命名为 frpc.exe 或 frpc_windows_amd64.exe。\n"
+      + "4. 返回服务器「联机」页启动隧道。若文件无故消失，多为杀毒软件误删，可在 Windows 安全中心的「保护历史记录」中恢复。\n"
+      + "OpenFrp 与自建 frps 所需的 frpc 由 MineDeck 自动下载，无需手动配置。",
   };
   // 购买：照 accounts.go PurchaseOptions 的标题（两家都只给官网页面）
   const BUY = {
@@ -127,7 +129,7 @@
       const a = d.openfrp;
       if (a.st === "on") return ["ok", "已连接", ""];
       if (a.st === "wait") return ["warm", "授权中", ""];
-      if (a.lost) return ["warn", "读不出来", TIP.lost];
+      if (a.lost) return ["warn", "凭据无法解密", TIP.lost];
       return ["off", "未连接", ""];
     }
     return d.sakura.st === "on" ? ["ok", "已连接", ""] : ["off", "未连接", ""];
@@ -140,7 +142,7 @@
       + (k === "frps" ? `<span class="stn-fmsg" data-fmsg></span>` : pillHTML(pillOf(k)));
   }
   // 已连接：账户、几行数、底下一排按钮。在局域网里打开时程序不拉概览：账户和数换成一句，按钮照样摆着、灰着（规范第九节：灰掉、不藏）
-  const ROLINE = `<div class="stn-ph"><span class="stn-phs" title="${esc(TIP.ro)}">在局域网里打开时只能看连接状态</span></div>`;
+  const ROLINE = `<div class="stn-ph"><span class="stn-phs" title="${esc(TIP.ro)}">局域网访问时仅可查看连接状态</span></div>`;
   function actsHTML(k) {
     const ro = data().ro;
     return `<div class="stn-acts">`
@@ -153,7 +155,7 @@
     if (d.ro) return ROLINE + actsHTML(k);
     const kv = (key, v, attr = "") => `<div class="stn-kv"><span class="k">${key}</span><span class="v"${attr}>${esc(v)}</span></div>`;
     const who = `<div class="stn-who"><b>${esc(a.name)}</b><span class="stn-tag ${tagCls[a.tier] || "plain"}">${esc(a.group)}</span><span class="stn-sp"></span>`
-      + (k === "sakura" ? `<button type="button" class="stn-ib" data-a="replace" title="更换访问密钥" aria-label="更换樱花访问密钥"><i data-ic="key"></i></button>` : "") + `</div>`;
+      + (k === "sakura" ? `<button type="button" class="stn-ib" data-a="replace" title="更换访问密钥" aria-label="更换樱花穿透访问密钥"><i data-ic="key"></i></button>` : "") + `</div>`;
     const rows = k === "openfrp"
       ? kv("流量", a.traffic) + kv("隧道", `${d.ofUsed} / ${d.ofLimit}`, ` data-kv="tun"`)
       : kv("流量", a.traffic) + kv("隧道", `上限 ${a.limit} 条`) + kv("签到", a.sign);
@@ -163,32 +165,32 @@
   function ofPh() {
     const d = data();
     if (d.ro) return `<button type="button" class="stn-b pri" data-a="auth"${roAttr()}><i data-ic="link"></i>浏览器授权</button>`;
-    if (d.openfrp.st === "wait") return `<span class="stn-phs"><i data-ic="spinner" class="stn-spin"></i>正在等待你在浏览器里完成授权…</span>`
+    if (d.openfrp.st === "wait") return `<span class="stn-phs"><i data-ic="spinner" class="stn-spin"></i>等待在浏览器中完成授权…</span>`
       + `<button type="button" class="stn-b" data-a="cancelauth">取消等待</button>`;
     return `<button type="button" class="stn-b pri" data-a="auth" title="${esc(TIP.auth)}"><i data-ic="link"></i>浏览器授权</button>`;
   }
   // 樱花没连（或者在换密钥）：同向导第四步的粘贴框；在局域网里打开时框和「连接」灰着
   function skForm() {
     const d = data(), s = d.sakura, rep = s.replacing, ro = d.ro;
-    return `<div class="stn-lbr"><span class="stn-lb">樱花访问密钥</span><span class="stn-bad" data-kmsg>${s.bad ? "先粘贴访问密钥" : ""}</span><span class="stn-sp"></span>`
+    return `<div class="stn-lbr"><span class="stn-lb">访问密钥</span><span class="stn-bad" data-kmsg>${s.bad ? "请粘贴访问密钥" : ""}</span><span class="stn-sp"></span>`
       + `<a class="stn-lk" data-a="getkey" title="${esc(TIP.getKey)}">去官网复制</a>`
-      + (rep ? `<button type="button" class="stn-ib sm" data-a="unreplace" title="不换了" aria-label="不换访问密钥"><i data-ic="x"></i></button>` : "") + `</div>`
+      + (rep ? `<button type="button" class="stn-ib sm" data-a="unreplace" title="取消更换" aria-label="取消更换访问密钥"><i data-ic="x"></i></button>` : "") + `</div>`
       + `<div class="stn-kr"><div class="stn-iw${s.bad ? " bad" : ""}"><input class="stn-kin" type="password" placeholder="${rep ? "粘贴新的访问密钥" : "粘贴访问密钥"}" value="${esc(s.key)}"`
-      + ` autocomplete="off" spellcheck="false" aria-label="樱花访问密钥"${s.busy || ro ? " disabled" : ""}></div>`
+      + ` autocomplete="off" spellcheck="false" aria-label="樱花穿透访问密钥"${s.busy || ro ? " disabled" : ""}></div>`
       + `<button type="button" class="stn-kb" data-a="skconnect"${ro ? roAttr() : s.busy ? ` aria-disabled="true"` : ""}>${s.busy ? `<i data-ic="spinner" class="stn-spin"></i>连接中` : "连接"}</button></div>`
-      + (rep ? "" : `<div class="stn-frpc" title="${esc(TIP.frpc)}"><i data-ic="info"></i><span>第一次用樱花：先把 frpc 放好</span></div>`);
+      + (rep ? "" : `<div class="stn-frpc" title="${esc(TIP.frpc)}"><i data-ic="info"></i><span>首次使用需手动放置 frpc</span></div>`);
   }
   // 自建 frps：地址、端口、令牌，底下「保存」
   const fDirty = f => f.h.trim() !== f.host || f.p.trim() !== f.port || f.tk !== "";
   function frpsBody() {
     const d = data(), f = d.frps, ro = d.ro, dis = ro ? " readonly tabindex=\"-1\"" : "";
     const dirty = fDirty(f) && !ro;
-    return `<div class="stn-fr"><div class="stn-iw${f.bad === "host" ? " bad" : ""}"><input class="stn-fin" data-f="h" placeholder="服务器地址" value="${esc(f.h)}" autocomplete="off" spellcheck="false" aria-label="frps 服务器地址"${dis}></div>`
+    return `<div class="stn-fr"><div class="stn-iw${f.bad === "host" ? " bad" : ""}"><input class="stn-fin" data-f="h" placeholder="frps 地址" value="${esc(f.h)}" autocomplete="off" spellcheck="false" aria-label="frps 地址"${dis}></div>`
       + `<div class="stn-iw port${f.bad === "port" ? " bad" : ""}"><input class="stn-fin" data-f="p" placeholder="端口" value="${esc(f.p)}" inputmode="numeric" autocomplete="off" aria-label="frps 端口"${dis}></div></div>`
       + `<div class="stn-iw"><input class="stn-fin" data-f="tk" type="password" placeholder="${f.tokenSet ? "已设置（留空不修改）" : "认证令牌（选填）"}" value="${esc(f.tk)}" autocomplete="off" spellcheck="false" aria-label="frps 认证令牌"${dis}>`
-      + `<button type="button" class="stn-ib" data-a="tclear"${ro ? roAttr() : ` title="清除保存的令牌"`} aria-label="清除保存的认证令牌"${f.tokenSet ? "" : " hidden"}><i data-ic="trash"></i></button></div>`
+      + `<button type="button" class="stn-ib" data-a="tclear"${ro ? roAttr() : ` title="清除已保存的认证令牌"`} aria-label="清除已保存的认证令牌"${f.tokenSet ? "" : " hidden"}><i data-ic="trash"></i></button></div>`
       + `<div class="stn-acts"><span class="stn-sp"></span><button type="button" class="stn-b sv${dirty ? " on" : ""}" data-a="fsave" aria-disabled="${!dirty || f.saving}"`
-      + `${ro ? ` title="${esc(TIP.ro)}"` : dirty ? "" : ` title="没有要保存的修改"`}>${f.saving ? `<i data-ic="spinner" class="stn-spin"></i>` : ""}保存</button></div>`;
+      + `${ro ? ` title="${esc(TIP.ro)}"` : dirty ? "" : ` title="暂无未保存的修改"`}>${f.saving ? `<i data-ic="spinner" class="stn-spin"></i>` : ""}保存</button></div>`;
   }
   function accBody(k) {
     const d = data();
@@ -202,11 +204,11 @@
   // 全部隧道
   // =====================================================================================================
   function tunState(t) {
-    if (t.broken) return ["warn", "凭据解不开", TIP.broken];
-    if (t.on) return ["ok", "已连上", ""];
+    if (t.broken) return ["warn", "凭据无法解密", TIP.broken];
+    if (t.on) return ["ok", "运行中", ""];
     if (t.wait) return ["warm", "连接中", ""];
     if (t.err) return ["bad", "上次出错", t.err];
-    return ["off", "没开", ""];
+    return ["off", "已停止", ""];
   }
   const detailHref = s => {
     const q = new URLSearchParams({ kind: s.id, tab: "net" });
@@ -218,7 +220,7 @@
     const s = t.server && srv(t.server), [c, st, tip] = tunState(t);
     const meta = [PLAT[t.plat], t.node, s ? t.name : t.pid ? "隧道 " + t.pid : t.lp ? "本地端口 " + t.lp : ""].filter(Boolean).join(" · ");
     const m = `<div class="stn-r1"><span class="stn-rn">${esc(s ? s.name : t.name)}</span><span class="stn-tag plain">${t.kind === "voice" ? "语音" : "游戏"}</span>`
-      + (s ? "" : `<span class="stn-nb">没绑定服务器</span>`) + `</div><div class="stn-r2">${esc(meta)}</div>`;
+      + (s ? "" : `<span class="stn-nb">未绑定服务器</span>`) + `</div><div class="stn-r2">${esc(meta)}</div>`;
     const a = t.broken || !t.addr ? `<span class="stn-na">—</span>`
       : `<span class="stn-ad"${t.last && !t.on ? ` title="${esc(TIP.last)}"` : ""}>${esc(t.addr)}</span>` + (t.last && !t.on ? `<span class="stn-tag plain" title="${esc(TIP.last)}">上次</span>` : "")
         + `<button type="button" class="stn-ib" data-a="copy" data-copy="${esc(t.addr)}" title="复制" aria-label="复制 ${esc(t.addr)}"><i data-ic="copy"></i></button>`;
@@ -230,7 +232,7 @@
   }
   function rowAttrs(t) {
     const s = t.server && srv(t.server);
-    return s ? { cls: "stn-row go", role: "link", tab: "0", href: detailHref(s), tip: `到「${s.name}」的联机` } : { cls: "stn-row", role: "", tab: "", href: "", tip: "" };
+    return s ? { cls: "stn-row go", role: "link", tab: "0", href: detailHref(s), tip: `前往「${s.name}」的联机页` } : { cls: "stn-row", role: "", tab: "", href: "", tip: "" };
   }
   function rowHTML(t) {
     const c = cells(t), r = rowAttrs(t);
@@ -239,16 +241,16 @@
   }
   function listHTML() {
     const d = data();
-    if (d.loadErr) return `<div class="stn-err"><span class="stn-ei"><i data-ic="warn"></i></span><span class="stn-et" title="${esc(TIP.loadErr)}">无法显示隧道</span>`
+    if (d.loadErr) return `<div class="stn-err"><span class="stn-ei"><i data-ic="warn"></i></span><span class="stn-et" title="${esc(TIP.loadErr)}">无法读取隧道列表</span>`
       + `<button type="button" class="stn-bb" data-a="retry"${d.retrying ? ` aria-disabled="true"` : ""}><i data-ic="${d.retrying ? "spinner" : "refresh"}"${d.retrying ? ` class="stn-spin"` : ""}></i>重试</button></div>`;
-    if (!d.tuns.length) return `<div class="stn-empty">还没有隧道</div>`;
+    if (!d.tuns.length) return `<div class="stn-empty">暂无隧道</div>`;
     return d.tuns.map(rowHTML).join("");
   }
   const countTxt = () => (data().loadErr || !data().tuns.length ? "" : String(data().tuns.length));
 
   function html(ctx) {
     C = ctx; data();
-    return `<div class="stn"><section class="stn-acc" aria-label="平台账户">${["openfrp", "sakura", "frps"].map(accBlock).join("")}</section>`
+    return `<div class="stn"><section class="stn-acc" aria-label="平台账号">${["openfrp", "sakura", "frps"].map(accBlock).join("")}</section>`
       + `<section class="stn-tl" aria-label="全部隧道"><div class="stn-th"><span class="stn-tt" title="${esc(TIP.list)}">全部隧道</span><span class="stn-tc" data-count>${countTxt()}</span></div>`
       + `<div class="stn-lw"><div class="list stn-list">${listHTML()}</div><span class="thumb"></span></div></section></div>`;
   }
@@ -309,7 +311,7 @@
     const iw = b.querySelector(".stn-iw"), inp = b.querySelector(".stn-kin"), kb = b.querySelector(".stn-kb"), msg = b.querySelector("[data-kmsg]");
     if (!iw || !kb) return;
     iw.classList.toggle("bad", s.bad); inp.disabled = s.busy;
-    const m = s.bad ? "先粘贴访问密钥" : ""; if (msg.textContent !== m) msg.textContent = m;
+    const m = s.bad ? "请粘贴访问密钥" : ""; if (msg.textContent !== m) msg.textContent = m;
     const want = s.busy ? `${C.KIT.icon("spinner", "stn-spin")}连接中` : "连接";
     if (kb._h !== want) { kb._h = want; kb.innerHTML = want; }
     setAttr(kb, "aria-disabled", s.busy);
@@ -323,7 +325,7 @@
     b.querySelectorAll('[data-f="h"], [data-f="p"]').forEach(i => { const v = f[i.dataset.f]; if (i.value !== v) i.value = v; });
     cl.hidden = !f.tokenSet;
     const dirty = fDirty(f) && !d.ro;
-    sv.classList.toggle("on", dirty); setAttr(sv, "aria-disabled", !dirty || f.saving); setTip(sv, d.ro ? TIP.ro : dirty ? "" : "没有要保存的修改");
+    sv.classList.toggle("on", dirty); setAttr(sv, "aria-disabled", !dirty || f.saving); setTip(sv, d.ro ? TIP.ro : dirty ? "" : "暂无未保存的修改");
     const want = `${f.saving ? C.KIT.icon("spinner", "stn-spin") : ""}保存`; if (sv._h !== want) { sv._h = want; sv.innerHTML = want; }
     const m = b.querySelector("[data-fmsg]"); if (m.textContent !== f.msg) m.textContent = f.msg;
   }
@@ -399,8 +401,8 @@
   function bindMenu(t) {
     const items = (C.servers || []).map(s => {
       const taken = data().tuns.find(x => x !== t && x.server === s.id && x.kind === t.kind);
-      const why = taken ? `这台已经有${t.kind === "voice" ? "语音" : "游戏"}隧道了（一台最多游戏、语音各一条）`
-        : t.kind === "voice" && !s.voice ? "这台没装 Simple Voice Chat" : "";
+      const why = taken ? `该服务器已绑定${t.kind === "voice" ? "语音" : "游戏"}隧道（每台服务器最多绑定游戏、语音隧道各一条）`
+        : t.kind === "voice" && !s.voice ? "该服务器未安装 Simple Voice Chat" : "";
       return `<div class="stn-it" role="menuitem" data-sid="${esc(s.id)}"${why ? ` aria-disabled="true" title="${esc(why)}"` : ""}>`
         + `<span class="stn-in">${esc(s.name)}</span><span class="stn-ip">${s.port}</span></div>`;
     }).join("");
@@ -448,7 +450,7 @@
   function toast(msg, act) {
     if (!tbox || !tbox.isConnected) { tbox = Object.assign(document.createElement("div"), { id: "stn-toasts" }); tbox.setAttribute("aria-live", "polite"); document.body.appendChild(tbox); }
     const d = document.createElement("div"); d.className = "stn-tst enter";
-    d.innerHTML = `<span class="stn-ti"><i data-ic="check"></i></span><span class="stn-tm">${esc(msg)}</span><button type="button" class="stn-tx" data-tx aria-label="关闭这条提示"><i data-ic="x"></i></button>`
+    d.innerHTML = `<span class="stn-ti"><i data-ic="check"></i></span><span class="stn-tm">${esc(msg)}</span><button type="button" class="stn-tx" data-tx aria-label="关闭提示"><i data-ic="x"></i></button>`
       + `<span class="stn-ta"><button type="button" class="stn-tb" data-ta aria-label="${esc(act.aria)}">${esc(act.label)}</button></span>`;
     C.KIT.hydrate(d); tbox.appendChild(d);
     let left = 20000, timer = 0, since = 0, gone = false;
@@ -498,9 +500,9 @@
       case "buy": openMenu(b, buyMenu(k), () => {}); break; // 点了哪一项都只是收起（草图里不打开网页）
       case "disc": {
         const sk = k === "sakura";
-        ask({ title: `断开 ${PLAT[k]}？`, ok: "断开", icon: "warn",
-          body: sk ? "会清除本机保存的樱花访问密钥。已导入到 MineDeck 的樱花隧道里仍保存着同一把访问密钥，要彻底清除请删除这些隧道，必要时到樱花官网重置访问密钥。"
-            : "会清除本机保存的平台凭据。已导入到 MineDeck 的隧道不会删除。",
+        ask({ title: `断开${platIn(k, " ", "")}？`, ok: "断开", icon: "warn",
+          body: sk ? "将清除本机保存的樱花穿透访问密钥。已导入 MineDeck 的樱花穿透隧道中仍保存有该密钥，如需彻底清除请删除对应隧道，必要时可前往樱花穿透官网重置访问密钥。"
+            : "将清除本机保存的平台凭据，已导入 MineDeck 的隧道不会被删除。",
           onOk: () => { d[k].st = "off"; if (sk) { d.sakura.replacing = false; d.sakura.key = ""; d.sakura.bad = false; } paintAcc(k); } });
         break;
       }
@@ -517,15 +519,15 @@
       case "fsave": {
         const f = d.frps, bk = block("frps"); if (f.saving) return;
         const host = f.h.trim(), port = f.p.trim(), pn = +port;
-        if (!host) { f.bad = "host"; f.msg = "先填服务器地址"; paintFrps(); const w = bk.querySelectorAll(".stn-fr .stn-iw")[0]; shake(w); w.querySelector("input").focus(); return; }
-        if (!/^\d+$/.test(port) || pn < 1 || pn > 65535) { f.bad = "port"; f.msg = "端口要在 1–65535 之间"; paintFrps(); const w = bk.querySelectorAll(".stn-fr .stn-iw")[1]; shake(w); w.querySelector("input").focus(); return; }
+        if (!host) { f.bad = "host"; f.msg = "请填写 frps 地址"; paintFrps(); const w = bk.querySelectorAll(".stn-fr .stn-iw")[0]; shake(w); w.querySelector("input").focus(); return; }
+        if (!/^\d+$/.test(port) || pn < 1 || pn > 65535) { f.bad = "port"; f.msg = "端口需在 1–65535 之间"; paintFrps(); const w = bk.querySelectorAll(".stn-fr .stn-iw")[1]; shake(w); w.querySelector("input").focus(); return; }
         f.bad = ""; f.msg = ""; f.saving = true; paintFrps();
         setTimeout(() => { f.saving = false; f.host = host; f.port = port; f.h = host; f.p = port; if (f.tk) { f.tokenSet = true; f.tk = ""; } paintFrps(); }, 450);
         break;
       }
       case "tclear":
-        ask({ title: "清除保存的认证令牌？", ok: "清除令牌",
-          body: "之后连自建 frps 不带令牌。frps 设了令牌的话会连不上，到时重新填上就行。",
+        ask({ title: "清除已保存的认证令牌？", ok: "清除令牌",
+          body: "清除后连接自建 frps 将不再携带认证令牌。若 frps 启用了令牌验证，将无法连接，届时可重新填写。",
           onOk: () => { d.frps.tokenSet = false; d.frps.tk = ""; paintFrps(); } });
         break;
       case "copy": {
@@ -539,7 +541,7 @@
         openMenu(b, bindMenu(t), it => {
           const s = srv(it.dataset.sid); if (!s || !d.tuns.includes(t)) return;
           t.server = s.id; t.on = false; paintRow(t);
-          toast(`已绑定到「${s.name}」`, { label: "撤销", aria: `撤销：「${t.name}」不绑定「${s.name}」`, run: () => { if (!d.tuns.includes(t)) return; t.server = ""; t.on = false; paintRow(t); } });
+          toast(`已绑定到「${s.name}」`, { label: "撤销", aria: `撤销将「${t.name}」绑定到「${s.name}」`, run: () => { if (!d.tuns.includes(t)) return; t.server = ""; t.on = false; paintRow(t); } });
         });
         break;
       }
@@ -547,7 +549,7 @@
         const t = d.tuns.find(x => x.id === b.closest(".stn-row").dataset.t); if (!t) return;
         const plat = t.plat !== "custom" ? PLAT[t.plat] : "";
         ask({ title: `删除${t.kind === "voice" ? "语音" : "游戏"}隧道「${t.name}」？`, ok: "删除隧道",
-          toggle: plat ? { text: `同时删掉 ${plat} 上的这条隧道`, on: true, tip: `关着时只删 MineDeck 里的设置，${plat} 上的隧道留着，以后能在服务器「联机」的「已有隧道」里再拿来用` } : null,
+          toggle: plat ? { text: `同时删除${platIn(t.plat)}上的这条隧道`, on: true, tip: `关闭时仅删除 MineDeck 中的本地配置，${platIn(t.plat, "")}上的隧道将保留，之后可在服务器「联机」页的「已有隧道」中重新选用。` } : null,
           onOk: both => { if (both && t.plat === "openfrp") { d.ofUsed = Math.max(0, d.ofUsed - 1); paintKvTun(); } dropRow(t); } });
         break;
       }

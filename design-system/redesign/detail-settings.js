@@ -82,7 +82,7 @@
     const on = n ? " on" : "";
     return `<div class="st-bar"><span class="st-note" data-mode=""></span><span class="st-sp"></span><span class="st-n${on}" aria-live="polite"><i></i><span>${n} 项修改未保存</span></span>`
       + `<button type="button" class="st-discard${on}" data-st="discard"${n ? "" : ' tabindex="-1"'}>放弃修改</button>`
-      + `<button type="button" class="st-save${on}" data-st="save"${n ? "" : ' aria-disabled="true" title="没有要保存的修改"'}>保存</button></div>`;
+      + `<button type="button" class="st-save${on}" data-st="save"${n ? "" : ' aria-disabled="true" title="暂无未保存的修改"'}>保存</button></div>`;
   }
   // 只换数字、两样淡进淡出、「保存」亮不亮；保存条本身的大小不变
   function paintBar(pg) {
@@ -92,7 +92,7 @@
     t.classList.toggle("on", on); x.classList.toggle("on", on); if (x.tabIndex !== (on ? 0 : -1)) x.tabIndex = on ? 0 : -1;
     if (!D.saving) {
       s.classList.toggle("on", on);
-      if (on) { s.removeAttribute("aria-disabled"); setTip(s, ""); } else { s.setAttribute("aria-disabled", "true"); setTip(s, "没有要保存的修改"); }
+      if (on) { s.removeAttribute("aria-disabled"); setTip(s, ""); } else { s.setAttribute("aria-disabled", "true"); setTip(s, "暂无未保存的修改"); }
     }
     paintNote(pg);
   }
@@ -103,9 +103,9 @@
     return pg.idleNote ? pg.idleNote(D) : "";
   }
   function noteHTML(D, mode) {
-    if (mode === "live") return `<i data-ic="warn"></i><span>保存后要重启才生效</span>`;
-    if (mode === "nofile") return `<i data-ic="warn"></i><span title="服务器尚未首次启动：部分配置项需等首次启动后由服务端生成，当前已填的值会保留。">配置文件还没生成</span>`;
-    if (mode === "pending") return `<i data-ic="warn"></i><span>已保存，重启服务器以后生效</span>`
+    if (mode === "live") return `<i data-ic="warn"></i><span>保存后需重启生效</span>`;
+    if (mode === "nofile") return `<i data-ic="warn"></i><span title="服务器尚未首次启动，部分配置项将在首次启动后由服务端生成，当前已修改的配置会保留。">配置文件尚未生成</span>`;
+    if (mode === "pending") return `<i data-ic="warn"></i><span>已保存，重启服务器后生效</span>`
       + `<button type="button" class="st-btn" data-st="restart"${D.restarting ? " disabled" : ""}>${D.restarting ? `<i data-ic="spinner" class="st-spin"></i>正在重启` : `<i data-ic="refresh"></i>立即重启`}</button>`;
     return "";
   }
@@ -227,7 +227,7 @@
   const secs = v => (v < 60 ? `${v} 秒` : v % 3600 === 0 ? `${v / 3600} 小时` : v % 60 === 0 ? `${v / 60} 分钟` : `${v} 秒`);
   // 步进的档位（范围小、一下一档的）。档位是草图定的，现有值不在档位上时照样显示，一动落到相邻的档；范围照服务端（视距、模拟距离 3~32）
   const STEP = {
-    "player-idle-timeout": { lad: [0, 5, 10, 15, 20, 30, 45, 60, 90, 120], fmt: v => (v <= 0 ? "不踢" : `${v} 分钟`) },
+    "player-idle-timeout": { lad: [0, 5, 10, 15, 20, 30, 45, 60, 90, 120], fmt: v => (v <= 0 ? "不踢出" : `${v} 分钟`) },
     "spawn-protection": { lad: [0, 1, 2, 4, 8, 16, 24, 32, 48, 64], fmt: v => (v <= 0 ? "不保护" : `${v} 格`) },
     "max-players": { lad: [1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 16, 20, 24, 30, 32, 40, 50, 64, 80, 100, 128, 200, 500, 1000], fmt: v => `${v} 人` },
     "view-distance": { lad: range(3, 32), fmt: v => `${v} 区块` },
@@ -240,7 +240,7 @@
   };
   const LEVELS = [["1", "1"], ["2", "2"], ["3", "3"], ["4", "4"]];
   const SEGS = { "op-permission-level": LEVELS, "function-permission-level": LEVELS, "text-filtering-version": [["0", "0"], ["1", "1"]] };
-  // 能打字的整数框（范围大、要能填 -1 的；端口照向导的「1~65535」）
+  // 能打字的整数框（范围大、要能填 -1 的；端口照向导的「1～65535」）
   const NUM = { "server-port": { port: 1 }, "query.port": { port: 1 }, "rcon.port": { port: 1 }, "management-server-port": { port: 0 },
     "max-world-size": { unit: "格" }, "max-tick-time": { unit: "毫秒" }, "network-compression-threshold": { unit: "字节" }, "max-build-height": { unit: "格" }, "rate-limit": { unit: "包/秒" } };
   const SANS = new Set(["motd", "resource-pack-prompt"]); // 文本框里除了这两项都是等宽字（地址、路径、键、种子……）
@@ -293,21 +293,21 @@
   // 悬停：说明、键名（程序在每一项下面写着）；没写进文件的照程序说一句
   function tipOf(D, p) {
     const out = [p.desc + (p.key === "motd" ? " 支持中文与 § 色码。" : "")];
-    if (p.key === "white-list") out.push("MineDeck 新建服务器时按向导里的开关写这一项，默认关" + (verGte(C.S.mc, "26.3") ? "（这个版本的服务端自己生成配置时默认是开）" : "") + "。名单和这个开关在「玩家」里也能直接改。");
-    if (p.mode === "gamerule") out.push(live() ? "游戏规则：服务器运行时通过 /gamerule 即时生效，不用保存" : "游戏规则：服务器启动后可切换");
-    if (D.missing.has(p.key) && p.mode !== "gamerule") out.push("server.properties 里还没写这一项，这是服务端的默认值");
+    if (p.key === "white-list") out.push(`MineDeck 新建服务器时会按向导设置写入此项（默认关闭${verGte(C.S.mc, "26.3") ? "；该版本服务端自行生成配置时默认开启" : ""}）。白名单开关与名单亦可在「玩家」页管理。`);
+    if (p.mode === "gamerule") out.push(live() ? "游戏规则：服务器运行时通过 /gamerule 即时生效，无需保存" : "游戏规则：服务器运行后可切换");
+    if (D.missing.has(p.key) && p.mode !== "gamerule") out.push("server.properties 尚未写入此项，当前显示服务端默认值");
     out.push(p.mode === "gamerule" ? `/gamerule ${grRule(p)}` : p.key);
     return out.join("\n");
   }
   const grRule = p => (p.gameruleSince && verGte(C.S.mc, p.gameruleSince.v) ? p.gameruleSince.rule : p.gamerule);
-  const optLabel = (p, v) => (p.spec.opts.find(o => o[0] === v) || [v, v || "空"])[1];
+  const optLabel = (p, v) => (p.spec.opts.find(o => o[0] === v) || [v, v || "未设置"])[1];
   const num = v => (/^-?\d+$/.test(String(v).trim()) ? +v : NaN);
-  const fmtStep = (s, v) => (Number.isNaN(num(v)) ? (String(v).trim() || "空") : s.fmt(num(v)));
+  const fmtStep = (s, v) => (Number.isNaN(num(v)) ? (String(v).trim() || "未设置") : s.fmt(num(v)));
   const stepTo = (s, v, d) => { const n = num(v); if (Number.isNaN(n)) return undefined; return d > 0 ? s.lad.find(x => x > n) : [...s.lad].reverse().find(x => x < n); };
   function badOf(p, v) { // 能打字的整数框：不是整数、端口越界时标红；空着不算（同程序：没设置且为空的跳过）
     if (p.spec.ctl !== "num" || !String(v).trim()) return "";
-    if (Number.isNaN(num(v))) return ["要填整数", "这一项要填整数，可以是负数（如 -1）"];
-    if (p.spec.port !== undefined && (num(v) < p.spec.port || num(v) > 65535)) return [`${p.spec.port}~65535`, `端口需为 ${p.spec.port} ~ 65535 的整数`];
+    if (Number.isNaN(num(v))) return ["需填整数", "请输入整数，可为负数（如 -1）"];
+    if (p.spec.port !== undefined && (num(v) < p.spec.port || num(v) > 65535)) return [`${p.spec.port}～65535`, `端口需为 ${p.spec.port}～65535 的整数`];
     return "";
   }
 
@@ -342,17 +342,17 @@
   }
   function ctlHTML(D, p) {
     const s = p.spec, v = D.cur[p.key] ?? "", al = `aria-label="${esc(p.label)}"`;
-    if (s.ctl === "motd") return `<div class="st-motd"><label class="st-iw"><input class="st-in" value="${esc(v)}" placeholder="服务器介绍" autocomplete="off" spellcheck="false" ${al}>`
-      + `<button type="button" class="st-ib" data-st="pal" title="颜色和样式"><i data-ic="palette"></i></button></label><div class="st-mdp" aria-hidden="true">${motdHTML(v)}</div></div>`;
+    if (s.ctl === "motd") return `<div class="st-motd"><label class="st-iw"><input class="st-in" value="${esc(v)}" placeholder="服务器简介" autocomplete="off" spellcheck="false" ${al}>`
+      + `<button type="button" class="st-ib" data-st="pal" title="颜色与样式"><i data-ic="palette"></i></button></label><div class="st-mdp" aria-hidden="true">${motdHTML(v)}</div></div>`;
     if (s.ctl === "seg") return segHTML(s.opts, v, p.label);
     if (s.ctl === "sel") return `<button type="button" class="st-sel" data-st="sel" aria-haspopup="menu" aria-expanded="false" ${al}><span class="st-selv">${esc(optLabel(p, v))}</span><i data-ic="chevronDown" class="st-chev"></i></button>`;
     if (s.ctl === "step") {
       const dn = stepTo(s, v, -1) !== undefined, up = stepTo(s, v, 1) !== undefined;
-      return `<div class="st-stp"><button type="button" data-st="dec" aria-label="${esc(p.label)} 少一档" aria-disabled="${!dn}" title="${dn ? "少一档" : `最少 ${esc(s.fmt(s.lad[0]))}`}"><i data-ic="minus"></i></button>`
-        + `<b class="st-sv">${esc(fmtStep(s, v))}</b><button type="button" data-st="inc" aria-label="${esc(p.label)} 多一档" aria-disabled="${!up}" title="${up ? "多一档" : `最多 ${esc(s.fmt(s.lad[s.lad.length - 1]))}`}"><i data-ic="plus"></i></button></div>`;
+      return `<div class="st-stp"><button type="button" data-st="dec" aria-label="${esc(p.label)} 减小" aria-disabled="${!dn}" title="${dn ? "减小" : `已达最小值（${esc(s.fmt(s.lad[0]))}）`}"><i data-ic="minus"></i></button>`
+        + `<b class="st-sv">${esc(fmtStep(s, v))}</b><button type="button" data-st="inc" aria-label="${esc(p.label)} 增大" aria-disabled="${!up}" title="${up ? "增大" : `已达最大值（${esc(s.fmt(s.lad[s.lad.length - 1]))}）`}"><i data-ic="plus"></i></button></div>`;
     }
     const bad = badOf(p, v);
-    return `<label class="st-iw${s.ctl === "num" || s.mono ? " mono" : ""}${bad ? " bad" : ""}"><input class="st-in" value="${esc(v)}" placeholder="空" autocomplete="off" spellcheck="false"${s.ctl === "num" ? ' inputmode="numeric"' : ""} ${al}>`
+    return `<label class="st-iw${s.ctl === "num" || s.mono ? " mono" : ""}${bad ? " bad" : ""}"><input class="st-in" value="${esc(v)}" placeholder="留空" autocomplete="off" spellcheck="false"${s.ctl === "num" ? ' inputmode="numeric"' : ""} ${al}>`
       + (s.unit ? `<span class="st-unit">${s.unit}</span>` : "") + `<span class="st-msg"${bad ? ` title="${esc(bad[1])}"` : ""}>${bad ? esc(bad[0]) : ""}</span></label>`;
   }
   const fieldHTML = (D, p) => `<div class="st-f${D.cur[p.key] !== D.base[p.key] ? " mod" : ""}" data-k="${esc(p.key)}" data-search="${esc(p.label + " " + p.key)}" style="grid-column: span ${p.spec.span}">`
@@ -360,14 +360,14 @@
   function whoHTML(D) {
     const it = WHO.map(k => itemOf(D, k)).filter(Boolean); if (!it.length) return "";
     return `<div class="st-who">${it.map(p => `<div class="st-wb" data-search="${esc(p.label + " " + WHO_NAME[p.key] + " " + p.key)}">${boolHTML(D, p, true)}`
-      + (p.key === "white-list" ? `<button type="button" class="st-ib st-go" data-st="players" title="名单在「玩家」里"><i data-ic="arrowRight"></i></button>` : "") + `</div>`).join("")}</div>`;
+      + (p.key === "white-list" ? `<button type="button" class="st-ib st-go" data-st="players" title="前往「玩家」管理白名单"><i data-ic="arrowRight"></i></button>` : "") + `</div>`).join("")}</div>`;
   }
   function groupHTML(D, g) {
     const f = g.items.filter(p => p.mode !== "bool" && p.mode !== "gamerule"), b = g.items.filter(p => p.mode === "bool"), r = g.items.filter(p => p.mode === "gamerule");
     return `<section class="st-g" data-g="${g.i}" aria-label="${g.name}"><div class="st-gh"><span>${g.name}</span><span class="st-gn">${g.items.length}</span></div>`
       + (f.length ? `<div class="st-grid">${f.map(p => fieldHTML(D, p)).join("")}</div>` : "")
       + (b.length ? `<div class="st-bgrid">${b.map(p => boolHTML(D, p)).join("")}</div>` : "")
-      + (r.length ? `<div class="st-grh" title="服务器运行时通过 /gamerule 即时生效，不用保存；服务器停着时不能切换"><i data-ic="bolt"></i>游戏规则</div><div class="st-bgrid st-grs">${r.map(p => boolHTML(D, p)).join("")}</div>` : "")
+      + (r.length ? `<div class="st-grh" title="服务器运行时通过 /gamerule 即时生效，无需保存；服务器未运行时不可切换"><i data-ic="bolt"></i>游戏规则</div><div class="st-bgrid st-grs">${r.map(p => boolHTML(D, p)).join("")}</div>` : "")
       + `</section>`;
   }
   const groupsOf = D => GROUPS.map((name, i) => ({ name, i, items: D.items.filter(p => p.group === name && !WHO.includes(p.key)) })).filter(g => g.items.length);
@@ -378,7 +378,7 @@
     return `<div class="st-cm"><div class="st-tb"><div class="st-chips" role="tablist" aria-label="分组"><i class="st-chl"></i>`
       + G.map(g => `<button type="button" role="tab" class="st-chip${g.i === D.act ? " on" : ""}" data-st="chip" data-g="${g.i}" aria-selected="${g.i === D.act}">${g.name}</button>`).join("")
       + `</div><span class="st-sp"></span><label class="st-cs${D.q ? " has" : ""}" title="中文名或键名，如 视距、rcon；Esc 清空"><i data-ic="search"></i>`
-      + `<input class="st-q" placeholder="搜索设置项" value="${esc(D.q)}" autocomplete="off" spellcheck="false" aria-label="搜索设置项"><button type="button" class="st-cx" title="清空"><i data-ic="x"></i></button></label></div>`
+      + `<input class="st-q" placeholder="搜索配置项" value="${esc(D.q)}" autocomplete="off" spellcheck="false" aria-label="搜索配置项"><button type="button" class="st-cx" title="清空"><i data-ic="x"></i></button></label></div>`
       + `<section class="st-box" aria-label="常用设置"><div class="st-lw"><div class="list">${whoHTML(D)}${G.map(g => groupHTML(D, g)).join("")}</div><span class="thumb"></span>`
       + `<div class="st-none">没有匹配的配置项</div></div></section>${barHTML(cmDirty(D).length)}</div>`;
   }
@@ -486,8 +486,8 @@
     const s = p.spec, sv = el.querySelector(".st-sv"), [mi, pl] = el.querySelectorAll(".st-stp button"), t = fmtStep(s, v);
     if (sv.textContent !== t) sv.textContent = t;
     const dn = stepTo(s, v, -1) !== undefined, up = stepTo(s, v, 1) !== undefined;
-    setAttr(mi, "aria-disabled", !dn); setTip(mi, dn ? "少一档" : `最少 ${s.fmt(s.lad[0])}`);
-    setAttr(pl, "aria-disabled", !up); setTip(pl, up ? "多一档" : `最多 ${s.fmt(s.lad[s.lad.length - 1])}`);
+    setAttr(mi, "aria-disabled", !dn); setTip(mi, dn ? "减小" : `已达最小值（${s.fmt(s.lad[0])}）`);
+    setAttr(pl, "aria-disabled", !up); setTip(pl, up ? "增大" : `已达最大值（${s.fmt(s.lad[s.lad.length - 1])}）`);
   }
   function paintBad(el, p, v) {
     const iw = el.querySelector(".st-iw"), m = el.querySelector(".st-msg"), bad = badOf(p, v); if (!iw || !m) return;
@@ -675,18 +675,18 @@
     location.href = "task.html?" + q;
   }
   const buildName = b => (C.kind === "forge" ? b : `#${b}`);
-  const javaSub = (D, o, i) => (o.missing ? "找不到" : o.download ? "本机没有，下载一份，约 50 MB" : o.portable ? "MineDeck 下载的" : `本机装的 ${o.version}`) + (i === D.base.java && !o.missing ? " · 现在用的" : "");
-  const javaTip = o => (o.missing ? `${o.path}\n这个 Java 找不到了，可能被卸载或挪走了，现在启动会失败` : o.path || "");
+  const javaSub = (D, o, i) => (o.missing ? "未找到" : o.download ? "需下载（约 50 MB）" : o.portable ? "MineDeck 已下载" : `本机已安装 ${o.version}`) + (i === D.base.java && !o.missing ? " · 当前使用" : "");
+  const javaTip = o => (o.missing ? `${o.path}\n未找到该 Java 路径（可能已被卸载或移动），当前无法启动服务器` : o.path || "");
 
   // ---- 画 ----
   function memHTML(D) {
     const M = MEM, proxy = !!C.S.proxy;
-    const tip = `本机 ${gbTxt(M.total)}${M.blocks ? "" : ` · 1 格 = ${gbTxt(M.cell)}`} · 最多能分 ${gbTxt(M.cap)}（当前可用的，不算这台服务器自己占的）\n` + (proxy ? "推荐 1 GB；代理端只做转发，占用很低" : "推荐：模组服 4 GB 以上；无模组的小型服务器 2~4 GB");
+    const tip = `本机总内存 ${gbTxt(M.total)}${M.blocks ? "" : ` · 每格 ${gbTxt(M.cell)}`} · 可分配上限 ${gbTxt(M.cap)}（不含本服已占内存）\n` + (proxy ? "推荐 1 GB（代理端仅做转发，占用较低）" : ["forge", "neoforge", "fabric"].includes(C.kind) ? "模组服推荐分配 4 GB 以上" : "小型服务器推荐分配 2～4 GB");
     const body = M.blocks ? `<i class="st-bu" style="--w:${M.used}"></i><i class="st-ba" style="--w:${M.avail}"><b></b></i>` : "<i></i>".repeat(M.cells);
     return `<div class="st-fld st-mem"><span class="st-lb2"><span>内存分配</span><i class="st-dot"></i><span class="st-mleg"></span></span>`
       + `<div class="st-memx"><div class="st-mbar" tabindex="0" role="slider" aria-label="内存分配" aria-valuemin="512" aria-valuemax="${M.cap}" title="${esc(tip)}">`
       + `<div class="st-cells${M.blocks ? " blk" : ""}">${body}<span class="st-knob"></span></div></div>`
-      + `<div class="st-mstp"><button type="button" data-st="m-" aria-label="少 0.5 GB"><i data-ic="minus"></i></button><span class="st-msv"></span><button type="button" data-st="m+" aria-label="多 0.5 GB"><i data-ic="plus"></i></button></div></div>`
+      + `<div class="st-mstp"><button type="button" data-st="m-" aria-label="减少 0.5 GB"><i data-ic="minus"></i></button><span class="st-msv"></span><button type="button" data-st="m+" aria-label="增加 0.5 GB"><i data-ic="plus"></i></button></div></div>`
       + `<div class="st-mpre">${(proxy ? PRESETS_PROXY : PRESETS).map(v => `<button type="button" class="st-mp" data-st="mp" data-v="${v}"${v > M.cap ? " disabled" : ""}>${gs(v)}</button>`).join("")}<span class="st-mlow"></span></div></div>`;
   }
   const javaFieldHTML = D => `<span class="st-selv"></span><i data-ic="chevronDown" class="st-chev"></i>`;
@@ -695,28 +695,28 @@
     const port = C.S.proxy ? String(C.S.port) : (CM[C.kind]?.base["server-port"] ?? String(C.S.port));
     const hasBuild = D.builds.length > 0;
     const left = `<section class="st-col" aria-label="内存与 Java">${memHTML(D)}`
-      + `<div class="st-r2${hasBuild ? "" : " one"}"><div class="st-fld st-javaf"><span class="st-lb2"><span title="新建时已按 Minecraft 版本选好（1.20.1 用 Java 17，1.21 用 21，26.1 起用 25）。整合包要求其他版本时在这里换，和其他设置一起保存，下次启动生效。本机没有的版本，保存时会先下载一份。">Java</span><i class="st-dot"></i></span>`
-      + `<button type="button" class="st-sel st-java" data-st="java" aria-haspopup="menu" aria-expanded="false" aria-label="这台服务器用的 Java"><i data-ic="coffee"></i>${javaFieldHTML(D)}</button></div>`
-      + (hasBuild ? `<div class="st-fld st-buildf"><span class="st-lb2"><span title="同一个游戏版本的服务端会出很多次构建（修 bug 的小更新），新建时用的是最新的稳定构建；最新的和某个${C.kind === "forge" ? "模组" : "插件"}不兼容时，在这里换回旧的。保存后下次启动生效">构建</span><i class="st-dot"></i></span>`
+      + `<div class="st-r2${hasBuild ? "" : " one"}"><div class="st-fld st-javaf"><span class="st-lb2"><span title="${C.S.proxy ? "如需更换运行所用的 Java 版本，保存后于下次启动生效；本地未安装的版本将在保存时自动下载。" : "新建时已按 Minecraft 版本自动匹配（1.20.1 用 Java 17，1.21 用 Java 21，26.1 起用 Java 25）。如需更换版本，保存后于下次启动生效；本地未安装的版本将在保存时自动下载。"}">Java</span><i class="st-dot"></i></span>`
+      + `<button type="button" class="st-sel st-java" data-st="java" aria-haspopup="menu" aria-expanded="false" aria-label="服务器 Java 版本"><i data-ic="coffee"></i>${javaFieldHTML(D)}</button></div>`
+      + (hasBuild ? `<div class="st-fld st-buildf"><span class="st-lb2"><span title="${C.S.proxy ? "同一版本的代理端可能发布多次构建更新" : "同一游戏版本的服务端可能发布多次构建更新"}，新建时默认使用最新稳定构建。若与某个${C.kind === "forge" ? "模组" : "插件"}不兼容，可在此切换旧版构建，保存后于下次启动生效。">构建</span><i class="st-dot"></i></span>`
         + `<button type="button" class="st-sel st-build" data-st="build" aria-haspopup="menu" aria-expanded="false" aria-label="构建"><span class="st-selv"></span><i data-ic="chevronDown" class="st-chev"></i></button></div>` : "")
       + `</div><div class="st-r2"><div class="st-fld"><span class="st-lb2"><span>服务器文件夹</span></span>`
-      + `<div class="st-path" title="${esc(D.dir + "\n自己启动时双击这个文件夹里的 run.bat，和这一页的设置是同一份")}"><i data-ic="folder"></i><b><span class="hd">${esc(D.dir.slice(0, D.dir.lastIndexOf("\\")))}</span><span class="tl">${esc(D.dir.slice(D.dir.lastIndexOf("\\")))}</span></b>`
+      + `<div class="st-path" title="${esc(D.dir + "\n手动启动可双击该文件夹中的 run.bat，其参数与本页配置同步")}"><i data-ic="folder"></i><b><span class="hd">${esc(D.dir.slice(0, D.dir.lastIndexOf("\\")))}</span><span class="tl">${esc(D.dir.slice(D.dir.lastIndexOf("\\")))}</span></b>`
       + `<button type="button" class="st-ib" data-st="copy" title="复制路径"><i data-ic="copy"></i></button></div></div>`
       + `<div class="st-fld"><span class="st-lb2"><span>端口</span></span>` + (C.S.proxy
-        ? `<div class="st-port off" title="在代理端自己的配置文件里改（Velocity 是 velocity.toml，Waterfall 是 config.yml）"><b>${esc(port)}</b></div>`
-        : `<button type="button" class="st-port" data-st="port" title="在「常用」里改"><b>${esc(port)}</b><i data-ic="arrowRight"></i></button>`) + `</div></div></section>`;
-    const right = `<section class="st-jcol" aria-label="自定义 JVM 参数"><div class="st-jh"><span class="st-lb2"><span title="一行一个；-Xmx、-Xms 由左边的内存自动生成，不在这里填">JVM 参数</span><i class="st-dot"></i></span><span class="st-sp"></span>`
+        ? `<div class="st-port off" title="请在代理端配置文件中修改（Velocity 为 velocity.toml，Waterfall 为 config.yml）"><b>${esc(port)}</b></div>`
+        : `<button type="button" class="st-port" data-st="port" title="在「常用」中修改端口"><b>${esc(port)}</b><i data-ic="arrowRight"></i></button>`) + `</div></div></section>`;
+    const right = `<section class="st-jcol" aria-label="自定义 JVM 参数"><div class="st-jh"><span class="st-lb2"><span title="每行一项；-Xmx、-Xms 由左侧内存分配自动生成，无需在此填写">JVM 参数</span><i class="st-dot"></i></span><span class="st-sp"></span>`
       + `<button type="button" class="st-chip st-aik" data-st="aikar"><i data-ic="plus"></i>Aikar's Flags</button>`
       + `<button type="button" class="st-hb" data-st="preview" title="实际启动参数" aria-haspopup="dialog"><i data-ic="doc"></i></button>`
       + `<button type="button" class="st-hb" data-st="clear" title="清空"><i data-ic="trash"></i></button></div>`
-      + `<div class="st-jlw"><div class="list" role="list">${D.args.map(a => argRow(D, a)).join("")}</div><span class="thumb"></span><div class="st-jnone">没有自定义参数</div></div>`
-      + `<label class="st-iw mono st-jadd"><input class="st-in" value="${esc(D.form)}" placeholder="如：-XX:+UseG1GC" autocomplete="off" spellcheck="false" aria-label="加一个 JVM 参数">`
-      + `<span class="st-msg"></span><button type="button" class="st-ib" data-st="jadd" title="添加（空格隔开的一次加几个）"><i data-ic="plus"></i></button></label></section>`;
+      + `<div class="st-jlw"><div class="list" role="list">${D.args.map(a => argRow(D, a)).join("")}</div><span class="thumb"></span><div class="st-jnone">暂无自定义参数</div></div>`
+      + `<label class="st-iw mono st-jadd"><input class="st-in" value="${esc(D.form)}" placeholder="如 -XX:+UseG1GC" autocomplete="off" spellcheck="false" aria-label="添加 JVM 参数">`
+      + `<span class="st-msg"></span><button type="button" class="st-ib" data-st="jadd" title="添加参数（以空格分隔可一次添加多项）"><i data-ic="plus"></i></button></label></section>`;
     return `<div class="st-jv">${left}${right}${barHTML(jvDirty(D))}</div>`;
   }
   const isNewArg = (D, t) => !D.base.args.includes(t);
   const argRow = (D, a) => `<div class="st-jr${isNewArg(D, a.t) ? " mod" : ""}" role="listitem" data-id="${a.id}"><span class="st-jt" title="${esc(a.t)}">${esc(a.t)}</span>`
-    + `<i class="st-dot"></i><button type="button" class="st-jx" data-st="jdel" title="删掉" aria-label="删掉 ${esc(a.t)}"><i data-ic="x"></i></button></div>`;
+    + `<i class="st-dot"></i><button type="button" class="st-jx" data-st="jdel" title="删除" aria-label="删除 ${esc(a.t)}"><i data-ic="x"></i></button></div>`;
 
   // ---- 挂上去 ----
   function jvMount(ctx) {
@@ -758,9 +758,9 @@
     setText(st.querySelector(".st-msv"), memTxt(v));
     mi.disabled = v <= 512; pl.disabled = v >= M.cap;
     st.classList.toggle("warn", over || big);
-    setTip(st, (v % 512 ? `${v} MB 不是 0.5 GB 的整数倍：一动就落到相邻的 0.5 GB\n` : "")
-      + (over ? `超过当前可用 ${gbTxt(M.avail)}，可能会卡，或者内存分配失败` : big ? "分配内存过大可能加剧 Java 垃圾回收（GC）停顿，导致游戏周期性掉帧。" : ""));
-    setTip(pl, pl.disabled ? `最多能分 ${gbTxt(M.cap)}（当前可用的）` : "多 0.5 GB"); setTip(mi, over ? `回到上限 ${gbTxt(M.cap)}` : "少 0.5 GB");
+    setTip(st, (v % 512 ? `当前值 ${v} MB 非 0.5 GB 整数倍，调整时将对齐至相邻的 0.5 GB 档位\n` : "")
+      + (over ? `超过当前可用内存 ${gbTxt(M.avail)}，可能导致卡顿或内存分配失败` : big ? "分配内存过大可能加剧 Java 垃圾回收（GC）停顿，导致游戏周期性掉帧。" : ""));
+    setTip(pl, pl.disabled ? `已达当前可用上限 ${gbTxt(M.cap)}` : "增加 0.5 GB"); setTip(mi, over ? `降至可用上限 ${gbTxt(M.cap)}` : "减少 0.5 GB");
     // 图例：系统已占、分配（只有颜色，数在步进里）、剩余（= 可用 − 分配，和格子上淡的那一截一样长）
     setHTML(r.querySelector(".st-mleg"), `<span><i class="used"></i>系统已占 <b>${gs(M.used)}</b></span><span><i class="alloc"></i>分配</span><span><i class="free"></i>剩余 <b>${gs(Math.max(0, M.avail - v))}</b></span>`);
     r.querySelectorAll(".st-mp").forEach(b => b.classList.toggle("on", +b.dataset.v === v));
@@ -769,8 +769,8 @@
     const lowTxt = over ? "超过可用内存" : M.cap < want ? "可用内存不足" : "";
     if (low.dataset.t !== lowTxt) {
       low.dataset.t = lowTxt; low.innerHTML = lowTxt ? `${C.KIT.icon("warn")}${lowTxt}` : "";
-      setTip(low, over ? `超过当前可用 ${gbTxt(M.avail)}，可能会卡，或者内存分配失败\n关掉别的程序或服务器能多出一些；减号一下回到上限 ${gbTxt(M.cap)}`
-        : lowTxt ? `本机现在只剩 ${gbTxt(M.avail)} 可用，最多能分 ${gbTxt(M.cap)}，少于推荐的 ${gbTxt(want)}。\n关掉别的程序或服务器，再打开这一页就能分得更多。` : "");
+      setTip(low, over ? `超过当前可用内存 ${gbTxt(M.avail)}，可能导致卡顿或内存分配失败\n关闭其他程序或服务器可释放更多内存；点击减号可快速降至上限 ${gbTxt(M.cap)}`
+        : lowTxt ? `当前可用内存仅剩 ${gbTxt(M.avail)}，可分配上限为 ${gbTxt(M.cap)}，低于推荐值 ${gbTxt(want)}。\n关闭其他程序或服务器后重新打开本页可提升上限。` : "");
     }
     r.querySelector(".st-mem").classList.toggle("mod", v !== D.base.xmx);
   }
@@ -801,7 +801,7 @@
     const b = jvRoot()?.querySelector(".st-java"); if (!b) return;
     const o = D.javas[D.java], v = b.querySelector(".st-selv");
     const h = D.dl ? `${C.KIT.icon("spinner", "st-spin")}<span>正在下载 Java ${o.major}…</span>`
-      : `<span>Java ${o.major}</span><span class="st-sub">${esc(javaSub(D, o, D.java).replace(" · 现在用的", ""))}</span>`;
+      : `<span>Java ${o.major}</span><span class="st-sub">${esc(javaSub(D, o, D.java).replace(" · 当前使用", ""))}</span>`;
     setHTML(v, h);
     b.classList.toggle("bad", !!o.missing && !D.dl); setTip(b, javaTip(o));
     jvRoot().querySelector(".st-javaf").classList.toggle("mod", D.java !== D.base.java);
@@ -815,7 +815,7 @@
     + `${o.missing ? ' aria-disabled="true"' : ""}${javaTip(o) ? ` title="${esc(javaTip(o))}"` : ""}><span class="st-im">Java ${o.major}</span><span class="st-is">${esc(javaSub(D, o, i))}</span>`
     + (o.download ? `<i data-ic="download" class="st-dl"></i>` : "") + (i === D.java ? `<i data-ic="check" class="st-ck"></i>` : "") + `</div>`).join("");
   const buildMenu = D => D.builds.map((b, i) => `<div class="st-it${b === D.build ? " here" : ""}" role="menuitemradio" aria-checked="${b === D.build}" data-v="${esc(b)}">`
-    + `<span class="st-im mono">${esc(buildName(b))}</span><span class="st-is">${[i === 0 ? "最新" : "", b === D.base.build ? "现在用的" : ""].filter(Boolean).join(" · ")}</span>`
+    + `<span class="st-im mono">${esc(buildName(b))}</span><span class="st-is">${[i === 0 ? "最新" : "", b === D.base.build ? "当前使用" : ""].filter(Boolean).join(" · ")}</span>`
     + (b === D.build ? `<i data-ic="check" class="st-ck"></i>` : "") + `</div>`).join("");
 
   // ---- JVM 参数：一行一个；加的、改的那一行有小点；整块的改动算保存条上的一项（同程序：参数整个比一次） ----
@@ -826,14 +826,14 @@
     r.querySelector(".st-jh").classList.toggle("mod", argStr(jvArgs(D)) !== argStr(D.base.args));
     r.querySelector(".st-jlw").classList.toggle("is-none", !D.args.length);
     const clr = r.querySelector('[data-st="clear"]'), none = !D.args.some(a => !LOG4J_FIX.includes(a.t));
-    setAttr(clr, "aria-disabled", none); setTip(clr, none ? "没有可清空的参数" : "清空");
+    setAttr(clr, "aria-disabled", none); setTip(clr, none ? "暂无可清空的参数" : "清空");
     paintAikar(D); r.querySelector(".st-jlw")._paint?.();
   }
   // 「Aikar's Flags」：已经是这一套（按现在的内存挑的那套）时 ＋ 换成勾、淡下去（同「定时任务」的预设）
   function paintAikar(D) {
     const b = jvRoot()?.querySelector(".st-aik"); if (!b) return;
     const same = argStr(jvArgs(D).filter(t => !LOG4J_FIX.includes(t))) === argStr(aikars(D.xmx));
-    setTip(b, same ? "已经是 Aikar's Flags（按现在的内存挑的那套）" : "套用 Aikar's Flags（G1GC 优化）\n套用后将替换下面的全部现有参数");
+    setTip(b, same ? "已套用当前内存对应的 Aikar's Flags 参数" : "套用 Aikar's Flags（G1GC 优化）\n将替换下方全部自定义参数");
     if (b.classList.contains("has") === same) return;
     b.classList.toggle("has", same); b.querySelector("svg").outerHTML = C.KIT.icon(same ? "check" : "plus");
   }
@@ -892,11 +892,11 @@
     paintAikar(D); paintBar(PG_JV); jvRoot().querySelector(".st-jh").classList.add("mod");
   }
   // 参数对不对：不能有双引号（同后端 validateJVMArgs）；内存参数不在这里填（后端会照收，但会盖掉左边的内存，所以这里拦下）
-  const argBad = t => (t.includes('"') ? ["不能有双引号", "JVM 参数里不能有双引号"] : MEM_FLAG.test(t) ? ["内存在左边设", "-Xmx、-Xms 由左边的内存自动生成，不在这里填"] : "");
+  const argBad = t => (t.includes('"') ? ["不可含双引号", "JVM 参数不可包含双引号"] : MEM_FLAG.test(t) ? ["请在左侧设内存", "-Xmx、-Xms 由左侧内存分配自动生成，无需在此填写"] : "");
   const splitArgs = v => v.split(/\s+/).map(s => s.trim()).filter(Boolean);
   function addFromBox(D) {
     const r = jvRoot(), iw = r.querySelector(".st-jadd"), inp = iw.querySelector("input"), list = splitArgs(inp.value);
-    if (!list.length) { iw.classList.add("bad"); setMsg(iw, ["要填参数", "填一个 JVM 参数，比如 -XX:+UseG1GC"]); shake(iw); inp.focus(); return; }
+    if (!list.length) { iw.classList.add("bad"); setMsg(iw, ["请填写参数", "请输入 JVM 参数，如 -XX:+UseG1GC"]); shake(iw); inp.focus(); return; }
     const bad = list.map(argBad).find(Boolean);
     if (bad) { iw.classList.add("bad"); setMsg(iw, bad); shake(iw); inp.focus(); return; }
     inp.value = D.form = ""; addArgs(D, list);
@@ -906,7 +906,7 @@
   function editRow(D, el) {
     if (el.querySelector(".st-jin")) return;
     const a = D.args.find(x => x.id === +el.dataset.id); if (!a) return;
-    const inp = document.createElement("input"); inp.className = "st-jin"; inp.value = a.t; inp.spellcheck = false; inp.autocomplete = "off"; inp.setAttribute("aria-label", "改这个参数");
+    const inp = document.createElement("input"); inp.className = "st-jin"; inp.value = a.t; inp.spellcheck = false; inp.autocomplete = "off"; inp.setAttribute("aria-label", "编辑 JVM 参数");
     el.querySelector(".st-jt").replaceWith(inp); el.classList.add("edit"); inp.focus(); inp.select();
   }
   function commitRow(D, inp, cancel) {
@@ -934,7 +934,7 @@
   }
   // 一个参数一块，只在参数之间折行（不在「-D」的横线后面断开）；一个参数比一行还长时才在里面断
   const lineHTML = D => launchLine(D).map(t => `<span class="st-a">${esc(t)}</span>`).join(" ");
-  const previewHTML = D => `<div class="st-pvh" title="保存后实际写入启动脚本并用来开服的参数（老版本需保留的 log4shell 防护参数由后端统一补上）">实际启动参数</div>`
+  const previewHTML = D => `<div class="st-pvh" title="保存后写入启动脚本并用于启动的参数（旧版本所需的 log4shell 防护参数由后端自动补全）">实际启动参数</div>`
     + `<div class="st-pvw"><div class="list st-pvt">${lineHTML(D)}</div><span class="thumb"></span></div>`;
   function paintPreview(D) {
     if (!pop || !pop.classList.contains("st-pvp")) return;

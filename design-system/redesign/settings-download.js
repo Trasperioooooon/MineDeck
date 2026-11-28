@@ -25,11 +25,11 @@
   // 同程序 setDownload 的三项和说明
   const OPTS = [
     { v: "auto", t: "自动（推荐）", d: "国内镜像（BMCLAPI / 清华）优先，失败自动切换官方源" },
-    { v: "mirror", t: "仅国内镜像", d: "只用 BMCLAPI 和清华镜像。Paper 和 Purpur 没有国内镜像，这两项仍从官方下载。" },
-    { v: "official", t: "仅官方源", d: "只用 Mojang / Forge / Adoptium 等官方源（海外网络适用）" },
+    { v: "mirror", t: "仅国内镜像", d: "仅使用 BMCLAPI 与清华镜像（Paper、Purpur 无国内镜像，仍从官方下载）" },
+    { v: "official", t: "仅官方源", d: "仅使用 Mojang / Forge / Adoptium 等官方源（海外网络适用）" },
   ];
-  const CF_TIP = "导入 CurseForge 格式整合包、要下载里面的模组时用。Modrinth 格式不用填。\n加密保存在这台电脑上。换电脑或换 Windows 用户后需要重填";
-  const BROKEN_TIP = "密钥无法解开，可能换了电脑或 Windows 用户，请重新填写";
+  const CF_TIP = "导入 CurseForge 格式整合包并下载其中的模组时使用，Modrinth 格式无需填写。\n密钥加密保存在本机，更换电脑或 Windows 用户后需重新填写。";
+  const BROKEN_TIP = "密钥无法解密，可能已更换电脑或 Windows 用户，请重新填写";
 
   let C = null, D = null;
   function data() {
@@ -51,9 +51,9 @@
       + `<div class="sd-f"><div class="sd-lb"><span title="下载 Java 与服务端核心时的线路选择">下载源</span></div>${segHTML(d)}</div>`
       + `<div class="sd-f"><div class="sd-lb"><span title="${esc(CF_TIP)}">CurseForge API Key（选填）</span>`
       + `<button type="button" class="sd-lk" data-sd="apply" title="免费申请（console.curseforge.com）" aria-label="免费申请 CurseForge API Key"><i data-ic="share"></i></button>`
-      + `<span class="sd-sp"></span><span class="sd-warn"${d.broken ? "" : " hidden"} title="${esc(BROKEN_TIP)}"><i data-ic="warn"></i>密钥无法解开</span></div>`
+      + `<span class="sd-sp"></span><span class="sd-warn"${d.broken ? "" : " hidden"} title="${esc(BROKEN_TIP)}"><i data-ic="warn"></i>密钥无法解密</span></div>`
       + `<label class="sd-iw${d.broken ? " warn" : ""}"><input class="sd-in" type="password" autocomplete="off" spellcheck="false" placeholder="${holder(d)}" value="${esc(d.draft)}" aria-label="CurseForge API Key">`
-      + `<button type="button" class="sd-ib" data-sd="save" data-icn="${d.saving ? "spinner" : "save"}" aria-label="保存 API Key" aria-disabled="${saveOff(d)}" title="${saveOff(d) ? "先粘贴 API Key" : "保存"}"><i data-ic="${d.saving ? "spinner" : "save"}"${d.saving ? ' class="sd-spin"' : ""}></i></button>`
+      + `<button type="button" class="sd-ib" data-sd="save" data-icn="${d.saving ? "spinner" : "save"}" aria-label="保存 API Key" aria-disabled="${saveOff(d)}" title="${saveOff(d) ? "请先粘贴 API Key" : "保存"}"><i data-ic="${d.saving ? "spinner" : "save"}"${d.saving ? ' class="sd-spin"' : ""}></i></button>`
       + `<button type="button" class="sd-ib" data-sd="clear" title="清除" aria-label="清除 CurseForge API Key"${d.set || d.broken ? "" : " hidden"}><i data-ic="trash"></i></button></label></div>`
       + `</div></section></div>`;
   }
@@ -74,7 +74,7 @@
     if (inp.value !== d.draft) inp.value = d.draft;
     const off = saveOff(d);
     if (sv.getAttribute("aria-disabled") !== String(off)) sv.setAttribute("aria-disabled", off);
-    setTip(sv, d.saving ? "" : off ? "先粘贴 API Key" : "保存");
+    setTip(sv, d.saving ? "" : off ? "请先粘贴 API Key" : "保存");
     const ic = d.saving ? "spinner" : "save";
     if (sv.dataset.icn !== ic) { sv.dataset.icn = ic; sv.innerHTML = C.KIT.icon(ic, d.saving ? "sd-spin" : ""); }
     cl.hidden = !(d.set || d.broken); w.hidden = !d.broken; iw.classList.toggle("warn", d.broken);
@@ -127,7 +127,7 @@
     switch (b.dataset.sd) {
       case "save": saveKey(); break;
       case "clear": ask({ title: "清除 CurseForge API Key？", ok: "清除", onOk: () => { d.set = false; d.broken = false; paintKey(); },
-        body: "清除后，导入 CurseForge 格式的整合包时无法自动下载模组。需要时可以重新填写。" }); break;
+        body: "清除后，导入 CurseForge 格式的整合包时将无法自动下载模组，需要时可重新填写。" }); break;
       case "apply": break; // 草图里不打开外部网页
     }
   }

@@ -27,9 +27,9 @@
   const setTip = (el, t) => { if (!el || (el.getAttribute("title") ?? el.dataset.tip ?? "") === (t || "")) return; if (t) el.title = t; else el.removeAttribute("title"); delete el.dataset.tip; };
 
   const CH = { // 同程序 UPDATE_CH
-    auto: { l: "跟随当前版本", t: "跟随当前版本（默认）：正式版只收正式版，测试版连测试版一起收；以后装回正式版也会自动跟回正式版。" },
-    stable: { l: "稳定版", t: "稳定版（只收正式版）：只提示正式发布的版本。" },
-    latest: { l: "最新版", t: "最新版（包括测试版）：正式版和测试版都提示，哪个新提示哪个。测试版可能有还没发现的问题。" },
+    auto: { l: "跟随当前版本", t: "跟随当前版本（默认）：当前为正式版时仅接收正式版更新，当前为测试版时同时接收测试版；切回正式版后自动恢复仅接收正式版。" },
+    stable: { l: "稳定版", t: "稳定版（仅正式版）：仅提示正式发布版本。" },
+    latest: { l: "最新版", t: "最新版（含测试版）：同时接收正式版与测试版更新，优先提示最新版本。测试版可能存在未知问题。" },
   };
   const NEW = "3.3.0", SIZE = 38.6; // 草图编的
   const REPO = "Trasperioooooon/MineDeck"; // 程序默认（internal/app/app.go DefaultUpdateRepo）
@@ -46,11 +46,11 @@
 
   // ---- 版本块：一行状态、右边那一步 ----
   function stateHTML() {
-    const head = `按「${chName(effCh())}」查：`;
+    const head = `当前渠道（${chName(effCh())}）：`;
     switch (A.st) {
       case "checking": return `<span class="sab-sx"><i data-ic="spinner" class="sab-spin"></i>正在检查…</span>`;
-      case "latest": return `<span class="sab-sx ok" title="${esc(`${head}已是最新（v${A.ver}，正式版）`)}"><i data-ic="check"></i>已是最新</span>`;
-      case "found": return `<span class="sab-sx new" title="${esc(`${head}发现新版本 v${NEW}（正式版），当前 v${A.ver}`)}">发现新版本 v${NEW}（正式版）</span>`;
+      case "latest": return `<span class="sab-sx ok" title="${esc(`${head}已是最新版本（v${A.ver}，正式版）`)}"><i data-ic="check"></i>已是最新</span>`;
+      case "found": return `<span class="sab-sx new" title="${esc(`${head}发现新版本 v${NEW}（正式版），当前版本 v${A.ver}`)}">发现新版本 v${NEW}（正式版）</span>`;
       case "downloading": return `<span class="sab-sx">正在下载 v${NEW}</span><span class="sab-mb"><b class="sab-got"></b> / ${SIZE} MB</span>`;
       case "ready": return `<span class="sab-sx new" title="下载好了，也校验过了；重启 MineDeck 时换上新版本">v${NEW} 已下载，重启后完成更新</span>`;
       default: return `<span class="sab-sx">正式版</span>`;
@@ -132,17 +132,17 @@
     });
     if (!run.length) { go(); return; }
     ask({ ic: "arrowUp", title: "停止服务器并更新？", ok: "停止服务器并更新", onOk: go,
-      body: `更新前要先停止正在运行的 ${run.length} 台服务器：${run.map(s => `<b>${esc(s.name)}</b>`).join("、")}。会先保存世界，然后 MineDeck 重启到 v${NEW}。` });
+      body: `更新前需先停止正在运行的 ${run.length} 台服务器：${run.map(s => `<b>${esc(s.name)}</b>`).join("、")}。将先保存存档，随后重启 MineDeck 并更新至 v${NEW}。` });
   }
-  const quit = () => ask({ ic: "power", title: "退出 MineDeck？", ok: "退出", body: "会先保存世界，停掉正在运行的服务器，然后退出程序。",
-    onOk: () => cover("正在停止服务器并退出", "可以关闭此页面了", false) });
+  const quit = () => ask({ ic: "power", title: "退出 MineDeck？", ok: "退出", body: "将先保存存档并停止正在运行的服务器，随后退出程序。",
+    onOk: () => cover("正在停止服务器并退出", "可以关闭此页面", false) });
 
   // ---- 画 ----
   const segHTML = () => `<div class="sab-seg" role="radiogroup" aria-label="更新渠道"><i class="sab-sgl"></i>${["auto", "stable", "latest"].map(v => {
     const on = (A.ch || "auto") === v;
     return `<button type="button" role="radio" data-v="${v}" aria-checked="${on}" class="${on ? "on" : ""}" title="${esc(CH[v].t)}">${CH[v].l}</button>`;
   }).join("")}</div>`;
-  const chTip = () => "检查更新和启动时的检查都按这里选的来。" + (A.ch ? "" : `还没选过，按正在用的版本定成「${chName(effCh())}」。`);
+  const chTip = () => "手动检查与启动时检查均按所选渠道执行。" + (A.ch ? "" : `当前未指定渠道，已按当前版本自动设为「${chName(effCh())}」。`);
   const item = (body, link) => `<div class="sab-it"><p>${body}</p>${link ? `<button type="button" class="sab-lk" title="${link}" aria-label="打开 ${link}"><i data-ic="share"></i></button>` : ""}</div>`;
   function html(ctx) {
     C = ctx; seed(ctx);
@@ -155,9 +155,9 @@
       + `<div class="sab-f"><div class="sab-lb"><span title="从该 GitHub 仓库的 Releases 检查新版本（国内加速镜像兜底）">更新仓库</span></div>`
       + `<label class="sab-in${dirty ? " dirty" : ""}"><input value="${esc(A.draft ?? A.repo)}" placeholder="GitHub 仓库，如 yourname/MineDeck" spellcheck="false" autocomplete="off" aria-label="更新仓库">`
       + `<button type="button" class="sab-ib" data-sab="repo" title="保存"${dirty ? "" : " disabled"}><i data-ic="save"></i></button></label></div>`
-      + `<button type="button" class="sab-swr${A.silent ? " on" : ""}" data-sab="silent" role="switch" aria-checked="${A.silent}" title="程序启动后在后台按选的更新渠道检查一次新版本（需已填写更新仓库）">`
+      + `<button type="button" class="sab-swr${A.silent ? " on" : ""}" data-sab="silent" role="switch" aria-checked="${A.silent}" title="程序启动后将在后台按所选更新渠道检查一次新版本（需先填写更新仓库）">`
       + `<span class="sab-sw"></span><span>启动时静默检查更新</span></button>`
-      + `<button type="button" class="sab-btn dgr sab-quit" data-sab="quit" title="先保存世界，停掉正在运行的服务器，然后退出"><i data-ic="power"></i>退出 MineDeck</button>`
+      + `<button type="button" class="sab-btn dgr sab-quit" data-sab="quit" title="先保存存档并停止正在运行的服务器，随后退出程序"><i data-ic="power"></i>退出 MineDeck</button>`
       + `</section>`
       + `<section class="sab-col sab-ab" aria-label="关于"><div class="sab-lb"><span>关于</span></div><div class="sab-lw"><div class="list">`
       + item("内网穿透基于 <b>OpenFrp OPENAPI</b> 接入", "https://www.openfrp.net")

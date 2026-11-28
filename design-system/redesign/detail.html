@@ -440,11 +440,12 @@ const st = nNotice || ["err", "multi", "crash"].includes(QS.get("diag")) ? "stop
 // 标签和子页：照程序 detailTabs（app.js），这台服务器用不上的不列；加了「联机」（net），放在玩家后面
 function tabsOf(s) {
   const plug = ["paper", "purpur", "leaves", "folia", "velocity", "waterfall"].includes(s.core);
+  const hybrid = ["mohist", "banner"].includes(s.core);
   const t = [{ id: "console", label: "控制台", ic: "console" }];
   if (!s.proxy) t.push({ id: "players", label: "玩家", ic: "player" });
   t.push({ id: "net", label: "联机", ic: "globe" });
   if (!s.proxy) t.push({ id: "world", label: "世界与备份", ic: "map", subs: [["backups", "备份"], ["map", "换地图"]] });
-  if (s.core !== "vanilla") t.push({ id: "addons", label: plug ? "插件" : "模组", ic: plug ? "plug" : "package" });
+  if (s.core !== "vanilla") t.push({ id: "addons", label: hybrid ? "插件和模组" : plug ? "插件" : "模组", ic: plug ? "plug" : "package" });
   t.push({ id: "tasks", label: "定时任务", ic: "clock" });
   t.push({ id: "settings", label: "设置", ic: "gear", subs: s.proxy ? [["jvm", "启动与内存"]] : [["common", "常用"], ["jvm", "启动与内存"], ["raw", "全部配置"]] });
   const ext = [];
@@ -487,11 +488,11 @@ function skBar() {
 const NOTICES = [
   { id: "fail", short: `上次没能启动：端口 ${S.port} 被「空岛生存」占着`, fix: `改成 ${S.port + 1} 并启动`, copy: true, close: true,
     full: `上次没能启动：端口 ${S.port} 被你的服务器「空岛生存」占着，两台不能同时开` },
-  { id: "java", short: "找不到这台服务器配的 Java", fix: "去换 Java",
+  { id: "java", short: "找不到这台服务器配的 Java", fix: "更换 Java",
     full: `找不到这台服务器配的 Java（<span class="mono">C:\\Program Files\\Java\\jdk-21\\bin\\java.exe</span>），现在启动会失败。可能是那个 Java 被卸载或挪走了` },
   { id: "pending", short: "有 3 个整合包文件没装上", fix: "处理",
     full: "这台服务器有 3 个整合包文件没装上，缺了它们服务器可能启动不了，或者玩家进不去。" },
-  { id: "need", short: "有模组要求 Java 21，现在是 Java 17", fix: "去换 Java",
+  { id: "need", short: "有模组要求 Java 21，当前为 Java 17", fix: "更换 Java",
     full: "有模组要求 Java 21，这台服务器现在是 Java 17，启动可能失败。可在「设置 → 启动与内存」里换 Java。" },
 ];
 let shown = NOTICES.slice(0, nNotice);
@@ -561,17 +562,17 @@ function dismiss(id) {
 function head() {
   const av = S.icon ? `<span class="px-avatar icon" aria-hidden="true">${fakeIcon(S.icon)}</span>` : MDPixel16.avatar(S.core, "", 32).replace('class="px-avatar', 'class="px-avatar');
   let blocks;
-  const toPlayers = S.proxy ? "" : ` go" data-go="players" title="去「玩家」`; // 代理端没有「玩家」标签
+  const toPlayers = S.proxy ? "" : ` go" data-go="players" title="前往「玩家」`; // 代理端没有「玩家」标签
   if (st === "running") blocks = `<div class="cb kv${toPlayers}"><div class="k">在线人数</div><div class="v ok">${S.players}<small>/${S.max}</small></div></div><div class="cb kv"><div class="k">运行时间</div><div class="v">${S.up}</div></div>`;
-  else if (st === "starting") blocks = `<div class="cb boot"><div class="bar"><i></i></div><div class="steps"><span>准备 Java ✓</span><span>·</span><b>加载世界</b><span>·</span><span>就绪</span><span style="margin-left:auto">12 秒</span></div></div>`;
-  else blocks = `<div class="cb kv"><div class="k">上次玩</div><div class="v">${S.last === "现在" ? "昨天" : S.last}</div></div><div class="cb kv"><div class="k">时长总计</div><div class="v">${S.hours}<small> 小时</small></div></div>`;
+  else if (st === "starting") blocks = `<div class="cb boot"><div class="bar"><i></i></div><div class="steps"><span>准备 Java ✓</span><span>·</span><b>加载存档</b><span>·</span><span>就绪</span><span style="margin-left:auto">12 秒</span></div></div>`;
+  else blocks = `<div class="cb kv"><div class="k">上次启动</div><div class="v">${S.last === "现在" ? "昨天" : S.last}</div></div><div class="cb kv"><div class="k">时长总计</div><div class="v">${S.hours}<small> 小时</small></div></div>`;
   const tools = `<div class="cb tools"><button class="rb pin${S.pin ? " on" : ""}" title="${S.pin ? "取消收藏" : "收藏"}"><i data-ic="${S.pin ? "starOn" : "star"}"></i></button><button class="rb more" title="更多"><i data-ic="more"></i></button></div>`;
   const stb = st === "running" ? `<span class="stbr ok"><i></i>运行中</span>` : st === "starting" ? `<span class="stbr warm"><i></i>启动中</span>` : `<span class="stbr off"><i></i>已停止</span>`;
   // 地址：同首页大卡，绑了隧道用隧道的，没绑用局域网的；只放一个，全部的列在「联机」里，点地址就去那里（11-27 作者同意）
   const a = S.tunnel || `192.168.1.5:${S.port}`, live = st === "running";
-  const addr = `<span class="addr${live ? "" : " off"}"><span class="go" data-go="net" title="${live ? "" : "开服后朋友连这个地址。"}去「联机」看全部地址"><i data-ic="${S.tunnel ? "globe" : "link"}"></i><span class="v">${a}</span></span>`
+  const addr = `<span class="addr${live ? "" : " off"}"><span class="go" data-go="net" title="${live ? "前往「联机」查看全部地址" : "启动后可用此地址连接，前往「联机」查看全部地址"}"><i data-ic="${S.tunnel ? "globe" : "link"}"></i><span class="v">${a}</span></span>`
     + `<button class="rb" title="复制"><i data-ic="copy"></i></button></span>`;
-  const restart = `<button class="btn"${st === "running" ? "" : ` aria-disabled="true" title="服务器开着时才能重启"`}><i data-ic="refresh"></i>重启</button>`;
+  const restart = `<button class="btn"${st === "running" ? "" : ` aria-disabled="true" title="服务器运行中才能重启"`}><i data-ic="refresh"></i>重启</button>`;
   const main = st === "stopped" ? `<button class="btn go"><i data-ic="play"></i>启动</button>` : `<button class="btn stop"><i data-ic="stop"></i>停止</button>`;
   $("#dh").innerHTML = `<div class="cover" style="--c:${MDPixel16.CORE_COLORS[S.core]}">${av}<div class="title"><div class="nm">${S.name}</div><div class="meta">${S.label} · ${S.mc}</div></div>${blocks}${tools}</div>`
     + `<div class="acts">${stb}${restart}${main}${addr}<span id="ntc-slot" style="display:contents">${ntcPill()}</span><span class="sp"></span></div>`;
@@ -585,7 +586,7 @@ function folderList() {
   const key = tab + (subsOf(tab) ? "/" + subPick[tab] : "");
   const F = {
     console: S.proxy ? [["folder", "打开日志文件夹"]] : [["warn", "打开崩溃报告文件夹"], ["folder", "打开日志文件夹"]],
-    "world/backups": [["folder", "打开备份文件夹"]], "world/map": [["folder", "打开世界文件夹"]],
+    "world/backups": [["folder", "打开备份文件夹"]], "world/map": [["folder", "打开存档文件夹"]],
     addons: [["folder", `打开${plug ? "插件" : "模组"}文件夹`]],
   }[key];
   return F || [];
@@ -673,7 +674,7 @@ const F_MISSING = { title: "缺少前置模组", summary: "少装了前置模组
   details: ["mowziesmobs 需要 geckolib（版本 [4.2,)），但没有装", "createaddition 需要 create（版本 [0.5.1.f,0.5.2)），装的是 0.5.0.i，版本不对"],
   fixes: ["按模组 ID 去 Modrinth 搜这个前置（选和服务器一样的加载器和 MC 版本），装进 mods 文件夹", "版本不对的，换成满足版本范围的那一版", "好友的客户端也要装同样的前置"],
   evidence: [FORGE_MISSING[5].trim(), FORGE_MISSING[6].trim()] };
-const F_MISMATCH = { title: "好友进不来（模组对不上）", warn: true, summary: "TesterA连服时因为客户端和服务端的模组对不上被断开了", details: ["客户端和服务端装的模组对不上"],
+const F_MISMATCH = { title: "好友进不来（模组对不上）", warn: true, summary: "TesterA 连服时因为客户端和服务端的模组对不上被断开了", details: ["客户端和服务端装的模组对不上"],
   fixes: ["让好友把整合包（或模组）更新到和服务端一致，加载器也要一样（NeoForge / Forge）", "服务端最近加了模组的，把新模组也发给好友装上"], evidence: [MISMATCH] };
 const F_CRASH = { title: "服务器异常退出", summary: "服务器自己退出了，本地规则没认出具体原因。",
   fixes: ["看看控制台里退出前最后几行 ERROR 和异常", "配置了 AI 的话，可以让 AI 结合崩溃报告分析"], evidence: ["服务器进程已退出（exit status 1）"] };
@@ -696,7 +697,7 @@ const PAPER_TRACE = ["org.bukkit.event.EventException: null",
   "\tat org.bukkit.plugin.java.JavaPluginLoader$1.execute(JavaPluginLoader.java:321) ~[paper-api-1.21.4-R0.1-SNAPSHOT.jar:?]",
   ...PAPER_OUTER.map(l => "\u0001" + l)]; // 开头带 \u0001 的是 MineDeck 补出来的行
 const lineCls = l => l.startsWith(">") || l.startsWith("[MineDeck]") ? "cmd-echo" : /ERROR|SEVERE|FATAL|Exception|^\tat |^Caused by/.test(l) ? "lv-err" : /WARN/.test(l) ? "lv-warn" : "";
-const lineHTML = l => l[0] === "\u0001" ? `<div class="lv-err xp" title="原文这里是「... 4 more」，MineDeck 照上面外层的最后 4 行补全">${esc(l.slice(1))}</div>` : `<div class="${lineCls(l)}">${esc(l)}</div>`;
+const lineHTML = l => l[0] === "\u0001" ? `<div class="lv-err xp" title="原文为「... 4 more」，已按外层堆栈末 4 行补全">${esc(l.slice(1))}</div>` : `<div class="${lineCls(l)}">${esc(l)}</div>`;
 function bannerHTML() {
   if (!FINDINGS.length || CON.dgClosed) return "";
   const top = FINDINGS[0], warn = FINDINGS.every(f => f.warn), n = FINDINGS.length;
@@ -704,19 +705,19 @@ function bannerHTML() {
     + (f.details?.length ? `<ul>${f.details.map(d => `<li>${esc(d)}</li>`).join("")}</ul>` : "")
     + `<div class="fx">怎么修</div><ol>${f.fixes.map(d => `<li>${esc(d)}</li>`).join("")}</ol>`
     + (f.evidence?.length ? `<pre>${esc(f.evidence.join("\n"))}</pre>` : "") + `</div>`).join("");
-  return `<div class="dg${warn ? " warn" : ""}${CON.dgOpen ? " open" : ""}" id="dg" role="status"><div class="dgh"><span class="dgi" title="MineDeck 本地规则的分析，没有联网"><i data-ic="warn"></i></span>`
+  return `<div class="dg${warn ? " warn" : ""}${CON.dgOpen ? " open" : ""}" id="dg" role="status"><div class="dgh"><span class="dgi" title="由本地规则离线分析，未联网"><i data-ic="warn"></i></span>`
     + `<div class="dgt"><b>${esc(top.title)}</b><span>${esc(top.summary)}</span></div>`
-    + (n > 1 ? `<button class="dgk" title="一共认出 ${n} 个问题">+${n - 1}</button>` : "")
+    + (n > 1 ? `<button class="dgk" title="共检测到 ${n} 个问题">+${n - 1}</button>` : "")
     + `<button class="dgm" aria-expanded="${CON.dgOpen}" title="看详情和怎么修">怎么修<i data-ic="chevronDown"></i></button>`
     + (AI_ON ? `<button class="dga"><i data-ic="sparkle"></i>让 AI 分析</button>` : "")
-    + `<button class="dgx" title="不再提示这一次的问题"><i data-ic="x"></i></button></div>`
+    + `<button class="dgx" title="忽略本次提示"><i data-ic="x"></i></button></div>`
     + `<div class="dgc"><div class="dgb lwrap" id="dgb"><div class="list">${body}</div><span class="thumb"></span></div></div></div>`;
 }
 function consoleHTML() {
   const F = folderList();
   return `<div class="con"><div class="ctb">`
     + `<button class="ib" id="caa" title="字号和编码"><i data-ic="textSize"></i></button><button class="ib" id="ccopy" title="复制全部"><i data-ic="copy"></i></button>`
-    + `<button class="ib" id="cexp" title="导出为 txt"><i data-ic="download"></i></button><span class="vsep"></span>`
+    + `<button class="ib" id="cexp" title="导出为 TXT"><i data-ic="download"></i></button><span class="vsep"></span>`
     + F.map(([i, t]) => `<button class="ib" title="${t}"><i data-ic="${i}"></i></button>`).join("")
     + `<button class="tg${CON.auto ? " on" : ""}" id="cauto" role="switch" aria-checked="${CON.auto}"><span class="sw"></span>自动滚动</button><span class="sp"></span>`
     + `<label class="cs${CON.q ? " has" : ""}" title="如 ERROR / 玩家名"><i data-ic="search"></i><input id="cq" placeholder="过滤日志" value="${esc(CON.q)}" autocomplete="off" spellcheck="false"><button class="cx" title="清空"><i data-ic="x"></i></button></label></div>`
@@ -724,7 +725,7 @@ function consoleHTML() {
     + `<div class="olw lwrap" id="colw"><div class="list out" id="cout"><span class="ofill"></span>${[...consoleLog(), ...CON.extra].map(lineHTML).join("")}</div><span class="thumb"></span></div>`
     + (st === "stopped"
       ? `<div class="cin off"><b>&gt;</b><input id="cin" placeholder="开服后才能发命令" disabled><button class="snd" disabled aria-label="发送"><i data-ic="arrowRight"></i></button></div></div></div>`
-      : `<div class="cin" title="回车发送 · Tab 补全 · ↑↓ 翻历史 · Esc 关掉补全 · 在别处按 T 或 / 跳到这里"><b>&gt;</b><input id="cin" placeholder="如 op 玩家名 / say 大家好" autocomplete="off" spellcheck="false">`
+      : `<div class="cin" title="回车发送 · Tab 补全 · ↑↓ 切换历史 · Esc 关闭补全 · 按 T 或 / 聚焦输入框"><b>&gt;</b><input id="cin" placeholder="如 op 玩家名 / say 大家好" autocomplete="off" spellcheck="false">`
       + `<button class="snd" title="发送"><i data-ic="arrowRight"></i></button></div></div></div>`);
 }
 function mountConsole() {
@@ -831,7 +832,7 @@ function toggleCpop(btn) {
   if (cpop) return closeCpop();
   cpop = Object.assign(document.createElement("div"), { className: "cpop enter" }); cpop.setAttribute("role", "dialog"); cpop.setAttribute("aria-label", "字号和编码");
   cpop.innerHTML = `<div class="r"><span>字号</span><div class="stp"><button data-fs="-1" title="缩小字号"><i data-ic="minus"></i></button><b id="cfs">${CON.fs}</b><button data-fs="1" title="放大字号"><i data-ic="plus"></i></button></div></div>`
-    + `<div class="r"><span>编码</span><div class="eseg" id="eseg" title="存进这台服务器的设置，对之后的新输出生效；中文乱码时换成 GBK 试试"><span class="sgl"></span>${[["auto", "自动"], ["utf-8", "UTF-8"], ["gbk", "GBK"]].map(([v, l]) => `<button data-enc="${v}" class="${CON.enc === v ? "on" : ""}">${l}</button>`).join("")}</div></div>`;
+    + `<div class="r"><span>编码</span><div class="eseg" id="eseg" title="保存至当前服务器设置，对后续输出生效；中文乱码时可切换为 GBK"><span class="sgl"></span>${[["auto", "自动"], ["utf-8", "UTF-8"], ["gbk", "GBK"]].map(([v, l]) => `<button data-enc="${v}" class="${CON.enc === v ? "on" : ""}">${l}</button>`).join("")}</div></div>`;
   document.body.appendChild(cpop); KIT.hydrate(cpop);
   const r = btn.getBoundingClientRect();
   cpop.style.left = Math.round(r.right - cpop.offsetWidth) + "px"; cpop.style.top = Math.round(r.bottom + 6) + "px";

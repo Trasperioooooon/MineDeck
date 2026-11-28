@@ -581,7 +581,7 @@ if (QS.get("notices")) document.body.classList.add("notices"); // 列表上方�
   <div class="sec">
     <h2 id="top-title"></h2><span class="hint" id="top-hint"></span>
     <span class="sp"></span>
-    <div class="seg" role="radiogroup" aria-label="上面三张大卡按什么挑"><i class="sgl"></i>
+    <div class="seg" role="radiogroup" aria-label="服务器展示方式"><i class="sgl"></i>
       <button data-mode="recent" role="radio"><i data-ic="clock"></i>最近启动</button>
       <button data-mode="hours" role="radio"><i data-ic="bolt"></i>游玩时长</button>
       <button data-mode="pin" role="radio"><i data-ic="star"></i>收藏</button>
@@ -589,15 +589,15 @@ if (QS.get("notices")) document.body.classList.add("notices"); // 列表上方�
   </div>
   <div class="car" id="car">
     <div class="live track" id="live"></div>
-    <button class="car-nav prev" data-dir="-1" aria-label="往左看"><i data-ic="chevronRight"></i></button>
-    <button class="car-nav next" data-dir="1" aria-label="往右看"><i data-ic="chevronRight"></i></button>
+    <button class="car-nav prev" data-dir="-1" aria-label="向左滚动"><i data-ic="chevronRight"></i></button>
+    <button class="car-nav next" data-dir="1" aria-label="向右滚动"><i data-ic="chevronRight"></i></button>
   </div>
 
   <div class="sec"><h2>其他</h2></div>
   <div class="car scroll rest-car" id="rest-car">
     <div class="rest track" id="rest"></div>
-    <button class="car-nav prev" data-dir="-1" aria-label="往左看"><i data-ic="chevronRight"></i></button>
-    <button class="car-nav next" data-dir="1" aria-label="往右看"><i data-ic="chevronRight"></i></button>
+    <button class="car-nav prev" data-dir="-1" aria-label="向左滚动"><i data-ic="chevronRight"></i></button>
+    <button class="car-nav next" data-dir="1" aria-label="向右滚动"><i data-ic="chevronRight"></i></button>
   </div>
 </main>
 
@@ -649,7 +649,7 @@ const star = (s, i) => `<button class="pin${s.pin ? " on" : ""}" data-i="${i}" t
 const status = s => s.st === "running" ? `<span class="st"><i></i>运行中</span>` : s.st === "starting" ? `<span class="st warm"><i></i>启动中</span>` : `<span class="st off"><i></i>已停止</span>`;
 
 function big(s, i) {
-  const link = `<span class="btn ghost ic" title="${s.tunnel ? "复制内网穿透地址 " + s.tunnel : "复制连接地址 192.168.1.5:" + s.port}"><i data-ic="${s.tunnel ? "globe" : "link"}"></i></span>`;
+  const link = `<span class="btn ghost ic" title="${s.tunnel ? "复制公网联机地址 " + s.tunnel : "复制局域网联机地址 192.168.1.5:" + s.port}"><i data-ic="${s.tunnel ? "globe" : "link"}"></i></span>`;
   let body, acts, st;
   const console_ = `<span class="btn"><i data-ic="console"></i>控制台</span>`, stopBtn = `<span class="btn stop"><i data-ic="stop"></i>停止</span>`;
   if (s.st === "running") {
@@ -657,11 +657,11 @@ function big(s, i) {
     st = `<span class="stbr ok"><i></i>运行中</span>`;
     acts = `${console_}${st}<span class="sp"></span>${stopBtn}${link}`;
   } else if (s.st === "starting") {
-    body = `<div class="boot"><div class="bar"><i></i></div><div class="steps"><span>准备 Java ✓</span><span>·</span><b>加载世界</b><span>·</span><span>就绪</span><span style="margin-left:auto">12 秒</span></div></div>`;
+    body = `<div class="boot"><div class="bar"><i></i></div><div class="steps"><span>准备 Java ✓</span><span>·</span><b>加载存档</b><span>·</span><span>就绪</span><span style="margin-left:auto">12 秒</span></div></div>`;
     st = `<span class="stbr warm"><i></i>启动中</span>`;
     acts = `${console_}${st}<span class="sp"></span>${stopBtn}${link}`;
   } else {
-    body = `<div class="stats"><div><div class="k">上次玩</div><div class="v">${s.last}</div></div><div><div class="k">时长总计</div><div class="v">${s.hours}<small> 小时</small></div></div></div>`;
+    body = `<div class="stats"><div><div class="k">上次启动</div><div class="v">${s.last}</div></div><div><div class="k">时长总计</div><div class="v">${s.hours}<small> 小时</small></div></div></div>`;
     st = `<span class="stbr off"><i></i>已停止</span>`;
     acts = `${console_}${st}<span class="sp"></span><span class="btn go"><i data-ic="play"></i>启动</span>${link}`;
   }
@@ -682,14 +682,14 @@ function render() {
   car.classList.toggle("scroll", many);
   document.getElementById("top-title").textContent = MODES[mode].title;
   const pins = SERVERS.filter(s => s.pin).length;
-  document.getElementById("top-hint").textContent = mode === "pin" && pins < 3 ? (pins ? "空出来的位置按最近启动补上" : "点卡片上的星标，把常用的收藏在这里") : "";
+  document.getElementById("top-hint").textContent = mode === "pin" && pins < 3 ? (pins ? "不足 3 台时按最近启动补齐" : "点击卡片星标收藏") : "";
   document.getElementById("live").innerHTML = top.map(([s, i]) => big(s, i)).join("");
   document.getElementById("rest").innerHTML = (document.body.classList.contains("notices") ? brokenTiles() : "") + rest.map(([s, i]) => tile(s, i)).join("");
   const run = SERVERS.filter(s => s.st === "running"), ppl = run.reduce((n, s) => n + s.players, 0);
   document.getElementById("sum").innerHTML = `<span><span class="dot"></span><b>${run.length}</b> 台运行中</span><span><b>${ppl}</b> 人在线</span><span>共 <b>${SERVERS.length}</b> 台</span>`;
   const idle = SERVERS.length - run.length - SERVERS.filter(s => s.st === "starting").length;
-  document.getElementById("ha-line").innerHTML = run.length ? `<span class="ok">${run.length} 台开着</span><span class="mut">，</span>${ppl} 人在线` : `服务器都停着`;
-  document.getElementById("ha-sub").textContent = `共 ${SERVERS.length} 台服务器，${idle} 台停着`;
+  document.getElementById("ha-line").innerHTML = run.length ? `<span class="ok">${run.length} 台运行中</span><span class="mut">，</span>${ppl} 人在线` : `全部服务器已停止`;
+  document.getElementById("ha-sub").textContent = `共 ${SERVERS.length} 台服务器，${idle} 台已停止`;
   const strip = `<div class="chip ok"><span class="dot"></span><b>${run.length}</b>台运行中</div><div class="chip"><b>${ppl}</b>人在线</div><div class="chip"><b>${SERVERS.length}</b>台服务器</div>
     <span class="sp"></span><div class="find"><i data-ic="search"></i>搜索服务器</div>`;
   document.getElementById("hb").innerHTML = strip;
@@ -825,7 +825,7 @@ const NT_TASK = {
 const ntEsc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 // 「其他」里的只读小块（render() 在带参数时把它放在最前面）
 function brokenTiles() {
-  return NT.broken.map(b => `<div class="rc broken" title="${ntEsc(`这台服务器的设置文件读不出来：${b.reason}\n修好或删掉以后重开 MineDeck，它才回到列表`)}">`
+  return NT.broken.map(b => `<div class="rc broken" title="${ntEsc(`无法读取该服务器的设置文件：${b.reason}\n修复或删除后重启 MineDeck，服务器将重新显示在列表中`)}">`
     + `<span class="bk-ico"><i data-ic="warn"></i></span><div><div class="nm mono">${ntEsc(b.folder)}</div><div class="meta bad"><i></i>设置文件无法读取</div></div>`
     + `<button class="play open" title="打开文件夹"><i data-ic="folder"></i></button></div>`).join("");
 }
@@ -833,7 +833,7 @@ function brokenTiles() {
 function pillHTML() {
   const need = NT.look.length + NT.left.length + NT.dups.length, parts = [];
   if (NT.run.length) parts.push(`<span class="seg1 run"><i data-ic="spinner"></i>${NT.run.length} 个任务进行中</span>`);
-  if (need) parts.push(`<span class="seg1 need"><i data-ic="warn"></i>${need} 项要处理</span>`);
+  if (need) parts.push(`<span class="seg1 need"><i data-ic="warn"></i>${need} 项待处理</span>`);
   if (!parts.length && NT.done.length) parts.push(`<span class="seg1">${NT.done.length} 个已结束的任务</span>`);
   return parts.join(`<i class="div"></i>`) + `<i data-ic="chevronDown" class="chev"></i>`;
 }
@@ -850,10 +850,10 @@ function foldText() {
 function panelHTML() {
   const tasks = `<div class="ncol" id="nt-tasks"><h3>后台任务</h3>${[...NT.run, ...NT.look].map(taskRow).join("")}`
     + (NT.done.length ? `<button class="nfold" id="nt-fold"><span>${foldText()}</span><i data-ic="chevronDown"></i></button>` : "") + `</div>`;
-  const left = NT.left.length ? `<div class="ncol"><h3>没建完的文件夹<span class="n">${NT.left.length}</span><span class="ib" title="创建中途停下、还没建好的文件夹（程序被关掉、崩溃、断电，或者失败后没清干净）。\n接管进来的和你自己放进来的不会列在这里，也不会自动删除。"><i data-ic="info"></i></span></h3>`
-    + NT.left.map(l => `<div class="nrow"><div class="m"><div class="t mono">${ntEsc(l.name)}</div><div class="s">${l.world ? "含世界文件 · " : ""}<span class="mono">${ntEsc(l.root)}</span></div></div>`
-      + `<button class="ib del" data-left="${ntEsc(l.name)}" title="删除这个文件夹…"><i data-ic="trash"></i></button></div>`).join("") + `</div>` : "";
-  const dups = NT.dups.length ? `<div class="ncol"><h3>因重名没有列出来<span class="n">${NT.dups.length}</span><span class="ib" title="要两台都显示出来，改掉其中一台的名字：打开没列出来的那个文件夹里的 instance.json，把 &quot;name&quot; 改成别的名字后重开 MineDeck；\n或者先把列表里这台移出列表，再用别的名字接管回来，然后重开 MineDeck。"><i data-ic="info"></i></span></h3>`
+  const left = NT.left.length ? `<div class="ncol"><h3>未建完的文件夹<span class="n">${NT.left.length}</span><span class="ib" title="创建过程中断而残留的文件夹（如程序关闭、崩溃、断电或失败后未清理）。\n已接管或手动放入的文件夹不会列出，也不会自动删除。"><i data-ic="info"></i></span></h3>`
+    + NT.left.map(l => `<div class="nrow"><div class="m"><div class="t mono">${ntEsc(l.name)}</div><div class="s">${l.world ? "含存档文件 · " : ""}<span class="mono">${ntEsc(l.root)}</span></div></div>`
+      + `<button class="ib del" data-left="${ntEsc(l.name)}" title="删除文件夹"><i data-ic="trash"></i></button></div>`).join("") + `</div>` : "";
+  const dups = NT.dups.length ? `<div class="ncol"><h3>因重名未列出的文件夹<span class="n">${NT.dups.length}</span><span class="ib" title="如需同时显示两台服务器，请修改其中一台的名称：打开未列出文件夹中的 instance.json，修改 &quot;name&quot; 后重启 MineDeck；\n或先将列表中的服务器移出列表，再以新名称重新接管并重启 MineDeck。"><i data-ic="info"></i></span></h3>`
     + NT.dups.map(d => `<div class="nrow"><div class="m"><div class="t mono">${ntEsc(d.dir)}</div><div class="s">和「${ntEsc(d.name)}」重名（<span class="mono">${ntEsc(d.kept)}</span>）</div></div></div>`).join("") + `</div>` : "";
   return `<div class="lwrap"><div class="list">${tasks}${left}${dups}</div><i class="thumb"></i></div>`;
 }
@@ -891,7 +891,7 @@ function placePanel() {
 function openPanel() {
   if (ntPanel) return closePanel();
   ntPanel = Object.assign(document.createElement("div"), { className: "npanel enter", innerHTML: panelHTML() });
-  ntPanel.setAttribute("role", "dialog"); ntPanel.setAttribute("aria-label", "后台任务和要处理的文件夹");
+  ntPanel.setAttribute("role", "dialog"); ntPanel.setAttribute("aria-label", "后台任务与待处理文件夹");
   document.body.appendChild(ntPanel); KIT.hydrate(ntPanel);
   ntPill.classList.add("open"); ntPill.setAttribute("aria-expanded", "true");
   placePanel(); thinBar(ntPanel.querySelector(".lwrap"));

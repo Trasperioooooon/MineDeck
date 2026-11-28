@@ -521,9 +521,9 @@ let view = ["home", "skin", "mrpack"].includes(QS.get("tool")) ? QS.get("tool") 
 // 名字、标签、悬停里的整句都照程序 toolbox.js 的 TOOLS
 const TOOLS = [
   { id: "skin", title: "离线皮肤包生成", tag: "客户端资源包", ico: "player", c: "vanilla",
-    desc: "把离线服里朋友们的皮肤 PNG 打包成客户端资源包，按玩家名离线 UUID 命中各自默认皮肤，或者按顺序替换。" },
+    desc: "将离线服务器玩家的皮肤 PNG 打包为客户端资源包，支持按玩家名离线 UUID 映射默认皮肤，或按顺序替换。" },
   { id: "mrpack", title: "导出 Modrinth 整合包", tag: ".mrpack 分享包", ico: "package", c: "neoforge",
-    desc: "把模组和配置打包成标准 .mrpack 发给朋友，可以从已有的模组服务器直接导出，也可以自己现挑模组，前置由 MineDeck 找齐。" },
+    desc: "将模组与配置打包为标准 .mrpack 整合包；支持从已有模组服务器直接导出，或自选模组并由 MineDeck 自动补全前置。" },
 ];
 function homeView() {
   return `<h1 class="q">工具箱</h1><div class="tools">${TOOLS.map(t =>
@@ -732,9 +732,9 @@ const DEMO_DIR = "D:\\分享给朋友";
 // 本机打开才能存到文件夹（程序看 /api/app 的 local）；草图里 ?local=0 看远程打开的样子
 let LOCAL = QS.get("local") !== "0";
 function pathBox(dest) {
-  if (!LOCAL) return `<div class="pathf off" style="opacity:.45;cursor:default" title="在浏览器里远程打开时只能下载；在这台电脑上打开 MineDeck 才能直接存到文件夹"><i data-ic="folder"></i><span class="ph">同时存到本机文件夹（选填）</span></div>`;
-  return `<div class="pathf" data-act="pickdir" title="${dest ? "生成后同时存一份到这个文件夹；点一下换别的文件夹" : "留空只在浏览器里下载；选一个文件夹，生成后同时存一份进去"}"><i data-ic="folder"></i>`
-    + (dest ? `<b>${esc(dest)}</b><button class="ib" data-act="cleardir" title="不存到文件夹"><i data-ic="x"></i></button>` : `<span class="ph">同时存到本机文件夹（选填）</span>`) + `</div>`;
+  if (!LOCAL) return `<div class="pathf off" style="opacity:.45;cursor:default" title="在浏览器中远程访问时仅支持下载；在本机运行 MineDeck 时可直接保存至文件夹"><i data-ic="folder"></i><span class="ph">同时保存至本机文件夹（选填）</span></div>`;
+  return `<div class="pathf" data-act="pickdir" title="${dest ? "生成后将同时保存副本至该文件夹；点击更换文件夹" : "留空则仅提供浏览器下载；选择文件夹后，生成时将同步保存副本"}"><i data-ic="folder"></i>`
+    + (dest ? `<b>${esc(dest)}</b><button class="ib" data-act="cleardir" title="清除保存路径"><i data-ic="x"></i></button>` : `<span class="ph">同时保存至本机文件夹（选填）</span>`) + `</div>`;
 }
 
 // 后面两个工具的代码接在这里
@@ -838,7 +838,7 @@ const playersOf = i => i === 1 ? ROSTER.slice(0, 5) : ROSTER.slice(i % 6, i % 6 
 const STATES = {
   demo: () => [rowOf("steve", fileOf("steve.png")), rowOf("alex", fileOf("alex.png")), rowOf("lihua", fileOf("lihua.png")), rowOf("xiaoming", fileOf("xiaoming.png", 64, 32))],
   // lisi 和 xiaohong 算出来都落在 Makena · 经典（wide/makena），是真撞的；第 7 行（zhangsan）的 PNG 尺寸不对
-  clash: () => [...STATES.demo(), rowOf("lisi", fileOf("lisi.png")), rowOf("xiaohong", fileOf("xiaohong.png")), rowOf("zhangsan", fileOf("zhangsan-hd.png", 128, 128, "尺寸不对：128×128"))],
+  clash: () => [...STATES.demo(), rowOf("lisi", fileOf("lisi.png")), rowOf("xiaohong", fileOf("xiaohong.png")), rowOf("zhangsan", fileOf("zhangsan-hd.png", 128, 128, "尺寸不符：128×128"))],
   empty: () => [rowOf()],
   many: () => ["steve", "alex", "lihua", "xiaoming", "zhangsan", "lisi", "wangwu", "zhaoliu", "xiaohong", "xiaoli", "dawei", "laowang", "meimei", "xiaoqiang", "ahua", "xiaogang", "xiaomei", "a_very_long_name"]
     .map(n => rowOf(n, fileOf(n + ".png"))),
@@ -850,8 +850,8 @@ if (st0 === "done") SK.result = true; // 真正的结果在第一次画完以后
 // 预演：照 PreviewSkinPack。按玩家名：每行按名字算；按顺序：先占手动挑的，再给「自动」的挑空着的（同手臂的优先）
 function preview() {
   const v = parseMC(SK.mc);
-  if (!v) return { err: "版本号认不出来", tip: "Minecraft 版本格式认不出来，请填类似 1.20.1 或 1.21.4 的版本号" };
-  if (cmp(v, [1, 8, 0]) < 0) return { err: "1.8 以前的版本不支持", tip: "1.8 以前只有 Steve 一个默认皮肤，皮肤格式也不一样" };
+  if (!v) return { err: "无法识别版本号", tip: "无法识别该 Minecraft 版本格式，请输入类似 1.20.1 或 1.21.4 的版本号" };
+  if (cmp(v, [1, 8, 0]) < 0) return { err: "不支持 1.8 以下版本", tip: "1.8 以下版本仅含 Steve 一个默认皮肤，且贴图格式不兼容" };
   const slots = slotsFor(v), n = slots.length, items = SK.rows.map(() => null), used = {};
   if (SK.mode === "player") {
     SK.rows.forEach((r, i) => {
@@ -884,37 +884,37 @@ const slotKey = (r, i) => { const it = PV.items?.[i]; return [PV.err ? "e" : "",
 function slotHTML(r, i) {
   const it = PV.items?.[i];
   if (PV.err) return `<span class="slot none">—</span>`;
-  if (r.skip) return `<span class="slot skipped" title="已跳过，不写进资源包；改玩家名就会重新算">已跳过</span>`;
+  if (r.skip) return `<span class="slot skipped" title="已跳过，不会写入资源包；修改玩家名后将重新计算">已跳过</span>`;
   if (SK.mode === "player") {
-    if (!it) return `<span class="slot none">填玩家名后显示</span>`;
-    const tip = `${it.slot.path}\n离线 UUID ${it.uuid}` + (it.clash ? `\n和别人撞进了同一个默认皮肤，一个资源包里同一个只能放一张` : "");
-    return `<span class="slot${it.clash ? " clash" : ""}" title="${esc(tip)}">${slotTxt(it.slot)}</span>` + (it.clash ? `<button class="keep" data-keep="${i}" title="保留这一张，同一个默认皮肤里的其他几张跳过">保留</button>` : "");
+    if (!it) return `<span class="slot none">输入玩家名后显示</span>`;
+    const tip = `${it.slot.path}\n离线 UUID ${it.uuid}` + (it.clash ? `\n与其他玩家命中同一默认皮肤槽位，单个资源包内同一槽位仅可保留一项` : "");
+    return `<span class="slot${it.clash ? " clash" : ""}" title="${esc(tip)}">${slotTxt(it.slot)}</span>` + (it.clash ? `<button class="keep" data-keep="${i}" title="保留此项，同槽位的其他项将跳过">保留</button>` : "");
   }
-  if (it.full) return `<span class="slot pick clash" data-pick="${i}" title="Minecraft ${esc(SK.mc)} 只有 ${PV.slots.length} 个默认皮肤，放不下这一张">放不下${KIT.icon("chevronDown")}</span>`;
+  if (it.full) return `<span class="slot pick clash" data-pick="${i}" title="Minecraft ${esc(SK.mc)} 仅含 ${PV.slots.length} 个默认皮肤槽位，已无空位可分配">槽位已满${KIT.icon("chevronDown")}</span>`;
   const au = r.slot < 0 ? `<span class="au">自动</span>` : "";
-  return `<span class="slot pick${it.clash ? " clash" : ""}" data-pick="${i}" title="${esc(it.slot.path + (it.clash ? "\n两张挑了同一个默认皮肤，换一个或者保留其中一张" : "\n点一下换一个"))}">${au}${slotTxt(it.slot)}${KIT.icon("chevronDown")}</span>`
-    + (it.clash ? `<button class="keep" data-keep="${i}" title="保留这一张，挑了同一个的其他几张跳过">保留</button>` : "");
+  return `<span class="slot pick${it.clash ? " clash" : ""}" data-pick="${i}" title="${esc(it.slot.path + (it.clash ? "\n多项指定了同一默认皮肤槽位，请更换槽位或选择保留其中一项" : "\n点击更换槽位"))}">${au}${slotTxt(it.slot)}${KIT.icon("chevronDown")}</span>`
+    + (it.clash ? `<button class="keep" data-keep="${i}" title="保留此项，同槽位的其他项将跳过">保留</button>` : "");
 }
 function fileMeta(r) {
-  if (!r.file) return `<div class="fm">未选择 PNG</div>`;
+  if (!r.file) return `<div class="fm">未选择皮肤 PNG</div>`;
   if (r.file.err) return `<div class="fm bad" title="皮肤尺寸必须是 64×64 或旧版 64×32">${esc(r.file.name)} · ${esc(r.file.err)}</div>`;
-  return `<div class="fm">${esc(r.file.name)} · ${r.file.w}×${r.file.h}` + (r.file.h === 32 ? ` <span class="lg" title="旧版 64×32：打包时照客户端的规则镜像扩成 64×64">· 自动扩成 64×64</span>` : "") + `</div>`;
+  return `<div class="fm">${esc(r.file.name)} · ${r.file.w}×${r.file.h}` + (r.file.h === 32 ? ` <span class="lg" title="旧版 64×32 贴图：打包时将按客户端规则镜像扩展为 64×64">· 自动扩展为 64×64</span>` : "") + `</div>`;
 }
 function rowHTML(r, i) {
   const th = !r.file ? `<span class="sth empty" data-file="${i}" title="选择皮肤 PNG（64×64 或旧版 64×32，不超过 2 MB）"><i data-ic="upload"></i></span>`
-    : r.file.err ? `<span class="sth bad" data-file="${i}" title="换一张皮肤 PNG"><i data-ic="warn"></i></span>`
+    : r.file.err ? `<span class="sth bad" data-file="${i}" title="更换皮肤 PNG"><i data-ic="warn"></i></span>`
     : `<span class="sth" data-file="${i}" title="更换皮肤 PNG">${faceSVG(r.file.seed)}<span class="ov"><i data-ic="refresh"></i></span></span>`;
   const ph = SK.mode === "player" ? "玩家名（区分大小写）" : "备注（选填）";
   return `<div class="srow${r.skip ? " skip" : ""}" data-row="${r.id}">${th}<div class="stx"><input class="pn" data-name="${i}" value="${esc(r.player)}" placeholder="${ph}" maxlength="32" spellcheck="false" autocomplete="off">${fileMeta(r)}</div>`
-    + `<span class="slotw" data-k="${esc(slotKey(r, i))}">${slotHTML(r, i)}</span><button class="x" data-del="${i}" title="${SK.rows.length > 1 ? "拿掉这一行" : "至少留一行"}"${SK.rows.length > 1 ? "" : " disabled"}><i data-ic="x"></i></button></div>`;
+    + `<span class="slotw" data-k="${esc(slotKey(r, i))}">${slotHTML(r, i)}</span><button class="x" data-del="${i}" title="${SK.rows.length > 1 ? "移除该行" : "至少保留一行"}"${SK.rows.length > 1 ? "" : " disabled"}><i data-ic="x"></i></button></div>`;
 }
-const slotAside = () => PV.err ? "" : `<span class="aside" title="${esc((PV.modern ? "1.19.3 起，离线玩家用细手臂还是经典手臂也由玩家名对应的 UUID 决定，资源包只能换贴图，不能把细手臂的改成经典的。"
-  : "1.19.2 及更早只有 Steve 和 Alex 两个默认皮肤，超过 2 个人一定会撞；只配最常用的两位，或者换成按顺序替换。") + `\npack_format ${PV.pf}`)}">${PV.slots.length} 个默认槽位</span>`;
+const slotAside = () => PV.err ? "" : `<span class="aside" title="${esc((PV.modern ? "自 1.19.3 起，离线玩家的手臂模型（纤细或经典）同样由玩家名对应的 UUID 决定；资源包仅可替换贴图，无法更改手臂模型。"
+  : "1.19.2 及更早版本仅含 Steve 与 Alex 两个默认皮肤，超过 2 位玩家必然冲突；建议仅配置常用两位，或切换为「按顺序」。") + `\npack_format ${PV.pf}`)}">${PV.slots.length} 个默认槽位</span>`;
 const MC_CHIPS = ["26.2", "1.21.4", "1.20.1", "1.12.2"]; // 程序的 MC_PRESETS 有 12 个，这里挑 4 个放成快捷预设（一行放得下），别的直接填；1.12.2 是只有两个默认皮肤的老版本
 // 描述留空时程序写的那句（照 finishBuildSkinPack），放在悬停里；框里的淡字只写「留空自动生成」，整句放不下
 const descDefault = () => `${SK.name.trim() || "MineDeck 离线皮肤包"}（适配 Minecraft ${SK.mc.trim() || "1.21.4"}，共 ${SK.rows.filter(r => !r.skip && r.file && !r.file.err).length} 个默认皮肤）`;
 const descPH = () => "留空自动生成";
-const descTip = () => `写进 pack.mcmeta，游戏里资源包列表上显示\n留空就写：${descDefault()}`;
+const descTip = () => `写入 pack.mcmeta，显示于游戏资源包列表中\n留空时默认填入：${descDefault()}`;
 function verNote() {
   if (PV.err) return `<i data-ic="warn"></i><span title="${esc(PV.tip)}">${PV.err}</span>`;
   return SK.verNote ? `<i data-ic="info"></i>${esc(SK.verNote)}` : "";
@@ -927,25 +927,25 @@ skinView = () => {
         <div class="mpre" id="mcchips">${MC_CHIPS.map(v => `<button class="mp${SK.mc.trim() === v ? " on" : ""}" data-mc="${v}">${v}</button>`).join("")}</div>
         <div class="fnote${PV.err ? " bad" : ""}" id="mcnote">${verNote()}</div></div>
       <div class="fld"><span class="lb">分配方式</span><div class="seg" id="spmode"><i class="sgl"></i>`
-    + `<span data-mode="player"${SK.mode === "player" ? ` class="on"` : ""} title="按玩家名的离线 UUID 算出客户端会用哪个默认皮肤，每人一张">按玩家名</span>`
-    + `<span data-mode="sequential"${SK.mode === "sequential" ? ` class="on"` : ""} title="不看玩家名，按顺序或者自己挑默认皮肤的位置放进去；适合给某个默认角色整体换皮">按顺序替换</span></div></div>
+    + `<span data-mode="player"${SK.mode === "player" ? ` class="on"` : ""} title="根据玩家名的离线 UUID 计算客户端对应的默认皮肤槽位，每位玩家对应一项">按玩家名</span>`
+    + `<span data-mode="sequential"${SK.mode === "sequential" ? ` class="on"` : ""} title="不依赖玩家名，按顺序分配或手动指定默认皮肤槽位；适合批量替换默认角色外观">按顺序</span></div></div>
       <div class="fld"><span class="lb">资源包名称</span><input class="inp" id="spname" value="${esc(SK.name)}" maxlength="100" placeholder="MineDeck 离线皮肤包"></div>
       <div class="fld"><span class="lb">资源包描述（选填）</span><input class="inp" id="spdesc" value="${esc(SK.desc)}" maxlength="200" placeholder="${esc(descPH())}" title="${esc(descTip())}"></div>
     </div>`;
   const full = SK.rows.length >= MAX;
   const lst = `<div class="col lst"><h3>皮肤列表<span class="cnt" id="spcnt">${SK.rows.length} / ${MAX}</span><span class="sp"></span>`
-    + `<button class="tbtn" data-act="fromsrv" title="把一台服务器的在线、白名单、管理员玩家名填进来，游戏版本也改成那台的"><i data-ic="server"></i>从服务器读取</button>`
-    + `<button class="ib" data-act="addrow" title="${full ? "一次最多 18 张" : "加一行"}"${full ? " disabled" : ""}><i data-ic="plus"></i></button></h3>`
+    + `<button class="tbtn" data-act="fromsrv" title="读取指定服务器的在线、白名单与管理员玩家名，并同步其游戏版本"><i data-ic="server"></i>从服务器读取</button>`
+    + `<button class="ib" data-act="addrow" title="${full ? "最多支持 18 张皮肤" : "添加一行"}"${full ? " disabled" : ""}><i data-ic="plus"></i></button></h3>`
     + `<div class="lwrap"><div class="list" id="sprows">${SK.rows.map(rowHTML).join("")}</div><i class="thumb"></i></div>`
-    + `<div class="drop${full ? " off" : ""}" data-act="drop" title="${full ? "一次最多 18 张" : "可以一次拖进好几张，一张一行；64×64 或旧版 64×32，每张不超过 2 MB"}"><i data-ic="upload"></i>拖入皮肤 PNG，或点击选择</div></div>`;
+    + `<div class="drop${full ? " off" : ""}" data-act="drop" title="${full ? "最多支持 18 张皮肤" : "支持一次拖入多张 PNG，每张占一行；支持 64×64 或旧版 64×32，单张不超过 2 MB"}"><i data-ic="upload"></i>拖入皮肤 PNG，或点击选择</div></div>`;
   return `<h1 class="q">离线皮肤包生成</h1><div class="panel skp">${set}${lst}<div class="ostrip" id="spstrip">${stripIdle()}</div></div>`;
 };
 const stripIdle = () => `${pathBox(SK.dest)}<span class="sp"></span><span class="msg" id="spmsg"></span>`;
 function stripDone() {
   const r = SK.result;
-  return `<div class="res"><span class="ok"><i data-ic="check"></i></span><span class="fn" title="${esc(r.fileName + (r.saved ? "\n已存到 " + r.saved : ""))}">${esc(r.fileName)}</span>`
-    + `<span class="facts">${r.size} · ${r.textures} 张贴图 · pack_format ${r.pf}${r.saved ? ` · 已存到文件夹` : ""}</span><span class="sp"></span>`
-    + `<span class="hk" title="服务器 server.properties 里 resource-pack-sha1 填这个">resource-pack-sha1</span><span class="hv">${r.sha1}</span>`
+  return `<div class="res"><span class="ok"><i data-ic="check"></i></span><span class="fn" title="${esc(r.fileName + (r.saved ? "\n已保存至 " + r.saved : ""))}">${esc(r.fileName)}</span>`
+    + `<span class="facts">${r.size} · ${r.textures} 张贴图 · pack_format ${r.pf}${r.saved ? ` · 已保存至文件夹` : ""}</span><span class="sp"></span>`
+    + `<span class="hk" title="用于填写服务器 server.properties 中的 resource-pack-sha1 项">resource-pack-sha1</span><span class="hv">${r.sha1}</span>`
     + `<button class="ib" data-act="copy" data-copy="${r.sha1}" title="复制"><i data-ic="copy"></i></button></div><span class="msg" id="spmsg"></span>`;
 }
 afterSkin = () => {
@@ -1014,13 +1014,13 @@ function afterRowsChanged() {
   const list = document.getElementById("sprows");
   [...list.querySelectorAll(".srow:not(.out)")].forEach((row, i) => {
     row.querySelector(".pn").dataset.name = i; row.querySelector(".sth").dataset.file = i; const x = row.querySelector(".x");
-    x.dataset.del = i; x.disabled = SK.rows.length <= 1; x.title = SK.rows.length > 1 ? "拿掉这一行" : "至少留一行";
+    x.dataset.del = i; x.disabled = SK.rows.length <= 1; x.title = SK.rows.length > 1 ? "移除该行" : "至少保留一行";
     row.querySelectorAll("[data-keep],[data-pick]").forEach(b => { if (b.dataset.keep != null) b.dataset.keep = i; if (b.dataset.pick != null) b.dataset.pick = i; });
   });
   document.getElementById("spcnt").textContent = `${SK.rows.length} / ${MAX}`;
   const full = SK.rows.length >= MAX, add = document.querySelector('[data-act="addrow"]'), drop = document.querySelector('[data-act="drop"]');
-  add.disabled = full; add.title = full ? "一次最多 18 张" : "加一行"; drop.classList.toggle("off", full);
-  drop.title = full ? "一次最多 18 张" : "可以一次拖进好几张，一张一行；64×64 或旧版 64×32，每张不超过 2 MB";
+  add.disabled = full; add.title = full ? "最多支持 18 张皮肤" : "添加一行"; drop.classList.toggle("off", full);
+  drop.title = full ? "最多支持 18 张皮肤" : "支持一次拖入多张 PNG，每张占一行；支持 64×64 或旧版 64×32，单张不超过 2 MB";
   repaint(); document.querySelector(".skp .lwrap")._paint?.();
 }
 // 拿掉一行：往右划 32 像素淡掉再收起（同向导清单）
@@ -1057,11 +1057,11 @@ function keepRow(i) {
 function pickSlot(i, anchor) {
   const r = SK.rows[i], taken = {};
   PV.items.forEach((it, k) => { if (k !== i && it?.slot && !SK.rows[k].skip) taken[it.slot.i] = k + 1; });
-  const cell = s => `<button class="sc${r.slot === s.i ? " on" : ""}${taken[s.i] ? " used" : ""}" data-slot="${s.i}" title="${esc(s.path + (taken[s.i] ? `\n第 ${taken[s.i]} 行在用` : ""))}">${s.ch}</button>`;
-  const auto = [["", "手臂不限"], ["wide", "经典"], ["slim", "纤细"]].map(([m, t]) => `<button class="sc${r.slot < 0 && r.model === m ? " on" : ""}" data-auto="${m}" title="挑一个还空着的${m ? MODEL_TIP[m] + "手臂的" : ""}默认皮肤">${t}</button>`).join("");
+  const cell = s => `<button class="sc${r.slot === s.i ? " on" : ""}${taken[s.i] ? " used" : ""}" data-slot="${s.i}" title="${esc(s.path + (taken[s.i] ? `\n已由第 ${taken[s.i]} 行占用` : ""))}">${s.ch}</button>`;
+  const auto = [["", "手臂不限"], ["wide", "经典"], ["slim", "纤细"]].map(([m, t]) => `<button class="sc${r.slot < 0 && r.model === m ? " on" : ""}" data-auto="${m}" title="自动分配一个空闲的${m ? MODEL_TIP[m] + "手臂" : ""}默认皮肤槽位">${t}</button>`).join("");
   const rows = PV.modern ? ["slim", "wide"].map(m => `<span class="rl">${MODEL[m]}</span>${PV.slots.filter(s => s.model === m).map(cell).join("")}`).join("")
     : `<span class="rl">默认</span>${PV.slots.map(cell).join("")}<span style="grid-column: span 7"></span>`;
-  openPop(anchor, `<div class="ph">放进哪个默认皮肤</div><div class="sgrid"><span class="rl">自动</span><span class="auto">${auto}</span>${rows}</div>`, {
+  openPop(anchor, `<div class="ph">选择默认皮肤槽位</div><div class="sgrid"><span class="rl">自动</span><span class="auto">${auto}</span>${rows}</div>`, {
     align: "right", onPick: e => {
       const s = e.target.closest("[data-slot]"), a = e.target.closest("[data-auto]");
       if (s) { r.slot = +s.dataset.slot; r.model = ""; } else if (a) { r.slot = -1; r.model = a.dataset.auto; } else return;
@@ -1071,7 +1071,7 @@ function pickSlot(i, anchor) {
 // 从服务器读取：弹出服务器列表，挑一台把玩家名填进来（先填空着的行，不够再往下加，最多 18 行），版本改成那台的（照程序 importBtn）
 function fromServer(anchor) {
   const rows = SERVERS.map(([n, core, label, mc], i) => `<div class="prow" data-srv="${i}">${MDPixel16.svg(core, 32).replace("<svg", '<svg class="px"')}<div class="m"><div class="n">${esc(n)}</div></div><span class="k">${label} ${mc}</span></div>`).join("");
-  openPop(anchor, `<div class="ph">读取哪台服务器的玩家</div><div class="lwrap" style="height:288px;flex:none"><div class="list" style="gap:2px">${rows}</div><i class="thumb" style="right:-4px"></i></div>`, {
+  openPop(anchor, `<div class="ph">选择服务器以读取玩家</div><div class="lwrap" style="height:288px;flex:none"><div class="list" style="gap:2px">${rows}</div><i class="thumb" style="right:-4px"></i></div>`, {
     width: 320, align: "right", onPick: e => {
       const x = e.target.closest("[data-srv]"); if (!x) return; closePop();
       const [name, , , mc] = SERVERS[+x.dataset.srv], have = new Set(SK.rows.map(r => r.player.trim()).filter(Boolean)), add = [];
@@ -1083,7 +1083,7 @@ function fromServer(anchor) {
         have.add(p);
       }
       if (add.length) addRows(add);
-      setVersion(mc, mc === SK.mc.trim() ? "" : `已改成「${name}」的版本`);
+      setVersion(mc, mc === SK.mc.trim() ? "" : `已同步为「${name}」的版本`);
     } });
 }
 // 底下那条说一句、晃一下
@@ -1101,20 +1101,20 @@ skinGo = () => {
   const see = i => rowEl(i)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   if (PV.err) { const mc = document.getElementById("spmc"); mc.classList.add("bad"); shakeEl(mc); mc.focus(); return; } // 那句话已经在框下面了，底下那条不再说一遍
   const live = SK.rows.map((r, i) => [r, i]).filter(([r]) => !r.skip);
-  if (!live.length) { block("至少放一张皮肤"); return; }
+  if (!live.length) { block("请至少添加一张皮肤"); return; }
   if (PV.conflicts.length) {
     const c = PV.conflicts[0], who = c.rows.map(i => SK.rows[i].player.trim() || `第 ${i + 1} 行`).join("、");
     see(c.rows[0]); c.rows.forEach(i => shakeEl(rowEl(i)?.querySelector(".slot")));
-    block(`${who} 撞进了同一个默认皮肤，先选保留谁`); return;
+    block(`${who} 命中同一默认皮肤槽位，请先选择保留项`); return;
   }
   const full = live.find(([, i]) => PV.items[i]?.full);
-  if (full) { see(full[1]); shakeEl(rowEl(full[1]).querySelector(".slot")); block(`第 ${full[1] + 1} 行放不下了`); return; }
+  if (full) { see(full[1]); shakeEl(rowEl(full[1]).querySelector(".slot")); block(`第 ${full[1] + 1} 行已无可用默认皮肤槽位`); return; }
   const badf = live.find(([r]) => r.file?.err);
-  if (badf) { see(badf[1]); block(`第 ${badf[1] + 1} 行的 PNG 不能用`, rowEl(badf[1]).querySelector(".sth")); return; }
+  if (badf) { see(badf[1]); block(`第 ${badf[1] + 1} 行的 PNG 文件无效`, rowEl(badf[1]).querySelector(".sth")); return; }
   const noname = SK.mode === "player" && live.find(([r]) => !r.player.trim());
-  if (noname) { const inp = rowEl(noname[1]).querySelector(".pn"); see(noname[1]); block(`第 ${noname[1] + 1} 行还没填玩家名`, inp, inp); return; }
+  if (noname) { const inp = rowEl(noname[1]).querySelector(".pn"); see(noname[1]); block(`第 ${noname[1] + 1} 行未填写玩家名`, inp, inp); return; }
   const nofile = live.find(([r]) => !r.file);
-  if (nofile) { see(nofile[1]); block(`第 ${nofile[1] + 1} 行还没选皮肤 PNG`, rowEl(nofile[1]).querySelector(".sth")); return; }
+  if (nofile) { see(nofile[1]); block(`第 ${nofile[1] + 1} 行未选择皮肤 PNG`, rowEl(nofile[1]).querySelector(".sth")); return; }
   clearMsg();
   SK.busy = true; navLabel();
   setTimeout(() => { SK.busy = false; makeResult(true); }, 800);
@@ -1128,7 +1128,7 @@ function makeResult(animate) {
   if (animate) swapItems(strip, stripDone(), 1, "X"); else { strip.innerHTML = stripDone(); KIT.hydrate(strip); }
   navLabel();
   const b = document.getElementById("next");
-  b.title = "资源包要每位朋友放进各自客户端的 resourcepacks 文件夹并启用才生效；有正版皮肤的在线账号不会被默认皮肤盖掉。";
+  b.title = "需由每位玩家将资源包放入各自客户端的 resourcepacks 文件夹并启用后生效；已设置正版皮肤的在线账号不会被默认皮肤覆盖。";
 }
 skinClick = e => {
   const t = e.target;
@@ -1185,7 +1185,7 @@ const CORE_NAME = { fabric: "Fabric", forge: "Forge", neoforge: "NeoForge", mohi
 const MODSRV = [["机械动力整合包", "forge", "1.20.1"], ["匠魂与暮色", "neoforge", "1.21.1"], ["模组加插件", "mohist", "1.20.1"], ["末地速通练习", "fabric", "1.21.1"], ["怀旧 1.12.2", "forge", "1.12.2"], ["暮色森林探险", "neoforge", "1.21.1"]];
 // Mohist、Taiyitist 按 Forge、Fabric 导出（照 mrpackCoreSpec），提醒原文进悬停，页面上留一句短的（会改变结果）
 const EXPORT_AS = { mohist: "forge", banner: "fabric" };
-const CORE_NOTE = { mohist: "这台是 Mohist（混端），整合包将按 Forge 模组端导出，仅含 mods 里的模组，不含服务端插件。", banner: "这台是 Banner（混端），整合包将按 Fabric 模组端导出，仅含 mods 里的模组，不含服务端插件。" };
+const CORE_NOTE = { mohist: "当前为 Mohist（混端），整合包将按 Forge 模组端导出，仅包含 mods 中的模组，不含服务端插件。", banner: "当前为 Taiyitist（混端），整合包将按 Fabric 模组端导出，仅包含 mods 中的模组，不含服务端插件。" };
 const MP_CHIPS = ["26.2", "26.1", "1.21.4", "1.20.1"]; // 程序 MC_PRESETS 里挑的 4 个
 const MP = { step: 0, src: "draft", name: "我的整合包", ver: "1.0.0", sum: "", core: "neoforge", mc: "26.1", lv: "", deps: true, inst: 1, cfg: false, dest: "",
   busy: false, result: null, draftErr: false, noMods: false, nameTouched: false, loaded: false };
@@ -1197,38 +1197,38 @@ const MP = { step: 0, src: "draft", name: "我的整合包", ver: "1.0.0", sum: 
   if (n >= 1 && n <= 3) MP.step = Math.min(n - 1, MP.src === "draft" ? 2 : 1);
   if (s === "done") { MP.step = MP.src === "draft" ? 2 : 1; MP.result = true; }
   if (MP.src === "instance") MP.name = MODSRV[MP.inst][0]; } // 从服务器导出时名称跟着服务器（照程序）
-const STEPS = () => MP.src === "draft" ? ["配置整合包信息", "挑选要放进整合包的模组", "确认导出清单"] : ["配置整合包信息", "确认导出清单"];
+const STEPS = () => MP.src === "draft" ? ["配置整合包信息", "选择整合包模组", "确认导出清单"] : ["配置整合包信息", "确认导出清单"];
 const isLast = () => MP.step === STEPS().length - 1;
 const exportCore = () => MP.src === "draft" ? MP.core : (EXPORT_AS[MODSRV[MP.inst][1]] || MODSRV[MP.inst][1]);
 
 // ---- 第 1 步：配置整合包信息 ----
-const srcTip = { draft: "在 Modrinth 上挑模组放进一张清单，只在客户端用的（小地图、光影加载器之类）也能放；清单只用来导出，不会装进任何服务器，下次打开还在",
-  instance: "把一台模组服务器 mods 文件夹里的模组导出来；Modrinth 上认得出的让朋友的启动器去下载，认不出的整个打进包里" };
-const dnoteHTML = () => `<div class="dnote"><i data-ic="warn"></i><span>读不出上次存好的信息，这次改的不会自动保存</span>`
-  + `<button class="ib" data-act="retry" title="重新读取：读出来以后，表单换成存好的那份，现在改的不保留"><i data-ic="refresh"></i></button></div>`;
+const srcTip = { draft: "从 Modrinth 挑选模组加入导出清单，同时支持添加仅客户端模组（如小地图、光影加载器）；该清单仅用于导出整合包，不会安装至任何服务器，且会自动保存",
+  instance: "导出指定模组服务器 mods 文件夹中的模组；Modrinth 已收录的模组将由启动器在线下载，未收录的将完整打包至整合包内" };
+const dnoteHTML = () => `<div class="dnote"><i data-ic="warn"></i><span>无法读取上次保存的草稿，当前修改不会自动保存</span>`
+  + `<button class="ib" data-act="retry" title="重新读取草稿；读取成功后将恢复已保存内容，当前修改不会保留"><i data-ic="refresh"></i></button></div>`;
 function step1() {
   const err = MP.draftErr && MP.src === "draft" ? dnoteHTML() : "";
   const info = `<div class="col"><h3>整合包信息</h3>${err}
-      <div class="fld"><span class="lb">整合包名称</span><input class="inp" id="mpname" value="${esc(MP.name)}" maxlength="100" placeholder="朋友联机整合包"></div>
-      <div class="fld"><span class="lb">版本号</span><input class="inp mono" id="mpver" value="${esc(MP.ver)}" maxlength="50" placeholder="1.0.0" title="整合包自己的版本号；改了内容再发一次时往上加，朋友的启动器靠它分新旧"></div>
-      <div class="fld"><span class="lb">简介（选填）</span><input class="inp" id="mpsum" value="${esc(MP.sum)}" maxlength="300" placeholder="给朋友看的一句话"></div></div>`;
-  const off = MP.noMods ? ` class="off" title="还没有模组服务器（Fabric、Forge、NeoForge、Mohist、Taiyitist），先用「自己挑模组」"` : ` title="${esc(srcTip.instance)}"`;
-  const src = `<div class="col"><h3>模组来源</h3><div class="seg" id="mpsrc"><i class="sgl"></i><span data-src="draft"${MP.src === "draft" ? ` class="on"` : ""} title="${esc(srcTip.draft)}">自己挑模组</span>`
+      <div class="fld"><span class="lb">整合包名称</span><input class="inp" id="mpname" value="${esc(MP.name)}" maxlength="100" placeholder="我的整合包"></div>
+      <div class="fld"><span class="lb">版本号</span><input class="inp mono" id="mpver" value="${esc(MP.ver)}" maxlength="50" placeholder="1.0.0" title="整合包自身版本号；更新内容重新分发时递增，供启动器区分版本新旧"></div>
+      <div class="fld"><span class="lb">简介（选填）</span><input class="inp" id="mpsum" value="${esc(MP.sum)}" maxlength="300" placeholder="一句话介绍"></div></div>`;
+  const off = MP.noMods ? ` class="off" title="暂无模组服务器（Fabric、Forge、NeoForge、Mohist、Taiyitist），请先使用「自选模组」"` : ` title="${esc(srcTip.instance)}"`;
+  const src = `<div class="col"><h3>模组来源</h3><div class="seg" id="mpsrc"><i class="sgl"></i><span data-src="draft"${MP.src === "draft" ? ` class="on"` : ""} title="${esc(srcTip.draft)}">自选模组</span>`
     + `<span data-src="instance"${MP.src === "instance" ? ` class="on"` : off}>从已有服务器导出</span></div><div class="det" id="mpdet">${detHTML()}</div></div>`;
   return `<div class="panel mp1">${info}${src}</div>`;
 }
-function mcNote() { return parseMC(MP.mc) ? "" : `<i data-ic="warn"></i>版本号认不出来`; }
+function mcNote() { return parseMC(MP.mc) ? "" : `<i data-ic="warn"></i>无法识别版本号`; }
 function detHTML() {
   if (MP.src === "draft") return `<div class="fld"><span class="lb">加载器</span><div class="seg" id="mpcore"><i class="sgl"></i>${["fabric", "neoforge", "forge"].map(c =>
       `<span data-core="${c}"${MP.core === c ? ` class="on"` : ""}>${CORE_NAME[c]}</span>`).join("")}</div></div>
     <div class="g2"><div class="fld"><span class="lb">游戏版本</span><input class="inp mono${parseMC(MP.mc) ? "" : " bad"}" id="mpmc" value="${esc(MP.mc)}" maxlength="40" placeholder="1.20.1" spellcheck="false" autocomplete="off">
         <div class="mpre" id="mpchips">${MP_CHIPS.map(v => `<button class="mp${MP.mc.trim() === v ? " on" : ""}" data-mc="${v}">${v}</button>`).join("")}</div><div class="fnote bad" id="mpmcnote">${mcNote()}</div></div>
-      <div class="fld"><span class="lb">加载器版本（选填）</span><input class="inp mono" id="mplv" value="${esc(MP.lv)}" maxlength="80" placeholder="留空用官方推荐" spellcheck="false" autocomplete="off"
-        title="写进整合包的加载器版本；留空的话，导出时向官方取这个游戏版本推荐的那一个"></div></div>`;
+      <div class="fld"><span class="lb">加载器版本（选填）</span><input class="inp mono" id="mplv" value="${esc(MP.lv)}" maxlength="80" placeholder="留空使用官方推荐" spellcheck="false" autocomplete="off"
+        title="写入整合包的加载器版本；留空时将在导出时自动获取对应游戏版本的官方推荐版本"></div></div>`;
   const s = MODSRV[MP.inst];
   return `<div class="lwrap srvw"><div class="list" id="mpsrv"><i class="hl"></i>${MODSRV.map(([n, core, mc], i) =>
       `<div class="row${i === MP.inst ? " on" : ""}" data-srv="${i}">${MDPixel16.svg(core, 32)}${esc(n)}<span class="sp"></span><span class="k">${CORE_NAME[core]} ${mc}</span></div>`).join("")}</div><i class="thumb"></i></div>
-    <div class="cfgrow"><div class="tg${MP.cfg ? " on" : ""}" data-act="cfg" title="把 config 文件夹放进 overrides/config/。看起来带密码、令牌、密钥的配置文件会尽量挑出来不打进去，但难免有认不出的，发之前看一眼下一步列出的配置文件"><span class="sw"></span><span class="t">一并打包 config/</span></div>`
+    <div class="cfgrow"><div class="tg${MP.cfg ? " on" : ""}" data-act="cfg" title="将 config 文件夹打包至 overrides/config/。系统会自动尽量排除疑似包含密码、令牌或密钥的配置文件，但可能存在遗漏，分享前请在下一步核对已包含的配置文件列表"><span class="sw"></span><span class="t">一并打包 config/</span></div>`
     + `<span class="fnote" id="mpcnote">${coreNote(s)}</span></div>`;
 }
 const coreNote = s => CORE_NOTE[s[1]] ? `<span title="${esc(CORE_NOTE[s[1]])}" style="display:flex;align-items:center;gap:5px"><i data-ic="info"></i>按 ${CORE_NAME[EXPORT_AS[s[1]]]} 导出，不含插件</span>` : "";
@@ -1294,10 +1294,10 @@ function atitle() {
   return `${main}<span class="asub">适配 ${CORE_NAME[MP.core]} ${esc(MP.mc)} · Modrinth</span>`;
 }
 function gridItems() { const q = aq.toLowerCase(); return ALL().filter(x => (acat ? x.cats.includes(acat) : !LIB_ONLY(x)) && (!q || (x.n + x.d).toLowerCase().includes(q))).sort((a, b) => b.dl - a.dl); }
-function gridEnd(total) { return `<div class="gend">${!acat && !aq && window.MR_SAMPLE["模组"].total > CAP ? `仅展示热门前 ${CAP} 项，更多内容可通过搜索或分类查找` : `已显示全部 ${total} 个。`}</div>`; }
+function gridEnd(total) { return `<div class="gend">${!acat && !aq && window.MR_SAMPLE["模组"].total > CAP ? `仅展示热门前 ${CAP} 项，更多内容可通过搜索或分类查找` : `已显示全部 ${total} 项`}</div>`; }
 function gridHTML() {
   const items = gridItems(), has = new Set(picked.map(p => p.id));
-  if (!items.length) return `<div class="cempty" style="grid-column: 1 / -1; margin-top: 60px">未找到匹配的模组，请换个关键词或分类。</div>`;
+  if (!items.length) return `<div class="cempty" style="grid-column: 1 / -1; margin-top: 60px">未找到匹配的模组，请更换关键词或分类</div>`;
   shown = Math.min(PAGE, items.length); loadingMore = false;
   return items.slice(0, shown).map(x => cardHTML(x, has)).join("") + (shown >= Math.min(items.length, CAP) ? gridEnd(Math.min(items.length, CAP)) : "");
 }
@@ -1322,14 +1322,14 @@ function moreCards() {
     loadingMore = false; g.closest(".lwrap")._paint?.(); moreCards();
   }, 600);
 }
-const LOCAL_NOTE = "自己添加的本地文件，整个打进 overrides/mods";
+const LOCAL_NOTE = "手动添加的本地文件，将完整打包至 overrides/mods";
 function crowHTML(p) {
   if (p.local) return `<div class="crow" data-id="local:${esc(p.local)}"><span class="mt jar">${KIT.icon("package")}</span><div class="m"><div class="n">${esc(p.local)}</div><div class="why" title="${LOCAL_NOTE}">本地文件</div></div>`
-    + `<span class="x" data-unlocal="${esc(p.local)}" aria-label="从清单里拿掉 ${esc(p.local)}"><i data-ic="x"></i></span></div>`;
+    + `<span class="x" data-unlocal="${esc(p.local)}" title="移除" aria-label="从清单移除 ${esc(p.local)}"><i data-ic="x"></i></span></div>`;
   const x = byId(p.id), by = p.by && byId(p.by);
-  const why = by ? `${esc(by.n)} 的前置依赖` : x.ss === "unsupported" ? "仅客户端" : x.cs === "unsupported" ? "仅服务端，朋友那边不装" : esc(x.d);
+  const why = by ? `${esc(by.n)} 的前置依赖` : x.ss === "unsupported" ? "仅客户端" : x.cs === "unsupported" ? "仅服务端，客户端无需安装" : esc(x.d);
   return `<div class="crow" data-id="${x.id}">${tile(x)}<div class="m"><div class="n">${esc(x.n)}${by ? `<span class="ftag">前置</span>` : ""}</div><div class="why">${why}</div></div>
-    <span class="x" data-unpick="${x.id}" aria-label="从清单里拿掉 ${esc(x.n)}"><i data-ic="x"></i></span></div>`;
+    <span class="x" data-unpick="${x.id}" title="移除" aria-label="从清单移除 ${esc(x.n)}"><i data-ic="x"></i></span></div>`;
 }
 const cartAll = () => [...picked, ...locals.map(l => ({ local: l }))];
 function step2() {
@@ -1338,10 +1338,10 @@ function step2() {
     <div class="col browse"><h3><span id="atitle">${atitle()}</span><span class="sp"></span><label class="findin"><i data-ic="search"></i><input id="aq" placeholder="搜索模组（建议英文名）" value="${esc(aq)}" autocomplete="off"></label></h3>
       <div class="chips"><i class="chl"></i>${chips.map(([k, t]) => `<span class="chip${k === acat ? " on" : ""}" data-cat="${k}">${t}</span>`).join("")}</div>
       <div class="lwrap"><div class="list grid" id="agrid">${gridHTML()}</div><i class="thumb"></i></div></div>
-    <div class="col cart"><h3><span title="清单会自动保存，下次打开还在；只用来导出整合包，不会装进任何服务器">待装清单</span><span class="cnt" id="acnt"></span><span class="sp"></span><span class="clr" data-clear>清空</span></h3>
+    <div class="col cart"><h3><span title="清单会自动保存，下次打开时保留；仅用于导出整合包，不会安装至任何服务器">待装清单</span><span class="cnt" id="acnt"></span><span class="sp"></span><span class="clr" data-clear>清空</span></h3>
       <div class="lwrap"><div class="list" id="alist"><div class="cempty"><b>暂未选择任何模组</b><span id="cehint">${cemptyHint()}</span></div>${cartAll().map(crowHTML).join("")}</div><i class="thumb"></i></div>
-      <div class="cdeps"><div class="tg${MP.deps ? " on" : ""}" data-act="deps" title="加一个模组时，把它必装的前置一起放进清单，省得朋友装完启动报错"><span class="sw"></span><span class="t">自动带出必装前置</span></div><span class="msg" id="cmsg"></span></div>
-      <div class="drop" data-act="localjar" title="自己下载的 jar；Modrinth 上认不出的会整个打进 overrides/mods"><i data-ic="folder"></i>拖入 .jar 文件，或点击选择本地文件</div></div>
+      <div class="cdeps"><div class="tg${MP.deps ? " on" : ""}" data-act="deps" title="添加模组时自动将其必装前置加入清单，避免客户端启动时缺少依赖"><span class="sw"></span><span class="t">自动添加必装前置</span></div><span class="msg" id="cmsg"></span></div>
+      <div class="drop" data-act="localjar" title="添加本地 .jar 文件；未被 Modrinth 收录的文件将完整打包至 overrides/mods"><i data-ic="folder"></i>拖入 .jar 文件，或点击选择本地文件</div></div>
   </div>`;
 }
 const cemptyHint = () => `点击左侧 ＋ 添加${MP.deps ? "，前置依赖将自动补全" : ""}。`;
@@ -1421,49 +1421,50 @@ function chipScroll(c) {
 // 服务器里 mods 文件夹的模组（编的：挑样本里的几个）；一个 Modrinth 上认不出的 jar 打进 overrides；config 文件名也是编的
 const INST_MODS = ["jei", "jade", "appleskin", "geckolib", "architectury-api", "terrablender", "clumps", "simple-voice-chat", "ferrite-core", "modernfix", "worldedit"];
 const INST_CFG = ["config/jei/jei-client.ini", "config/jade/jade.json", "config/appleskin-client.toml", "config/voicechat/voicechat-server.properties", "config/modernfix-mixins.properties"];
-const ENV_CN = { required: "要装", optional: "可选", unsupported: "不装" };
+const ENV_CN = { required: "必需", optional: "可选", unsupported: "不支持" };
 // 环境：照程序 envTag 的口径（ss / cs 是 Modrinth 的 server_side / client_side）
 function envOf(x) {
-  if (x.ss === "unsupported") return ["仅客户端", "co", "服务端标成 unsupported，朋友的客户端装、服务器不装"];
-  if (x.cs === "unsupported") return ["仅服务端", "", "客户端不装：朋友的启动器会跳过它"];
-  if (x.cs === "required" && x.ss === "required") return ["客户端+服务端", "", "两边都要装"];
-  return [`客户端${ENV_CN[x.cs] || "要装"}`, "", `Modrinth 上标的：客户端${ENV_CN[x.cs] || "要装"}，服务端${ENV_CN[x.ss] || "要装"}。启动器装整合包时，可选的会问朋友要不要装`];
+  if (x.ss === "unsupported") return ["仅客户端", "co", "服务端标记为不支持，仅需在客户端安装"];
+  if (x.cs === "unsupported") return ["仅服务端", "", "仅需在服务端安装，客户端启动器导入时将跳过此项"];
+  if (x.cs === "required" && x.ss === "required") return ["客户端 + 服务端", "", "客户端与服务端均需安装"];
+  return [`客户端${ENV_CN[x.cs] ?? "必需"}`, "", `Modrinth 标记：客户端${ENV_CN[x.cs] ?? "必需"}，服务端${ENV_CN[x.ss] ?? "必需"}。启动器导入整合包时，可选项将由玩家自行选择是否安装`];
 }
 function previewData() {
   if (MP.src === "draft") return {
     files: picked.map(p => ({ x: byId(p.id), by: p.by && byId(p.by) })),
     ov: locals.map(n => ({ n, path: "overrides/mods/" + n, note: LOCAL_NOTE })),
-    warn: locals.length ? ["提示：放进 overrides/mods 的本地模组会完整打进压缩包，分享给多人前请留意原模组作者的分发许可协议。"] : [],
+    warn: locals.length ? ["打包至 overrides/mods 的本地模组将完整包含在压缩包内，分发前请留意原模组的许可协议。"] : [],
   };
   const s = MODSRV[MP.inst];
-  const ov = [{ n: "custom-recipes-1.0.jar", path: "overrides/mods/custom-recipes-1.0.jar", note: "Modrinth 未收录（自定义、修改版或仅发布于其它平台），整包放进 overrides/mods" },
+  const ov = [{ n: "custom-recipes-1.0.jar", path: "overrides/mods/custom-recipes-1.0.jar", note: "Modrinth 未收录（自定义、修改版或仅发布于其他平台），将完整打包至 overrides/mods" },
     ...(MP.cfg ? INST_CFG.map(p => ({ n: p, path: "overrides/" + p, note: "服务端 config 配置文件", cfg: true })) : [])];
   return { files: INST_MODS.map(id => ({ x: byId(id) })), ov, warn: [CORE_NOTE[s[1]],
-    MP.cfg ? "这些配置文件看起来带着密码、令牌、密钥、数据库，或者是备份副本，没有打进包：config/discord-integration.toml。它们是服主自己的，发给朋友的包里不该有；确实要的话，请自己检查过内容再单独发。这只是尽量挑出来，打进包的配置文件都列在下面，发之前请看一眼" : "",
-    "提示：放进 overrides/mods 的本地模组会完整打进压缩包，分享给多人前请留意原模组作者的分发许可协议。"].filter(Boolean) };
+    MP.cfg ? ["已自动排除疑似敏感配置：config/discord-integration.toml（分享前请核对上方已打包的配置文件）",
+      "已自动排除疑似包含密码、令牌、密钥、数据库或备份的配置文件：config/discord-integration.toml。此类文件涉及隐私，不应直接分发；如确需包含，请检查内容后单独发送。自动识别可能存在遗漏，分享前请核对上方已打包的配置文件。"] : "",
+    "打包至 overrides/mods 的本地模组将完整包含在压缩包内，分发前请留意原模组的许可协议。"].filter(Boolean) };
 }
 const frowHTML = f => { const [t, cls, tip] = envOf(f.x);
   return `<div class="frow">${tile(f.x)}<div class="m"><div class="n">${esc(f.x.n)}${f.by ? `<span class="ftag" title="${esc(f.by.n)} 的前置依赖">前置</span>` : ""}</div>`
     + `<div class="why" title="${esc(f.x.d)}">${esc(f.x.d)}</div></div><span class="env ${cls}" title="${esc(tip)}">${t}</span></div>`; }; // 程序这里第二行是包里的路径（mods/文件名.jar），草图不知道真的文件名，放简介
 const orowHTML = o => `<div class="frow"><span class="mt jar">${KIT.icon(o.cfg ? "doc" : "package")}</span><div class="m"><div class="n">${esc(o.n.split("/").pop())}</div><div class="why" title="${esc(o.note)}">${esc(o.path)}</div></div></div>`;
-const wrowHTML = w => `<div class="wrow" title="${esc(w)}"><i data-ic="warn"></i><span>${esc(w)}</span></div>`;
+const wrowHTML = w => { const [t, tip] = Array.isArray(w) ? w : [w, w]; return `<div class="wrow" title="${esc(tip)}"><i data-ic="warn"></i><span>${esc(t)}</span></div>`; };
 const skelRows = n => `<div class="frow skel"><span class="mt"></span><div class="m"><i></i><i></i></div></div>`.repeat(n);
 function step3() {
   const core = exportCore(), mc = MP.src === "draft" ? MP.mc : MODSRV[MP.inst][2], lv = MP.src === "draft" && MP.lv.trim() ? MP.lv.trim() : "官方推荐版本";
   const sub = MP.sum.trim() || (MP.src === "draft" ? `Minecraft ${mc} · ${CORE_NAME[core]} ${lv}` : `从「${MODSRV[MP.inst][0]}」导出 · Minecraft ${mc} · ${CORE_NAME[core]}`);
   const cov = `<div class="mcov" style="--c:${MDPixel16.CORE_COLORS[core]}"><span class="av">${MDPixel16.svg(core, 32)}</span><div class="tt"><div class="nm">${esc(MP.name.trim() || "整合包")}<span class="v">${esc(MP.ver.trim() || "1.0.0")}</span></div>`
-    + `<div class="sb" title="${esc(`写进 modrinth.index.json 的依赖：minecraft ${mc} · ${core === "fabric" ? "fabric-loader" : core} ${lv}`)}">${esc(sub)}</div></div></div>`;
-  const left = `<div class="col"><h3><span title="写进 modrinth.index.json，朋友的启动器从 Modrinth 官方下载">在线下载</span><span class="cnt" id="fcnt"></span></h3>`
+    + `<div class="sb" title="${esc(`写入 modrinth.index.json 的依赖：minecraft ${mc} · ${core === "fabric" ? "fabric-loader" : core} ${lv}`)}">${esc(sub)}</div></div></div>`;
+  const left = `<div class="col"><h3><span title="写入 modrinth.index.json，导入时由启动器从 Modrinth 官方下载">在线下载</span><span class="cnt" id="fcnt"></span></h3>`
     + `<div class="lwrap"><div class="list" id="flist" style="gap:2px">${skelRows(6)}</div><i class="thumb"></i></div></div>`;
-  const right = `<div class="col rcol"><h3><span title="整个打进压缩包，不用朋友另外下载">打进 overrides</span><span class="cnt" id="ocnt"></span></h3>`
+  const right = `<div class="col rcol"><h3><span title="完整打包至压缩包内的 overrides 文件夹，玩家无需额外下载">打包至 overrides</span><span class="cnt" id="ocnt"></span></h3>`
     + `<div class="lwrap"><div class="list" id="olist" style="gap:2px">${skelRows(2)}</div><i class="thumb"></i></div></div>`;
   return `<div class="panel mp3">${cov}${left}${right}<div class="ostrip" id="mpstrip">${MP.result && MP.result !== true ? mStripDone() : mStripIdle()}</div></div>`;
 }
 const mStripIdle = () => `${pathBox(MP.dest)}<span class="sp"></span><span class="msg" id="mpmsg"></span>`;
 function mStripDone() {
   const r = MP.result;
-  return `<div class="res"><span class="ok"><i data-ic="check"></i></span><span class="fn" title="${esc(r.fileName + (r.saved ? "\n已存到 " + r.saved : ""))}">${esc(r.fileName)}</span>`
-    + `<span class="facts">${r.size}${r.saved ? " · 已存到文件夹" : ""}</span><span class="sp"></span>` // 在线下载、overrides 各几项上面两栏标题里写着，这里不再说
+  return `<div class="res"><span class="ok"><i data-ic="check"></i></span><span class="fn" title="${esc(r.fileName + (r.saved ? "\n已保存至 " + r.saved : ""))}">${esc(r.fileName)}</span>`
+    + `<span class="facts">${r.size}${r.saved ? " · 已保存至文件夹" : ""}</span><span class="sp"></span>` // 在线下载、overrides 各几项上面两栏标题里写着，这里不再说
     + `<span class="hk">SHA-1</span><span class="hv">${r.sha1}</span><button class="ib" data-act="copy" data-copy="${r.sha1}" title="复制"><i data-ic="copy"></i></button></div><span class="msg" id="mpmsg"></span>`;
 }
 // 进最后一步就预览（程序要点「预览导出清单」）：先出骨架行（程序那句「正在整理导出清单与 Modrinth 校验信息…」进悬停），0.6 秒后一行一行淡进来
@@ -1475,7 +1476,7 @@ function loadPreview(animate) {
     const d = previewData();
     f.removeAttribute("title"); o.removeAttribute("title");
     f.innerHTML = d.files.map(frowHTML).join(""); KIT.hydrate(f);
-    o.innerHTML = (d.ov.length ? d.ov.map(orowHTML).join("") : `<div class="rnone">没有</div>`)
+    o.innerHTML = (d.ov.length ? d.ov.map(orowHTML).join("") : `<div class="rnone">无</div>`)
       + (d.warn.length ? `<div class="lh3">打包提醒<span class="cnt">· ${d.warn.length}</span></div>` + d.warn.map(wrowHTML).join("") : ""); KIT.hydrate(o);
     document.getElementById("fcnt").textContent = `· ${d.files.length}`; document.getElementById("ocnt").textContent = `· ${d.ov.length}`;
     if (animate) [f, o].forEach(l => inView(l, [...l.children]).forEach((c, i) => c.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, delay: i * 22, easing: EASE_OUT, fill: "backwards" })));
@@ -1493,13 +1494,13 @@ function makeResult(animate) {
   const strip = document.getElementById("mpstrip");
   if (animate) swapItems(strip, mStripDone(), 1, "X"); else { strip.innerHTML = mStripDone(); KIT.hydrate(strip); }
   navLabel();
-  document.getElementById("next").title = "朋友拿到以后：在启动器里选「导入整合包」（Modrinth App、Prism、HMCL、PCL2 都有），选这个 .mrpack，启动器会建好对应版本和加载器、下载里面的模组。";
+  document.getElementById("next").title = "玩家获取后可在启动器中选择「导入整合包」（支持 Modrinth App、Prism、HMCL、PCL2 等），选择此 .mrpack 文件即可自动创建对应版本与加载器并下载模组。";
 }
 
 // ---- 接到外壳上 ----
 mrpackView = () => {
   const t = STEPS()[MP.step];
-  return `<h1 class="q">${t}</h1>` + (MP.step === 0 ? step1() : t === "挑选要放进整合包的模组" ? step2() : step3());
+  return `<h1 class="q">${t}</h1>` + (MP.step === 0 ? step1() : t === "选择整合包模组" ? step2() : step3());
 };
 afterMrpack = () => {
   document.querySelectorAll(".mp1 .seg, #mpdet .seg").forEach(s => placeSeg(s, false));
@@ -1523,7 +1524,7 @@ mrpackGo = () => {
     goStep(1); return;
   }
   if (!isLast()) { // 挑模组：清单空着导出不了（后端：没有可打包进去的模组或配置文件），拦下来
-    if (!picked.length && !locals.length) { const m = document.getElementById("cmsg"); m.textContent = "清单里还没有模组"; m.classList.add("show"); shakeEl(document.querySelector(".cart .lwrap")); return; }
+    if (!picked.length && !locals.length) { const m = document.getElementById("cmsg"); m.textContent = "请至少选择一个模组"; m.classList.add("show"); shakeEl(document.querySelector(".cart .lwrap")); return; }
     goStep(MP.step + 1); return;
   }
   if (MP.result) return; // 「下载整合包」：草图里不真下载

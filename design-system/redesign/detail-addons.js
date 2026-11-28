@@ -72,9 +72,9 @@
   };
   // 整合包里没装上的（同共用件页「没装上的文件」那三个的说法，换成这台 Forge 1.20.1 的文件名）
   const PENDING = [
-    ["create_new_age-forge-1.20.1-1.1.2.jar", "站点不在允许列表里", "下载地址不在 MineDeck 允许的站点列表里（只允许 Modrinth、GitHub、GitLab），确认站点可信后才能下载"],
-    ["createoreexcavation-1.20-1.4.3.jar", "没有 CurseForge API Key", "没有填 CurseForge API Key，不能自动下载。保留本地已有的文件，或者手动放一份"],
-    ["create-pack-tweaks-1.0.jar", "整合包没给校验值", "整合包没有提供这个文件的校验值，自动下载没法核对，不能用下载替代你手里的文件"],
+    ["create_new_age-forge-1.20.1-1.1.2.jar", "站点不在允许列表中", "下载地址不在允许列表中（仅允许 Modrinth、GitHub、GitLab），确认站点可信后方可下载"],
+    ["createoreexcavation-1.20-1.4.3.jar", "未配置 CurseForge API Key", "未配置 CurseForge API Key，无法自动下载。可保留本地已有文件，或手动放入"],
+    ["create-pack-tweaks-1.0.jar", "整合包未提供校验值", "整合包未提供此文件的校验值，自动下载无法校验完整性，无法替代本地文件"],
   ];
   const LOCAL = { paper: ["SimpleTpa-1.4.jar", "46 KB"], forge: ["create_factory-0.4b-1.20.1.jar", "1.2 MB"], proxy: ["VelocityWhitelist-1.1.jar", "38 KB"] };
   // 类别片：同向导第二步（程序叫「支持库」，作者 11-26 改叫「前置库」）
@@ -142,33 +142,33 @@
   const root = () => document.querySelector(".cp > .ad:not(.fade-out)");
 
   // ================= 左栏：已安装 =================
-  const STOP_WHY = "要停用、启用或删除，先停止服务器：运行中这些文件被服务器占着，改了也要重启才算数";
+  const STOP_WHY = "请先停止服务器再启用、停用或删除：运行中文件正被占用，且修改后需重启生效";
   const sortMods = list => list.sort((a, b) => a.n.localeCompare(b.n, "en", { sensitivity: "base" }));
   function tagsOf(m) {
     const ids = installedIds(), t = [];
-    if (m.need && !ids.has(m.need[0])) t.push(`<button type="button" class="ad-tag warn" data-ad-act="need" data-ad-need="${esc(m.need[1])}" title="${esc(`${m.n} 需要 ${m.need[1]}，没装的话 ${m.n} 加载不了；点了去「添加」里找它`)}">缺前置 ${esc(m.need[1])}</button>`);
-    if (m.err) t.push(`<span class="ad-tag warn" title="${esc("读不出这个文件里的信息：" + m.err)}">读不出信息</span>`);
-    if (m.fresh) t.push(`<span class="ad-tag" title="服务器开着时装上的，重启以后才加载">重启后生效</span>`);
+    if (m.need && !ids.has(m.need[0])) t.push(`<button type="button" class="ad-tag warn" data-ad-act="need" data-ad-need="${esc(m.need[1])}" title="${esc(`${m.n} 依赖前置 ${m.need[1]}，缺少时将无法加载；点击前往「添加」搜索`)}">缺前置 ${esc(m.need[1])}</button>`);
+    if (m.err) t.push(`<span class="ad-tag warn" title="${esc("无法读取文件信息：" + m.err)}">无法读取信息</span>`);
+    if (m.fresh) t.push(`<span class="ad-tag" title="服务器运行中安装，重启后生效">重启后生效</span>`);
     return t.join("");
   }
   function instRow(m) {
-    const dis = live(), tip = dis ? STOP_WHY : m.off ? "启用（文件名去掉 .disabled，下次启动生效）" : "停用（文件改名成 .jar.disabled，服务器不再加载它，随时能启用；下次启动生效）";
+    const dis = live(), tip = dis ? STOP_WHY : m.off ? "启用（移除 .disabled 后缀，下次启动生效）" : "停用（重命名为 .jar.disabled，服务器不再加载，可随时重新启用；下次启动生效）";
     const x = m.id && addonOf(m.id);
     return `<div class="ad-row${m.off ? " off" : ""}" data-ad-file="${esc(m.file)}">`
       + `<button type="button" class="ad-tg${m.off ? "" : " on"}" data-ad-act="tg" role="switch" aria-checked="${!m.off}" aria-label="${esc(m.n)}"${dis ? ' aria-disabled="true"' : ""} title="${esc(tip)}"><span class="ad-sw"></span></button>`
       + tile(m.n, m.id, x && x.icon) + `<div class="ad-m"><div class="ad-n"><span class="nm">${esc(m.n)}</span><span class="ad-tags" data-ad-k="tags">${tagsOf(m)}</span></div>`
       + `<div class="ad-f" data-ad-k="file">${esc(m.file)}</div></div>`
-      + `<button type="button" class="ad-ib ad-x" data-ad-act="del"${dis ? ' aria-disabled="true"' : ""} title="${esc(dis ? STOP_WHY : "删除（移进服务器文件夹里的 .minedeck\\已删除，想要回来从那里挪回去）")}"><i data-ic="trash"></i></button></div>`;
+      + `<button type="button" class="ad-ib ad-x" data-ad-act="del"${dis ? ' aria-disabled="true"' : ""} title="${esc(dis ? STOP_WHY : "删除（移入服务器文件夹中的 .minedeck\\已删除，需要时可移回原文件夹）")}"><i data-ic="trash"></i></button></div>`;
   }
   const pendRows = () => C.kind === "forge" && (+C.QS.get("notice") || 0) >= 3 ? PENDING.map(([f, why, full]) =>
-    `<div class="ad-row pend"><span class="ad-pw" title="整合包里的这个文件没装上"><i data-ic="warn"></i></span>${tile(f.replace(/[-_].*$/, ""), f)}`
+    `<div class="ad-row pend"><span class="ad-pw" title="该整合包文件未安装"><i data-ic="warn"></i></span>${tile(f.replace(/[-_].*$/, ""), f)}`
     + `<div class="ad-m"><div class="ad-n"><span class="nm mono">${esc(f)}</span></div><div class="ad-f" title="${esc(full)}">${esc(why)}</div></div>`
-    + `<button type="button" class="ad-btn" data-ad-act="pend" title="选处理方式：跳过、用本地文件代替，或者确认站点可信以后下载">处理…</button></div>`).join("") : "";
+    + `<button type="button" class="ad-btn" data-ad-act="pend" title="选择处理方式：跳过、使用本地文件替代，或确认站点可信后下载">处理…</button></div>`).join("") : "";
   const instMatch = m => { const q = dat().q.inst.trim().toLowerCase(); return !q || (m.n + " " + m.file).toLowerCase().includes(q); };
   function instList() {
     const D = dat(), rows = D.mods.filter(instMatch);
-    if (!D.mods.length) return `<div class="ad-empty">${dirOf(C.S.core)} 文件夹里还没有${noun()}</div>`;
-    return (D.q.inst.trim() ? "" : pendRows()) + (rows.length ? rows.map(instRow).join("") : `<div class="ad-empty">没有包含「${esc(D.q.inst.trim())}」的${noun()}</div>`);
+    if (!D.mods.length) return `<div class="ad-empty">${dirOf(C.S.core)} 文件夹中暂无${noun()}</div>`;
+    return (D.q.inst.trim() ? "" : pendRows()) + (rows.length ? rows.map(instRow).join("") : `<div class="ad-empty">未找到包含「${esc(D.q.inst.trim())}」的${noun()}</div>`);
   }
   const instBody = () => `<div class="ad-lw ad-ilw"><div class="list">${instList()}</div><span class="thumb"></span></div>`;
 
@@ -186,21 +186,21 @@
   }
   function cardHTML(x, has, inst) {
     const on = has.has(x.id), done = inst.has(x.id);
-    return `<div class="ad-mod${on ? " in" : ""}${done ? " inst" : ""}" data-ad-addon="${x.id}"${done ? ` title="已经装在服务器里了"` : ""}>${tile(x.n, x.id, x.icon, "lg")}`
+    return `<div class="ad-mod${on ? " in" : ""}${done ? " inst" : ""}" data-ad-addon="${x.id}"${done ? ` title="已安装在此服务器"` : ""}>${tile(x.n, x.id, x.icon, "lg")}`
       + `<div class="ad-mm"><div class="n"><span class="nm">${esc(x.n)}</span>${extLink(x)}</div><div class="d" title="${esc(x.d)}">${esc(x.d)}</div>`
       + `<div class="meta"><i data-ic="download"></i>${fmtDl(x.dl)}${done ? " · 已安装" : ftag(x) ? ` · ${ftag(x)}` : ""}</div></div>`
       + `<span class="ad-add"><i data-ic="${on || done ? "check" : "plus"}"></i></span></div>`;
   }
   function gridEnd(total) {
     const D = dat();
-    return `<div class="ad-gend">${!D.cat && !D.q.add.trim() && sample().total > CAP ? `仅展示热门前 ${CAP} 项，更多内容可通过搜索或分类查找` : `已显示全部 ${total} 个。`}</div>`;
+    return `<div class="ad-gend">${!D.cat && !D.q.add.trim() && sample().total > CAP ? `仅展示热门前 ${CAP} 项，更多内容可通过搜索或分类查找` : `已显示全部 ${total} 项`}</div>`;
   }
   const skel = n => `<div class="ad-mod skel"><span class="ad-mt lg"></span><div class="ad-mm"><i></i><i></i><i></i></div></div>`.repeat(n);
   function gridHTML() {
     const D = dat();
     if (!sample()) return skel(6);
     const items = gridItems(), has = new Set(D.picked.map(p => p.id)), inst = installedIds();
-    if (!items.length) return `<div class="ad-empty grid">未找到匹配的${noun()}，请换个关键词或分类。</div>`;
+    if (!items.length) return `<div class="ad-empty grid">未找到匹配的${noun()}，请更换关键词或分类</div>`;
     D.shown = Math.min(PAGE, items.length); D.more = false;
     return items.slice(0, D.shown).map(x => cardHTML(x, has, inst)).join("") + (D.shown >= Math.min(items.length, CAP) ? gridEnd(Math.min(items.length, CAP)) : "");
   }
@@ -220,7 +220,7 @@
       g.querySelectorAll(".skel").forEach(x => x.remove());
       const has = new Set(D.picked.map(p => p.id)), inst = installedIds(), next = items.slice(D.shown, Math.min(D.shown + PAGE, total));
       g.insertAdjacentHTML("beforeend", next.map(x => cardHTML(x, has, inst)).join(""));
-      const added = [...g.querySelectorAll(".ad-mod")].slice(D.shown); hy(g);
+      const added = [...g.querySelectorAll(".ad-mod")].slice(D.shown); hy(g); fitTitles(g);
       added.forEach((c, i) => c.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, delay: Math.min(i, 9) * 22, easing: EASE_OUT, fill: "backwards" }));
       D.shown += next.length;
       if (D.shown >= total) g.insertAdjacentHTML("beforeend", gridEnd(total));
@@ -231,19 +231,19 @@
   // ================= 右栏：待装清单（同向导第二步） =================
   function crowHTML(p) {
     if (p.local) return `<div class="ad-crow" data-ad-id="${esc(p.id)}">${tile(p.file, p.file)}<div class="ad-m"><div class="ad-n"><span class="nm">${esc(p.file)}</span></div><div class="ad-why">本地文件 · ${esc(p.kb)}</div></div>`
-      + `<span class="ad-cx" data-ad-unpick="${esc(p.id)}" title="从清单里拿掉"><i data-ic="x"></i></span></div>`;
+      + `<span class="ad-cx" data-ad-unpick="${esc(p.id)}" title="移出清单"><i data-ic="x"></i></span></div>`;
     const x = addonOf(p.id), by = p.by && addonOf(p.by); if (!x) return "";
-    const why = by ? `${esc(by.n)} 的前置依赖` : noun() === "插件" && x.cs === "required" ? "需客户端同步安装" : noun() === "模组" && x.cs !== "required" ? "仅服务端，客户端不用装" : esc(x.d);
+    const why = by ? `${esc(by.n)} 的前置` : noun() === "插件" && x.cs === "required" ? "需客户端同步安装" : noun() === "模组" && x.cs !== "required" ? "仅服务端，客户端无需安装" : esc(x.d);
     return `<div class="ad-crow" data-ad-id="${x.id}">${tile(x.n, x.id, x.icon)}<div class="ad-m"><div class="ad-n"><span class="nm">${esc(x.n)}</span>${by ? `<span class="ad-ftag">前置</span>` : ""}</div><div class="ad-why">${why}</div></div>`
-      + `<span class="ad-cx" data-ad-unpick="${x.id}" title="从清单里拿掉"><i data-ic="x"></i></span></div>`;
+      + `<span class="ad-cx" data-ad-unpick="${x.id}" title="移出清单"><i data-ic="x"></i></span></div>`;
   }
   const cartEmpty = () => `<div class="ad-cempty"><b>暂未选择任何${noun()}</b>点击左侧 ＋ 添加，<br>前置依赖将自动补全。</div>`;
   const insBtn = () => { const D = dat(), n = D.picked.length;
     return D.installing ? `<button type="button" class="ad-ins" aria-disabled="true"><i data-ic="spinner" class="ad-spin"></i>正在安装</button>`
-      : `<button type="button" class="ad-ins" data-ad-act="install"${n ? (live() ? ` title="服务器开着也能装，重启以后才加载"` : "") : ` aria-disabled="true" title="先把要装的放进清单"`}><i data-ic="download"></i>全部安装${n ? ` · ${n}` : ""}</button>`; };
+      : `<button type="button" class="ad-ins" data-ad-act="install"${n ? (live() ? ` title="服务器运行中也可安装，重启后生效"` : "") : ` aria-disabled="true" title="请先添加待装项"`}><i data-ic="download"></i>全部安装${n ? ` · ${n}` : ""}</button>`; };
   function cartNote() {
     const D = dat(), f = D.picked.filter(p => !p.local && addonOf(p.id)?.cs === "required").length;
-    return f && noun() === "插件" ? `${icon("info")}其中 ${f} 个需客户端同步安装` : "";
+    return f && noun() === "插件" ? `${icon("info")}其中 ${f} 项需客户端同步安装` : "";
   }
   function cartHTML() {
     const D = dat(), n = D.picked.length;
@@ -251,7 +251,7 @@
       + `<div class="ad-chd"><span class="ad-t">待装清单</span><span class="ad-cnt">${n ? `· ${n}` : ""}</span><span class="ad-sp"></span><button type="button" class="ad-clr" data-ad-act="clear">清空</button></div>`
       + `<div class="ad-lw ad-clw"><div class="list">${cartEmpty()}${D.picked.map(crowHTML).join("")}</div><span class="thumb"></span></div>`
       + `<div class="ad-cnote">${cartNote()}</div>`
-      + `<div class="ad-drop" data-ad-act="local" title="自己下载的 .jar 也能放进清单，和 Modrinth 上挑的一起装"><i data-ic="folder"></i>拖入或选择 .jar 文件</div>`
+      + `<div class="ad-drop" data-ad-act="local" title="可将本地 .jar 文件加入清单，与 Modrinth 项目一并安装"><i data-ic="folder"></i>拖入或选择 .jar 文件</div>`
       + `<span class="ad-insslot">${insBtn()}</span></section>`;
   }
 
@@ -269,10 +269,14 @@
     return `<div class="ad"><section class="ad-col ad-main">${headHTML()}<div class="ad-body">${D.view === "inst" ? instBody() : addBody()}</div></section>${cartHTML()}</div>`;
   }
   // 名字、文件名放不下被截断时，全文进悬停（同「玩家」的 fitTitle）
-  const fitTitles = r => $$(".ad-f:not([title]), .ad-n .nm", r).forEach(el => { if (el.scrollWidth > el.clientWidth + 1) el.title = el.textContent; });
+  const fitTitles = r => $$(".ad-f:not([title]):not([data-tip]), .ad-n .nm, .ad-mm .n .nm", r).forEach(el => {
+    if (el.scrollWidth > el.clientWidth + 1) { el.title = el.textContent; delete el.dataset.tip; }
+    else if (el.classList.contains("nm")) { el.removeAttribute("title"); delete el.dataset.tip; }
+  });
   function after(r) {
     $$(".ad-lw", r).forEach(w => C.thinBar(w));
     fitTitles(r);
+    document.fonts?.ready.then(() => r.isConnected && fitTitles(r));
     placeSeg(false); placeChip(false); chipFade();
     $(".ad-glw .list", r)?.addEventListener("scroll", moreCards, { passive: true });
     const ch = $(".ad-chips", r);
@@ -301,8 +305,8 @@
     const r = root(); if (!r) return;
     if (dat().view === "inst") { $$(".ad-ilw .ad-row[data-ad-file]", r).forEach(row => { const m = dat().mods.find(x => x.file === row.dataset.adFile), x = m && m.id && addonOf(m.id);
       if (x && x.icon) { const t = document.createElement("span"); t.innerHTML = tile(m.n, m.id, x.icon); row.querySelector(".ad-mt").replaceWith(t.firstElementChild); } }); return; }
-    const g = $(".ad-grid", r); g.innerHTML = gridHTML(); hy(g); g.closest(".ad-lw")._paint?.();
-    $(".ad-clw .list", r) && dat().picked.length && (() => { const l = $(".ad-clw .list", r); l.innerHTML = cartEmpty() + dat().picked.map(crowHTML).join(""); hy(l); })();
+    const g = $(".ad-grid", r); g.innerHTML = gridHTML(); hy(g); fitTitles(g); g.closest(".ad-lw")._paint?.();
+    $(".ad-clw .list", r) && dat().picked.length && (() => { const l = $(".ad-clw .list", r); l.innerHTML = cartEmpty() + dat().picked.map(crowHTML).join(""); hy(l); fitTitles(l); })();
   }
 
   // ---- 换着看：已安装 ↔ 添加。分段的选中块滑过去，下面这一块往点的方向逐项换（规范第七节），搜索框换成这一边的字 ----
@@ -335,7 +339,7 @@
     const a = l.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: dir ? `translateX(${-5 * dir}px)` : "none" }], { duration: 90, easing: EASE_IN, fill: "forwards" });
     a.onfinish = () => {
       if (l._tok !== tok) return;
-      l.scrollTop = 0; l.innerHTML = D.view === "inst" ? instList() : gridHTML(); hy(l); a.cancel();
+      l.scrollTop = 0; l.innerHTML = D.view === "inst" ? instList() : gridHTML(); hy(l); fitTitles(l); a.cancel();
       const from = dir ? `translateX(${5 * dir}px)` : "translateY(5px)";
       inView(l, [...l.children]).forEach((c, i) => c.animate([{ opacity: 0, transform: from }, { opacity: 1, transform: "none" }], { duration: 220, delay: i * 22, easing: EASE_OUT, fill: "backwards" }));
       l.closest(".ad-lw")._paint?.();
@@ -382,7 +386,7 @@
     } else gone.forEach((x, i) => dropOut(x, () => list.closest(".ad-lw")._paint?.(), i * 40));
     D.picked.forEach(p => {
       if (list.querySelector(`.ad-crow[data-ad-id="${CSS.escape(p.id)}"]:not(.ad-out)`)) return;
-      list.insertAdjacentHTML("beforeend", crowHTML(p)); const x = hy(list.lastElementChild);
+      list.insertAdjacentHTML("beforeend", crowHTML(p)); const x = hy(list.lastElementChild); fitTitles(x);
       x.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, delay: p.by ? 60 : 0, easing: EASE_OUT, fill: "backwards" });
       x.scrollIntoView({ block: "nearest", behavior: "smooth" });
     });
@@ -424,7 +428,7 @@
         items.filter(instMatch).forEach(m => {
           const next = [...l.querySelectorAll(".ad-row:not(.pend)")].find(x => { const o = D.mods.find(y => y.file === x.dataset.adFile); return o && o.n.localeCompare(m.n, "en", { sensitivity: "base" }) > 0; });
           const tmp = document.createElement("div"); tmp.innerHTML = instRow(m); const row = hy(tmp.firstElementChild);
-          l.insertBefore(row, next || null); growIn(row, 200);
+          l.insertBefore(row, next || null); fitTitles(row); growIn(row, 200);
         });
         // 装上的正好是别人缺的前置：那一行的「缺前置」标记跟着拿掉
         D.mods.forEach(m => { if (m.need) { const row = $(`.ad-row[data-ad-file="${CSS.escape(m.file)}"]`, l); if (row) swapKeyed(row, instRow(m)); } });
@@ -434,7 +438,7 @@
         $$(".ad-grid .ad-mod:not(.skel)", r).forEach(m => {
           if (!inst.has(m.dataset.adAddon) || m.classList.contains("inst")) return;
           const x = addonOf(m.dataset.adAddon), tmp = document.createElement("div"); tmp.innerHTML = cardHTML(x, new Set(), inst);
-          m.replaceWith(hy(tmp.firstElementChild));
+          const rep = hy(tmp.firstElementChild); m.replaceWith(rep); fitTitles(rep);
         });
       }
     }, 1400);
@@ -452,7 +456,7 @@
     m.off = !m.off; m.file = m.off ? m.file + ".disabled" : m.file.replace(/\.disabled$/i, "");
     row.dataset.adFile = m.file; row.classList.toggle("off", m.off);
     const tg = $(".ad-tg", row); tg.classList.toggle("on", !m.off); tg.setAttribute("aria-checked", !m.off);
-    tg.title = m.off ? "启用（文件名去掉 .disabled，下次启动生效）" : "停用（文件改名成 .jar.disabled，服务器不再加载它，随时能启用；下次启动生效）"; delete tg.dataset.tip;
+    tg.title = m.off ? "启用（移除 .disabled 后缀，下次启动生效）" : "停用（重命名为 .jar.disabled，服务器不再加载，可随时重新启用；下次启动生效）"; delete tg.dataset.tip;
     swapKeyed(row, `<div class="ad-f" data-ad-k="file">${esc(m.file)}</div>`, 1);
     // 停用、启用了别人要的前置：缺前置的标记跟着变
     D.mods.forEach(o => { if (o.need && o.need[0] === m.id) { const rr = $(`.ad-row[data-ad-file="${CSS.escape(o.file)}"]`, root()); if (rr) swapKeyed(rr, instRow(o)); } });
@@ -464,7 +468,7 @@
     closeAsk(true);
     const mk = mask = Object.assign(document.createElement("div"), { className: "ad-mask enter" });
     mk.innerHTML = `<div class="ad-md" role="dialog" aria-modal="true"><div class="ad-mc"><div class="ad-mh"><span class="ad-mi"><i data-ic="trash"></i></span><h3>删除<span class="nw">「${esc(m.n)}」？</span></h3></div>`
-      + `<div class="ad-mb"><span class="mono">${esc(m.file)}</span> 会移进服务器文件夹里的 <span class="mono">.minedeck\\已删除\\${dir}</span>，不会直接删掉；想要回来，从那里挪回 ${dir} 文件夹就行。</div></div>`
+      + `<div class="ad-mb"><span class="mono">${esc(m.file)}</span> 将移入服务器文件夹中的 <span class="mono">.minedeck\\已删除\\${dir}</span>，不会永久删除；需要恢复时，将其移回 ${dir} 文件夹即可。</div></div>`
       + `<div class="ad-ma"><button type="button" class="ad-b fk" data-ad-x="no">取消</button><button type="button" class="ad-b dgr" data-ad-x="ok">删除${noun()}</button></div></div>`;
     document.body.appendChild(hy(mk));
     const no = $("[data-ad-x=no]", mk); no.focus({ focusVisible: false });
@@ -523,7 +527,7 @@
     const D = dat(), v = e.target.value; D.q[D.view] = v;
     clearTimeout(qT); qT = setTimeout(() => regrid(0), 180); // 停手 0.18 秒再换（规范第七节）
   }
-  addEventListener("resize", () => { placeSeg(false); placeChip(false); chipFade(); });
+  addEventListener("resize", () => { placeSeg(false); placeChip(false); chipFade(); const r = root(); if (r) fitTitles(r); });
 
   window.DETAIL_TABS.addons = { html, mount };
 })();

@@ -786,11 +786,11 @@ function cardHTML(x, has) {
 // 翻到头时最后一行的字：到了 100 个是「仅展示热门前 100 项，更多内容可通过搜索或分类查找」（文案作者 11-26 定），不到 100 就是全部了
 // 样本只有总榜前 100（「全部」里藏掉纯前置库以后不到 100）：「全部」到头了说「仅展示热门前 100 项」；按类别、搜索筛的是这 100 个里的，就说「已显示全部」
 function gridEnd(total) {
-  return `<div class="gend">${!acat && !aq && window.MR_SAMPLE[addonNoun].total > CAP ? `仅展示热门前 ${CAP} 项，更多内容可通过搜索或分类查找` : `已显示全部 ${total} 个。`}</div>`;
+  return `<div class="gend">${!acat && !aq && window.MR_SAMPLE[addonNoun].total > CAP ? `仅展示热门前 ${CAP} 项，更多内容可通过搜索或分类查找` : `已显示全部 ${total} 项`}</div>`;
 }
 function gridHTML() {
   const items = gridItems(), has = new Set(picked.map(p => p.id));
-  if (!items.length) return `<div class="cempty" style="grid-column: 1 / -1; margin-top: 60px">未找到匹配的${addonNoun}，请换个关键词或分类。</div>`;
+  if (!items.length) return `<div class="cempty" style="grid-column: 1 / -1; margin-top: 60px">未找到匹配的${addonNoun}，请更换关键词或分类</div>`;
   shown = Math.min(PAGE, items.length); loadingMore = false;
   return items.slice(0, shown).map(x => cardHTML(x, has)).join("") + (shown >= Math.min(items.length, CAP) ? gridEnd(Math.min(items.length, CAP)) : "");
 }
@@ -821,9 +821,9 @@ function moreCards() {
 }
 function crowHTML(p) {
   const x = addonOf(p.id), by = p.by && addonOf(p.by);
-  const why = by ? `${esc(by.n)} 的前置依赖` : addonNoun === "插件" && x.cs === "required" ? "需客户端同步安装" : addonNoun === "模组" && x.cs !== "required" ? "仅服务端，客户端不用装" : esc(x.d);
+  const why = by ? `${esc(by.n)} 的前置依赖` : addonNoun === "插件" && x.cs === "required" ? "需客户端同步安装" : addonNoun === "模组" && x.cs !== "required" ? "仅服务端，客户端无需安装" : esc(x.d);
   return `<div class="crow" data-id="${x.id}">${tile(x)}<div class="m"><div class="n">${esc(x.n)}${by ? `<span class="ftag">前置</span>` : ""}</div><div class="why">${why}</div></div>
-    <span class="x" data-unpick="${x.id}" aria-label="从清单里拿掉 ${esc(x.n)}"><i data-ic="x"></i></span></div>`;
+    <span class="x" data-unpick="${x.id}" title="移除" aria-label="从清单移除 ${esc(x.n)}"><i data-ic="x"></i></span></div>`;
 }
 function step2() {
   const noun = nounOfCore(core);
@@ -846,7 +846,7 @@ function cartMeta() {
   document.querySelector(".cart")?.classList.toggle("has", n > 0);
   navLabel();
   const note = document.getElementById("anote");
-  if (note) note.innerHTML = friends ? `${KIT.icon("info")}其中 ${friends} 个需客户端同步安装` : "";
+  if (note) note.innerHTML = friends ? `${KIT.icon("info")}其中 ${friends} 项需客户端同步安装` : "";
 }
 // 挑一个 / 拿掉一个。挑的时候把它要的前置一起放进来（标「前置」）；拿掉的时候，只因为它才进来的前置一起拿掉
 function toggleAddon(id) {
@@ -994,10 +994,10 @@ function pathNote() {
 }
 function pathTip() {
   const slug = slugOf(SET.name);
-  return `存放在 ${ROOT}\\${pathDir()}` + (slug ? "" : "（名称里没有英文字母或数字，文件夹就按创建时间起名）") + "\n点一下更改存储路径…";
+  return `存储路径：${ROOT}\\${pathDir()}` + (slug ? "" : "（名称不含英文字母或数字，将按创建时间命名文件夹）") + "\n点击更改存储路径";
 }
 const portOk = () => { const v = Number(SET.port); return Number.isInteger(v) && v >= 1 && v <= 65535; };
-const portState = () => portOk() ? `<span class="st" title="端口可用"><i data-ic="check"></i></span>` : `<span class="st bad" title="端口需为 1 ~ 65535 的整数">1~65535</span>`;
+const portState = () => portOk() ? `<span class="st" title="端口可用"><i data-ic="check"></i></span>` : `<span class="st bad" title="端口需为 1～65535 的整数">1～65535</span>`;
 const g1 = mb => (mb / 1024).toFixed(1);
 const memClamp = v => Math.min(MEM_CAP, Math.max(512, Math.round((+v || 512) / 512) * 512)); // 按 0.5 GB 取整，夹在 0.5 GB 和上限之间
 // 内存的数：整数不带 .0（4 GB、4.5 GB、15.2 GB）
@@ -1006,20 +1006,23 @@ const gbTxt = mb => gs(mb).replace("G", " GB");
 // 运行内存一块：标题和图例；格子（也是滑条）加步进；格子下面一排快捷预设。推荐分配、本机总量、一格多大在格子的悬停提示里
 const PRESETS = [2048, 4096, 8192, 16384], PRESETS_PROXY = [512, 1024, 2048]; // 代理端推荐 1 GB，预设跟着小
 function memCtl(proxy) {
-  const tip = `本机 ${gbTxt(RAM.total)}${BLOCKS ? "" : ` · 1 格 = ${gbTxt(CELL)}`} · 最多能分 ${gbTxt(MEM_CAP)}（当前可用的）\n` + (proxy ? "推荐 1 GB；代理端只做转发，占用很低" : "推荐：模组服 4 GB 以上；无模组的小型服务器 2~4 GB");
+  const rec = proxy ? "建议 1 GB；代理端仅负责转发，内存占用低"
+    : ["neoforge", "fabric", "forge", "mohist", "banner"].includes(core) ? "建议 4 GB 及以上"
+    : "小型服务器建议 2～4 GB";
+  const tip = `本机 ${gbTxt(RAM.total)}${BLOCKS ? "" : ` · 1 格 = ${gbTxt(CELL)}`} · 最多可分配 ${gbTxt(MEM_CAP)}（当前可用内存）\n` + rec;
   const used = RAM.total - RAM.avail;
   const body = BLOCKS ? `<i class="bu" style="--w:${used}"></i><i class="ba" style="--w:${RAM.avail}"><b></b></i>` : "<i></i>".repeat(CELLS);
   return `<div class="fld g-mem"><span class="lb">内存分配<span class="mleg" id="smleg"></span></span>
       <div class="memx"><div class="mbar" id="smbar" tabindex="0" role="slider" aria-label="内存分配" aria-valuemin="512" aria-valuemax="${MEM_CAP}" title="${esc(tip)}">
           <div class="cells${BLOCKS ? " blk" : ""}">${body}<span class="knob"></span></div></div>
-        <div class="step" id="smemf"><button class="sb" data-mstep="-1" title="少 0.5 GB"><i data-ic="minus"></i></button><span class="sv" id="smemv"></span><button class="sb" data-mstep="1" title="多 0.5 GB"><i data-ic="plus"></i></button></div></div>
-      <div class="mpre">${(proxy ? PRESETS_PROXY : PRESETS).map(v => `<button class="mp" data-mp="${v}"${v > MEM_CAP ? " disabled" : ""}>${gs(v)}</button>`).join("")}${memLow(proxy)}</div></div>`;
+        <div class="step" id="smemf"><button class="sb" data-mstep="-1" title="减少 0.5 GB"><i data-ic="minus"></i></button><span class="sv" id="smemv"></span><button class="sb" data-mstep="1" title="增加 0.5 GB"><i data-ic="plus"></i></button></div></div>
+      <div class="mpre">${(proxy ? PRESETS_PROXY : PRESETS).map(v => `<button class="mp" data-mp="${v}"${v > MEM_CAP ? " disabled" : ""}>${gbTxt(v)}</button>`).join("")}${memLow(proxy)}</div></div>`;
 }
 // 上限压低了默认分配时（比如 8G 的电脑只剩 1.5 GB 可用），结果变了，原因要看得见：预设那排右边一句短话，整句在悬停里
 function memLow(proxy) {
   const want = proxy ? 1024 : 4096;
   if (MEM_CAP >= want) return "";
-  const tip = `本机现在只剩 ${gbTxt(RAM.avail)} 可用，最多能分 ${gbTxt(MEM_CAP)}，少于推荐的 ${gbTxt(want)}。\n关掉别的程序或服务器，再打开向导就能分得更多。`;
+  const tip = `当前可用内存 ${gbTxt(RAM.avail)}，可分配上限 ${gbTxt(MEM_CAP)}，低于建议的 ${gbTxt(want)}。\n关闭其他程序或服务器后重新打开向导，可分配更多内存。`;
   return `<span class="mlow" title="${esc(tip)}"><i data-ic="warn"></i>可用内存不足</span>`;
 }
 // 格子：从左往右，灰的是系统已占，接着强调色的是本服分配，后面淡的是剩余；一格只占一部分时按比例涂。把手停在本服那一截的末端
@@ -1048,7 +1051,7 @@ function paintMem() {
   st.classList.toggle("warn", big); st.title = big ? "分配内存过大可能加剧 Java 垃圾回收（GC）停顿，导致游戏周期性掉帧。" : "";
   // 图例：系统已占、分配（只有颜色，数在步进里）、剩余（= 可用 − 分配，和格子上淡的那一截一样长）
   const lg = document.getElementById("smleg");
-  if (lg) lg.innerHTML = `<span><i class="used"></i>系统已占 <b>${gs(used)}</b></span><span><i class="alloc"></i>分配</span><span><i class="free"></i>剩余 <b>${gs(RAM.avail - v)}</b></span>`;
+  if (lg) lg.innerHTML = `<span><i class="used"></i>系统已占 <b>${gbTxt(used)}</b></span><span><i class="alloc"></i>分配</span><span><i class="free"></i>剩余 <b>${gbTxt(RAM.avail - v)}</b></span>`;
   document.querySelectorAll("[data-mp]").forEach(b => b.classList.toggle("on", +b.dataset.mp === v));
 }
 // 在格子上点、拖：落在哪儿就分到哪儿，按 0.5 GB 取整，拖不过上限
@@ -1064,7 +1067,7 @@ const avatarTile = () => SET.icon ? `<span class="sav icon"><img src="${SET.icon
   : `<span class="sav" style="--c:${MDPixel16.CORE_COLORS[core] || "#7a8aa0"}">${MDPixel16.svg(core, 48)}</span>`;
 function avatarBtn() {
   return `<div class="avbtn" data-act="icon" title="更换服务器图标…">${avatarTile()}
-      <span class="avov"><i data-ic="camera"></i></span>${SET.icon ? `<span class="avx" data-act="unicon" title="换回核心头像"><i data-ic="x"></i></span>` : ""}</div>`;
+      <span class="avov"><i data-ic="camera"></i></span>${SET.icon ? `<span class="avx" data-act="unicon" title="改用核心头像"><i data-ic="x"></i></span>` : ""}</div>`;
 }
 const seg = (key, opts) => `<div class="seg" data-seg="${key}"><i class="sgl"></i>${opts.map(([v, t]) => `<span data-v="${v}"${SET[key] === v ? ` class="on"` : ""}>${t}</span>`).join("")}</div>`;
 // 开关：说明 d 写在名字下面；只想放悬停里的写在 tip（第三步的「允许飞行」）
@@ -1076,8 +1079,8 @@ function step3() {
   if (!SET.memTouched) SET.mem = Math.min(proxy ? 1024 : 4096, MEM_CAP);
   // 顶上一块：图标跨两行，名称、服务器介绍（点了就能改）；右下角一句提示（作者 11-26 要的），点它也是改名称
   const id = `<div class="col idcol" style="--c:${MDPixel16.CORE_COLORS[core] || "#7a8aa0"}"><div class="idrow">${avatarBtn()}<div class="idtext">
-      <input class="ie title" id="sname" maxlength="40" value="${esc(SET.name)}" aria-label="名称" placeholder="服务器名称">
-      ${proxy ? "" : `<input class="ie sub" id="smotd" maxlength="59" value="${esc(SET.motd)}" aria-label="服务器介绍" placeholder="服务器介绍" title="服务器介绍（MOTD），显示在多人游戏的服务器列表里">`}
+      <input class="ie title" id="sname" maxlength="40" value="${esc(SET.name)}" aria-label="服务器名称" placeholder="服务器名称">
+      ${proxy ? "" : `<input class="ie sub" id="smotd" maxlength="59" value="${esc(SET.motd)}" aria-label="服务器简介" placeholder="服务器简介" title="服务器简介（MOTD），显示在多人游戏服务器列表中">`}
     </div><span class="idhint" data-act="editname">${proxy ? "单击以修改服务器名称" : "单击以修改服务器名称/简介"}</span></div></div>`;
   // 左栏：内存分配（带快捷预设）、存储路径和端口配置
   const left = `<div class="col"><h3>服务器配置</h3><div class="lgrid">${memCtl(proxy)}
@@ -1086,12 +1089,15 @@ function step3() {
         + `<input class="inp${portOk() ? "" : " bad"}" id="sport" inputmode="numeric" value="${esc(SET.port)}"><span id="pst">${portState()}</span></div></div>`}
     </div></div>`;
   // 右栏：游戏规则（代理端换成一句话）
+  const flyTip = ["neoforge", "fabric", "forge", "mohist", "banner"].includes(core)
+    ? "开启后可避免骑乘、模组位移等情况被服务端误判为飞行而断开连接"
+    : "开启后可避免被误判为飞行而断开连接";
   const right = proxy
-    ? `<div class="col"><h3>游戏规则</h3><div class="pnote" title="代理端不跑游戏世界，没有难度、游戏模式这些规则，也不用同意 Minecraft EULA；监听端口和转发规则在第一次启动、生成配置文件以后再设置">代理端只做转发，没有游戏规则</div></div>`
+    ? `<div class="col"><h3>游戏规则</h3><div class="pnote" title="代理端不运行游戏存档，无难度、游戏模式等规则，也无需同意 Minecraft EULA；监听端口与转发规则将在首次启动生成配置文件后设置">代理端仅负责转发，无游戏规则</div></div>`
     : `<div class="col"><h3>游戏规则</h3>
       <div class="fld"><span class="lb">难度</span>${seg("diff", [["peaceful", "和平"], ["easy", "简单"], ["normal", "普通"], ["hard", "困难"]])}</div>
       <div class="fld"><span class="lb">默认游戏模式</span>${seg("mode", [["survival", "生存"], ["creative", "创造"], ["adventure", "冒险"], ["spectator", "旁观"]])}</div>
-      <div class="fld g-fly" title="开着可以防止骑乘、模组的移动被误当成飞行踢出去"><span class="lb">允许飞行</span>${seg("flight", [["1", "开"], ["0", "关"]])}</div></div>`;
+      <div class="fld g-fly" title="${flyTip}"><span class="lb">允许飞行</span>${seg("flight", [["1", "开"], ["0", "关"]])}</div></div>`;
   // EULA 照第一稿放回面板里（作者 11-26：「还是按照最开始，放在框内比较好」）：横跨两栏的一条，左边开关，没开时点「下一步」整条标红、右边出一句
   const eula = proxy ? "" : `<div class="eula" data-eula><div class="tg${SET.eula ? " on" : ""}" style="pointer-events:none"><span class="sw"></span></div>
       <span>我已阅读并同意 <a href="https://aka.ms/MinecraftEULA" target="_blank" rel="noopener noreferrer">Minecraft 最终用户许可协议（EULA）</a></span><span class="msg">开服前需要同意 EULA</span></div>`;
@@ -1151,7 +1157,7 @@ let vlanFound = 0;
 const vlanNets = () => LAN_NETS.slice(0, [0, 2, 5][vlanFound]);
 function vlanRows() {
   const proxy = isProxyCore();
-  return vlanNets().map(([n, ip]) => `<div class="netrow" title="朋友也在你的 ${esc(n)} 网络里时填这个"><span class="nn">${esc(n)}</span><span class="mono">${ip}:${proxy ? "" : esc(SET.port)}</span>`
+  return vlanNets().map(([n, ip]) => `<div class="netrow" title="已加入同一${/^[A-Za-z0-9]/.test(n || "") ? " " : ""}${esc(n)}${/[A-Za-z0-9]$/.test(n || "") ? " " : ""}网络的玩家可使用此地址连接"><span class="nn">${esc(n)}</span><span class="mono">${ip}:${proxy ? "" : esc(SET.port)}</span>`
     + (proxy ? "" : `<button class="ib" data-act="copy" data-copy="${ip}:${esc(SET.port)}" title="复制"><i data-ic="copy"></i></button>`) + `</div>`).join("");
 }
 // 刷新：图标转 0.6 秒，检测到的一行一行浮进来（同节点面板的刷新），左下角的提示淡掉
@@ -1171,9 +1177,9 @@ function refreshVlan(b) {
 // 11-26 作者：局域网和自建 frps 两页都太空，并成一张卡（下面一页左右两块），自建 frps 在那一页里用开关打开
 const VIAS = [["lan", "局域网 / 自建 frps"], ["openfrp", "OpenFrp"], ["sakura", "樱花穿透"]];
 const VIA_TIP = {
-  lan: "和你连同一个 Wi-Fi、同一个路由器的朋友能进；有自己的 frp 服务器的，打开「自建 frps」，外地的朋友也能进",
-  openfrp: "用 OpenFrp 的内网穿透，外地的朋友也能进；MineDeck 在平台上建一条隧道，跟着服务器一起启动",
-  sakura: "用樱花的内网穿透，外地的朋友也能进；MineDeck 在平台上建一条隧道，跟着服务器一起启动",
+  lan: "同一局域网内可直接联机；如有自有 frps，开启「自建 frps」即可公网联机",
+  openfrp: "通过 OpenFrp 实现公网联机；MineDeck 将在平台创建隧道并随服务器一同启动",
+  sakura: "通过樱花穿透实现公网联机；MineDeck 将在平台创建隧道并随服务器一同启动",
 };
 const isTun = k => k === "openfrp" || k === "sakura";
 const tabOf = k => LINK.tab[k] || "new"; // 「新建隧道 / 用已有的」两个平台各记各的
@@ -1229,7 +1235,7 @@ const PLAT_TUNS = {
 };
 const nodesOf = k => k === "openfrp" ? OF_NODES : SK_NODES;
 const ltg = (key, t, tip, on = LINK[key]) => `<div class="tg sm${on ? " on" : ""}" data-ltg="${key}" title="${esc(tip)}"><div class="m"><div class="t">${t}</div></div><span class="sw"></span></div>`;
-const nchip = n => `<span class="nchip" data-name="${esc(n)}">${esc(n)}<span class="nx" data-unname="${esc(n)}" title="拿掉"><i data-ic="x"></i></span></span>`;
+const nchip = n => `<span class="nchip" data-name="${esc(n)}">${esc(n)}<span class="nx" data-unname="${esc(n)}" title="移除"><i data-ic="x"></i></span></span>`;
 const shakeEl = el => el?.animate([{ transform: "none" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "none" }],
   { duration: 360, easing: "cubic-bezier(.3, .7, .2, 1)" });
 function viaMeta(k) {
@@ -1240,13 +1246,13 @@ function viaMeta(k) {
 // 这个节点为什么用不了：[哪一类, 悬停的话]，用得了返回 null。满载、离线、无权限三类照「满载 / 离线 / 无权限」三个勾决定藏不藏；公开招人那类不藏、灰着
 function nodeWhy(k, x) {
   if (x.off) return ["off", "离线"];
-  if (x.full) return ["full", "满载，暂时建不了隧道"];
+  if (x.full) return ["full", "节点已满载，暂无法创建隧道"];
   if (k === "openfrp") {
-    if (TIERS.indexOf(x.tier) > TIERS.indexOf(OF_USER.tier)) return ["perm", `${TIER_NAME[x.tier]} 用户才能用`];
-    if (x.real && !OF_USER.realname) return ["perm", "要先在 OpenFrp 实名"];
+    if (TIERS.indexOf(x.tier) > TIERS.indexOf(OF_USER.tier)) return ["perm", `仅限 ${TIER_NAME[x.tier]} 用户使用`];
+    if (x.real && !OF_USER.realname) return ["perm", "需先完成 OpenFrp 实名认证"];
   } else {
-    if (x.vip > SK_USER.level) return ["perm", "VIP 等级不够"];
-    if (LINK.pub && !x.pub) return ["pub", "公开招人只能用公开游戏节点"];
+    if (x.vip > SK_USER.level) return ["perm", "VIP 等级不足"];
+    if (LINK.pub && !x.pub) return ["pub", "公开招人模式仅限使用公开游戏节点"];
   }
   return null;
 }
@@ -1264,7 +1270,7 @@ function nodeCard(k, x) {
   const cls = `nd${on ? " on" : ""}${why ? " off" : ""}`, tip = why ? why[1] : `${x.key.startsWith("#") ? x.key + " " : ""}${x.n}${x.d ? "\n" + x.d : ""}`;
   if (k === "openfrp") {
     const tags = `<span class="tag good">${x.bw}</span>` + (x.udp ? `<span class="tag plain">UDP</span>` : "") + (x.https ? `<span class="tag plain">HTTPS</span>` : "")
-      + (x.real && x.sec !== 0 ? `<span class="tag warn">实名</span>` : "") + (x.ext ? `<span class="tag warn" title="主地址有限制时，朋友要用扩展地址连">扩展地址</span>` : "");
+      + (x.real && x.sec !== 0 ? `<span class="tag warn">实名</span>` : "") + (x.ext ? `<span class="tag warn" title="主地址受限时，需使用扩展地址连接">扩展地址</span>` : "");
     return `<div class="${cls}" data-node="${esc(x.key)}" title="${esc(tip)}"><div class="r1">${x.tier ? `<span class="tag ${x.tier}">${TIER_NAME[x.tier]}</span>` : ""}`
       + `<span class="n"><span class="id">#${x.id}</span>${esc(x.n)}</span>${st}</div><div class="d one">${esc(x.d) || "&nbsp;"}</div><div class="r3">${tags}</div></div>`;
   }
@@ -1281,44 +1287,44 @@ function nodeCards(k) {
     return `<div class="ngrp"><div class="ngh"><h4>${t}</h4>${sub ? `<span class="s">${sub}</span>` : ""}<span class="c">${n} 个可用</span></div>`
       + `<div class="ncards">${list.map(x => nodeCard(k, x)).join("")}</div></div>`;
   }).join("");
-  return out || `<div class="nempty">没有对得上的节点</div>`;
+  return out || `<div class="nempty">没有匹配的节点</div>`;
 }
 // 「用已有的」：平台上已经建好的隧道
 function tunRows(k) {
   const q = LINK.q.trim().toLowerCase(), list = PLAT_TUNS[k].filter(t => !q || (t.n + " " + t.node).toLowerCase().includes(q));
-  if (!list.length) return `<div class="nempty">平台上没有对得上的隧道</div>`;
+  if (!list.length) return `<div class="nempty">平台上没有匹配的隧道</div>`;
   return list.map(t => {
-    const bad = t.t !== "TCP" ? "这是 UDP 隧道（多半是语音用的），游戏要用 TCP；语音隧道建好服务器后在「联机」里加"
-      : t.lp !== +SET.port ? `本地端口是 ${t.lp}，和这台服务器的 ${SET.port} 对不上；先到平台上把本地端口改成 ${SET.port}` : "";
-    return `<div class="trow${LINK.use[k] === t.n ? " on" : ""}${bad ? " off" : ""}" data-use="${esc(t.n)}" title="${esc(bad || "用这条隧道，跟着服务器一起启动")}">`
-      + `<span class="n">${esc(t.n)}</span><span class="tag plain">${t.t}</span><span class="sp"></span><span class="k">${esc(t.node)} · 本地 ${t.lp}</span></div>`;
+    const bad = t.t !== "TCP" ? "此为 UDP 隧道（通常用于语音），游戏联机需使用 TCP 隧道；语音隧道可在创建服务器后于「联机」页添加"
+      : t.lp !== +SET.port ? `本地端口为 ${t.lp}，与当前服务器端口 ${SET.port} 不一致；请先在平台将本地端口修改为 ${SET.port}` : "";
+    return `<div class="trow${LINK.use[k] === t.n ? " on" : ""}${bad ? " off" : ""}" data-use="${esc(t.n)}" title="${esc(bad || "使用此隧道，并随服务器一同启动")}">`
+      + `<span class="n">${esc(t.n)}</span><span class="tag plain">${t.t}</span><span class="sp"></span><span class="k">${esc(t.node)} · 本地端口 ${t.lp}</span></div>`;
   }).join("");
 }
-const ckBox = (k, t) => `<span class="ck${LINK.show[k] ? " on" : ""}" data-ck="${k}" title="把${t}的节点也列出来（灰着，点不了）"><span class="bx"><i data-ic="check"></i></span>${t}</span>`;
+const ckBox = (k, t) => `<span class="ck${LINK.show[k] ? " on" : ""}" data-ck="${k}" title="显示${t}节点（不可选）"><span class="bx"><i data-ic="check"></i></span>${t}</span>`;
 // 节点面板第一行以下（切「新建隧道 / 用已有的」时整段换）
 function nodeBody(k) {
   const fil = [["all", "全部"], ["udp", "支持 UDP"], ...(k === "sakura" ? [["pub", "公开游戏"]] : [])];
   const top = tabOf(k) === "new" ? `<div class="nfil"><div class="nfils"><i class="nfhl"></i>${fil.map(([v, t]) => `<button class="nf${LINK.filter === v ? " on" : ""}" data-nfil="${v}">${t}</button>`).join("")}</div><span class="sp"></span>`
     + ckBox("full", "满载") + ckBox("off", "离线") + ckBox("perm", "无权限")
-    + (k === "sakura" ? ltg("pub", "公开招人", "发到论坛、服务器列表、QQ 大群，或在 B 站、抖音上宣传招人的服务器要打开；樱花规定这种只能用公开游戏节点，用错会被封号。只和熟人玩不用开") : "") + `</div>` : "";
+    + (k === "sakura" ? ltg("pub", "公开招人", "发到论坛、服务器列表、QQ 大群，或在 B 站、抖音上宣传招人的服务器需开启；樱花穿透规定此类服务器只能用公开游戏节点，用错会被封号。仅熟人联机无需开启") : "") + `</div>` : "";
   return top + `<div class="lwrap nwrap"><div class="list nlist" id="nlist">${tabOf(k) === "new" ? nodeCards(k) : tunRows(k)}</div><i class="thumb"></i></div>`;
 }
 function nodePanel(k) {
-  const tip = k === "openfrp" ? `MineDeck 替你在 OpenFrp 上建一条隧道：本地端口 ${SET.port}，公网端口在节点允许的范围里自动挑，其余设置用平台默认，跟着服务器一起启动`
-    : `MineDeck 替你在樱花上建一条隧道：本地端口 ${SET.port}，公网端口由樱花分配，其余设置用平台默认，跟着服务器一起启动`;
-  const on = v => tabOf(k) === v ? ` class="on"` : "";
+  const tip = k === "openfrp" ? `在 OpenFrp 自动创建隧道：本地端口 ${SET.port}，公网端口将在节点允许范围内自动分配，其余保持平台默认，并随服务器一同启动`
+    : `在樱花穿透自动创建隧道：本地端口 ${SET.port}，公网端口由平台自动分配，其余保持平台默认，并随服务器一同启动`;
+  const on = v => tabOf(k) === v ? ` class="on"` : "", use = tabOf(k) === "use";
   return `<div class="nbar"><div class="seg sm" data-lseg="tab"><i class="sgl"></i><span data-v="new"${on("new")} title="${esc(tip)}">新建隧道</span>`
-    + `<span data-v="use"${on("use")} title="平台上已经建好的隧道，挑一条拿来用">已有隧道</span></div><span class="nmsg" id="nmsg"></span>`
-    + `<label class="nsearch"><i data-ic="search"></i><input id="nq" placeholder="搜索节点" value="${esc(LINK.q)}" autocomplete="off" spellcheck="false"></label>`
-    + `<button class="ib" data-act="nrefresh" title="刷新节点列表"><i data-ic="refresh"></i></button></div>`
+    + `<span data-v="use"${on("use")} title="从平台已创建的隧道中选择一条绑定到当前服务器">已有隧道</span></div><span class="nmsg" id="nmsg"></span>`
+    + `<label class="nsearch"><i data-ic="search"></i><input id="nq" placeholder="${use ? "搜索隧道" : "搜索节点"}" value="${esc(LINK.q)}" autocomplete="off" spellcheck="false"></label>`
+    + `<button class="ib" data-act="nrefresh" title="${use ? "刷新隧道列表" : "刷新节点列表"}"><i data-ic="refresh"></i></button></div>`
     + `<div class="nbody">${nodeBody(k)}</div>`;
 }
 // 樱花没连上：粘访问密钥
 function sakuraKey() {
-  return `<div class="keyb"><div class="lrow"><span class="lb">樱花访问密钥</span><a class="tlink" data-act="sakurakey" title="在浏览器里打开樱花官网的用户信息页，复制上面的「访问密钥」">去官网复制</a></div>
+  return `<div class="keyb"><div class="lrow"><span class="lb">樱花访问密钥</span><a class="tlink" data-act="sakurakey" title="在浏览器中打开樱花穿透官网的用户信息页，复制「访问密钥」">去官网复制</a></div>
       <div class="keyrow"><input class="inp" id="skey" type="password" placeholder="粘贴访问密钥" value="${esc(LINK.key)}" autocomplete="off" spellcheck="false">`
     + `<button class="kbtn" data-act="connect"${LINK.connecting ? " disabled" : ""}>${LINK.connecting ? `<i data-ic="spinner" class="spin"></i>连接中` : "连接"}</button></div>
-      ${ltg("saveKey", "记住密钥", "用 Windows 加密存在这台电脑上，以后建别的服务器不用再粘；设置 → 内网穿透里可以换或删。\n不记住的话，这条隧道照样能用（它自己存着一份），下次建服务器要再粘一次")}</div>
+      ${ltg("saveKey", "记住密钥", "使用 Windows 加密保存在本机，后续配置其他服务器时无需重复粘贴；可在「设置 → 内网穿透」中更换或删除。\n若关闭此项，当前隧道仍可正常使用（凭据随隧道单独保存），下次新建时需重新输入。")}</div>
     <div class="nph">请先连接账号，以加载并选择可用节点</div>`;
 }
 // 卡片下面那一块
@@ -1333,37 +1339,37 @@ function viaDetail() {
 function lanPage() {
   const proxy = isProxyCore(), on = LINK.frpsOn && !proxy, fd = on ? "" : " tabindex=\"-1\"";
   const lan = `<div class="lanp"><div class="lh"><i data-ic="wifi"></i><span class="t">局域网</span></div>`
-    + `<div class="lbody"><span class="lb" title="同一局域网的朋友在游戏里添加服务器时填这个">局域网联机地址</span>`
+    + `<div class="lbody"><span class="lb" title="同一局域网内的玩家在多人游戏中添加服务器时使用此地址">局域网联机地址</span>`
     + `<div class="bigaddr"><span class="mono">${LAN_IP}:${proxy ? "" : esc(SET.port)}</span>`
-    + (proxy ? `<span class="unk" title="代理端的端口写在它自己的配置文件里，第一次启动才生成">端口启动后才知道</span>`
+    + (proxy ? `<span class="unk" title="代理端监听端口写入自身配置文件，将于首次启动时生成">端口启动后才知道</span>`
       : `<button class="ib" data-act="copy" data-copy="${LAN_IP}:${esc(SET.port)}" title="复制"><i data-ic="copy"></i></button>`) + `</div>`
-    + `<div class="vlan"><div class="vlh"><span class="lb" title="你和朋友装了同一款虚拟局域网软件（Radmin VPN、ZeroTier 这类）、开着、进了同一个网络时，朋友填对应那一行；MineDeck 只把这台电脑上的地址列出来，不替你装、不替你建网络">虚拟局域网</span>`
+    + `<div class="vlan"><div class="vlh"><span class="lb" title="所有玩家运行同一款虚拟局域网工具（如 Radmin VPN、ZeroTier）并加入同一网络后，可输入对应地址联机；MineDeck 仅读取本机网卡地址，不负责安装或组网">虚拟局域网</span>`
       + `<button class="ib" data-act="vrefresh" title="重新检测"><i data-ic="refresh"></i></button></div><div class="lwrap vwrap"><div class="list vrows" id="vrows">${vlanRows()}</div><i class="thumb"></i></div></div>`
     + `<div class="vnone${vlanNets().length ? " gone" : ""}" id="vnone"><i data-ic="info"></i><span>未检测到虚拟局域网，启动 Radmin、ZeroTier 等组网工具后将自动识别</span></div>`
     + `</div></div>`;
-  const frp = `<div class="lanp frpp${on ? " on" : ""}${proxy ? " off" : ""}" title="${esc(proxy ? "代理端的端口第一次启动以后才知道，启动过以后在服务器的「联机」里开" : on ? "" : "有自己的 frp 服务器才用这个，点一下打开")}">`
-    + `<div class="lh">${ltg("frpsOn", "自建 frps", "MineDeck 带着 frpc 连你自己的 frps，外地的朋友也能进", on)}</div>`
-    + `<div class="lbody"><span class="lb" title="外地的朋友在游戏里添加服务器时填这个：服务器地址加公网端口，公网端口空着就是本地端口">公网联机地址</span>`
+  const frp = `<div class="lanp frpp${on ? " on" : ""}${proxy ? " off" : ""}" title="${esc(proxy ? "代理端端口需在首次启动生成配置文件后确定，启动后可在服务器的「联机」页开启自建 frps" : on ? "" : "适用于自有 frps 服务端，点击开启")}">`
+    + `<div class="lh">${ltg("frpsOn", "自建 frps", "由 MineDeck 启动 frpc 连接自有 frps，实现公网联机", on)}</div>`
+    + `<div class="lbody"><span class="lb" title="公网玩家在游戏多人联机中输入此地址：由 frps 地址与公网端口组成，公网端口留空时默认与本地端口一致">公网联机地址</span>`
     + `<div class="bigaddr" id="faddr">${frpsAddr()}</div>`
     + `<div class="frps" title="本地端口 ${esc(SET.port)}">`
-    + `<input class="inp" id="fhost" placeholder="服务器地址" value="${esc(LINK.frps.host)}" autocomplete="off" spellcheck="false"${fd}>`
-    + `<input class="inp" id="fport" placeholder="端口" value="${esc(LINK.frps.port)}" inputmode="numeric"${fd}>`
+    + `<input class="inp" id="fhost" placeholder="frps 地址" value="${esc(LINK.frps.host)}" autocomplete="off" spellcheck="false"${fd}>`
+    + `<input class="inp" id="fport" placeholder="frps 端口" value="${esc(LINK.frps.port)}" inputmode="numeric"${fd}>`
     + `<input class="inp" id="ftoken" type="password" placeholder="认证令牌（选填）" value="${esc(LINK.frps.token)}"${fd}>`
-    + `<input class="inp" id="fremote" placeholder="公网端口" value="${esc(LINK.frps.remote)}" inputmode="numeric" title="朋友连的端口；空着就和本地端口一样（${esc(SET.port)}）"${fd}></div></div></div>`;
+    + `<input class="inp" id="fremote" placeholder="公网端口" value="${esc(LINK.frps.remote)}" inputmode="numeric" title="公网联机使用的端口，留空时默认与本地端口一致（${esc(SET.port)}）"${fd}></div></div></div>`;
   return lan + frp;
 }
 // 自建 frps 那块的大字：服务器地址加公网端口（空着用本地端口），边填边拼；地址没填时用淡字占着位置，复制灰着。
 // 服务器地址在上面大字和下面框里各出现一次，和「一个值只说一次」有出入，作者 11-26 定保持：这一行是为了把朋友要填的整串地址呈现出来、给人复制
 function frpsAddr() {
   const h = LINK.frps.host.trim(), port = LINK.frps.remote.trim() || (isProxyCore() ? "" : SET.port); // 代理端的本地端口启动后才知道，只写到冒号（同局域网那行）
-  return (h ? `<span class="mono" title="${esc(h)}:${esc(port)}">${esc(h)}:${esc(port)}</span>` : `<span class="ph">服务器地址</span><span class="mono">:${esc(port)}</span>`)
+  return (h ? `<span class="mono" title="${esc(h)}:${esc(port)}">${esc(h)}:${esc(port)}</span>` : `<span class="ph">frps 地址</span><span class="mono">:${esc(port)}</span>`)
     + `<button class="ib" data-act="copy" data-copy="${esc(h)}:${esc(port)}" title="复制"${h && port ? "" : " disabled"}><i data-ic="copy"></i></button>`;
 }
 function paintFrpsAddr() { const el = document.getElementById("faddr"); if (el) { el.innerHTML = frpsAddr(); KIT.hydrate(el); } }
 // 自建 frps 开关一动：四个框淡进淡出，打开时光标落在服务器地址
 function afterFrps() {
   const p = document.querySelector(".frpp"); if (!p) return;
-  p.classList.toggle("on", LINK.frpsOn); p.title = LINK.frpsOn ? "" : "有自己的 frp 服务器才用这个，点一下打开";
+  p.classList.toggle("on", LINK.frpsOn); p.title = LINK.frpsOn ? "" : "适用于自有 frps 服务端，点击开启";
   p.querySelectorAll(".frps .inp").forEach(i => { if (LINK.frpsOn) i.removeAttribute("tabindex"); else { i.tabIndex = -1; i.classList.remove("bad"); } });
   if (LINK.frpsOn) document.getElementById("fhost")?.focus({ preventScroll: true });
 }
@@ -1373,9 +1379,9 @@ const wtg = (key, t, tip) => `<div class="tg${isOn(SET[key]) ? " on" : ""}" data
 // 底部「谁能进」：正版验证一块在左（只包住开关和字），白名单一块占其余的宽，开关在字的左边（同第三步的 EULA）。
 // 原来两块右边各有一句提醒（「谁拿到地址都能进」「名单是空的」「白名单只认名字」），11-26 作者说开服的人都懂，「名单是空的」反倒让人以为非填不可，都拿掉了
 function whoStrip() {
-  if (isProxyCore()) return `<div class="who"><div class="wt one" title="正版验证在代理端自己的配置文件里改，白名单在后面接的各台服务器上开">谁能进：代理端在自己的配置里设</div></div>`;
-  return `<div class="who"><div class="wt wt-on">${wtg("online", "正版验证", "开着只有正版账号能进；关着时离线账号也能进，但不用正版 UUID，也不显示正版皮肤")}</div>`
-    + `<div class="wt wt-wl${SET.wl ? " open" : ""}">${wtg("wl", "白名单", "开着只有名单里的玩家能进；关着时知道地址的人都能进")}`
+  if (isProxyCore()) return `<div class="who"><div class="wt one" title="正版验证需在代理端自身配置文件中修改，白名单需在各后端子服中分别开启">谁能进：代理端在自己的配置里设</div></div>`;
+  return `<div class="who"><div class="wt wt-on">${wtg("online", "正版验证", "开启后仅允许正版账号加入；关闭后允许离线账号加入，但不会使用正版 UUID，也不显示正版皮肤")}</div>`
+    + `<div class="wt wt-wl${SET.wl ? " open" : ""}">${wtg("wl", "白名单", "开启后仅允许名单内的玩家加入；关闭后知晓地址的任意玩家均可加入")}`
     + `<div class="wnames" id="names"><div class="wscroll" id="wlscroll">${LINK.names.map(nchip).join("")}`
     + `<input id="wlname" maxlength="16" placeholder="${LINK.names.length ? "" : WL_PH}" autocomplete="off" spellcheck="false"></div></div>`
     + `<span id="wlnote"></span></div></div>`;
@@ -1384,8 +1390,8 @@ function step4() {
   const proxy = isProxyCore(), v = viaOf();
   const card = ([k, n], i) => {
     const off = proxy && k !== "lan";
-    return `<div class="vcard${v === k ? " on" : ""}${off ? " off" : ""}" data-via="${k}" style="grid-column:${i + 1}" title="${esc(off ? "代理端的端口第一次启动以后才知道，启动过以后在服务器的「联机」里开" : VIA_TIP[k])}">`
-      + `<div class="n">${n}</div><div class="m">${off ? "启动后再开" : viaMeta(k)}</div></div>`;
+    return `<div class="vcard${v === k ? " on" : ""}${off ? " off" : ""}" data-via="${k}" style="grid-column:${i + 1}" title="${esc(off ? "代理端端口需在首次启动生成配置文件后确定，启动后可在服务器的「联机」页开启内网穿透" : VIA_TIP[k])}">`
+      + `<div class="n">${n}</div><div class="m">${off ? "首次启动后开启" : viaMeta(k)}</div></div>`;
   };
   const slots = VIAS.map((_, i) => `<i class="vslot" style="grid-column:${i + 1}"></i>`).join(""); // 底色一层，和卡片同一格
   return `<div class="setp link"><div class="col lcol"><div class="vias">${slots}<i class="vhl"></i>${VIAS.map(card).join("")}</div>`
@@ -1457,6 +1463,8 @@ function pickVia(k) {
 function pickTab(v, box, sp) {
   LINK.tab[LINK.via] = v;
   box.querySelectorAll("span").forEach(x => x.classList.toggle("on", x === sp)); placeSeg(box, true);
+  const nq = document.getElementById("nq"); if (nq) nq.placeholder = v === "use" ? "搜索隧道" : "搜索节点";
+  const nr = document.querySelector('[data-act="nrefresh"]'); if (nr) { const rt = v === "use" ? "刷新隧道列表" : "刷新节点列表"; nr.title = rt; delete nr.dataset.tip; if (nr.hasAttribute("aria-label")) nr.setAttribute("aria-label", rt); }
   document.getElementById("nmsg")?.classList.remove("show");
   swapItems(document.querySelector(".nbody"), nodeBody(LINK.via), v === "use" ? 1 : -1, "X", afterDetail);
 }
@@ -1532,7 +1540,7 @@ function addName(v) {
   const n = v.trim(), inp = document.getElementById("wlname"), box = document.getElementById("names"), note = document.getElementById("wlnote");
   if (!n) return;
   if (!/^[A-Za-z0-9_]{1,16}$/.test(n)) {
-    box.classList.add("bad"); note.textContent = "玩家名不合法"; note.title = "1~16 位字母、数字或下划线";
+    box.classList.add("bad"); note.textContent = "玩家名不合法"; note.title = "1～16 位字母、数字或下划线";
     shakeEl(box); // 同别处拦下一步的那一下
     return;
   }
@@ -1566,7 +1574,7 @@ function checkLink() {
   }
   if (v === "sakura" && !LINK.sakura) { const inp = document.getElementById("skey"); inp?.classList.add("bad"); inp?.focus(); shakeEl(inp); return false; }
   if (isTun(v)) {
-    const need = tabOf(v) === "new" ? (!LINK.node[v] && "先选一个节点") : (!LINK.use[v] && "先选一条隧道");
+    const need = tabOf(v) === "new" ? (!LINK.node[v] && "请先选择节点") : (!LINK.use[v] && "请先选择隧道");
     if (!need) return true;
     const m = document.getElementById("nmsg"); if (m) { m.textContent = need; m.classList.add("show"); }
     shakeEl(document.querySelector(".nwrap"));

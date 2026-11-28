@@ -21,6 +21,7 @@ const LAN_IP = "192.168.1.5";
 const LAN_NETS = [["Radmin VPN", "26.18.4.77"], ["ZeroTier", "10.147.20.3"], ["Tailscale", "100.88.12.5"], ["Hamachi", "25.61.140.9"], ["蒲公英", "172.16.3.21"]];
 const VIAS = [["lan", "局域网 / 自建 frps"], ["openfrp", "OpenFrp"], ["sakura", "樱花穿透"]];
 const PLAT = { openfrp: "OpenFrp", sakura: "樱花穿透" };
+const platIn = (k, l = " ", r = " ") => /^[A-Za-z]/.test(PLAT[k]) ? l + PLAT[k] + r : PLAT[k]; // 平台名夹在中文句子里：英文开头的（OpenFrp）和旁边的汉字之间带空格，中文的不带；挨着标点或句末的那一边传 ""（同 settings-tunnels.js）
 
 // ---- 节点（同向导第四步，节选；标记同那里：u UDP、h HTTPS、e 扩展地址、r 实名、f 满载、o 离线） ----
 const OF_USER = { name: "steve", tier: "vip", realname: true };
@@ -81,7 +82,7 @@ const PORT = () => C.S.port;
 const addrOf = t => `${nodeBy(t.plat, t.node).host}:${t.port}`;
 
 // ---- 卡片 ----
-function tunState(t) { return t.wait ? ["warm", "连接中"] : t.on ? ["ok", "已连上"] : ["off", "没开"]; }
+function tunState(t) { return t.wait ? ["warm", "连接中"] : t.on ? ["ok", "运行中"] : ["off", "已停止"]; }
 function viaMeta(k) {
   const N = net();
   if (k === "lan") return "同一 Wi-Fi / 连接自有服务端"; // 向导里作者定过的字
@@ -90,9 +91,9 @@ function viaMeta(k) {
   return N.sakura ? `<i class="dot ok"></i>${SK_USER.name}` : `<i class="dot"></i>未连接`;
 }
 const VIA_TIP = {
-  lan: "和你连同一个 Wi-Fi、同一个路由器的朋友能进；有自己的 frp 服务器的，打开「自建 frps」，外地的朋友也能进",
-  openfrp: "用 OpenFrp 的内网穿透，外地的朋友也能进",
-  sakura: "用樱花的内网穿透，外地的朋友也能进",
+  lan: "同一局域网内可直接联机；如有自有 frps，开启「自建 frps」即可公网联机",
+  openfrp: "通过 OpenFrp 实现公网联机",
+  sakura: "通过樱花穿透实现公网联机",
 };
 function cards() {
   const v = net().via;
@@ -105,33 +106,33 @@ function paintMeta() { $$(".netv .vcard").forEach(c => { const m = $(".m", c); m
 // ---- 局域网 / 自建 frps（同向导） ----
 const vlanNets = () => LAN_NETS.slice(0, [0, 2, 5][net().vlan]);
 const ib = (act, ic, tip, extra = "") => `<button class="nib" data-act="${act}" title="${esc(tip)}"${extra}><i data-ic="${ic}"></i></button>`;
-const vlanRows = () => vlanNets().map(([n, ip]) => `<div class="netrow" title="朋友也在你的 ${esc(n)} 网络里时填这个"><span class="nn">${esc(n)}</span><span class="mono">${ip}:${PORT()}</span>`
+const vlanRows = () => vlanNets().map(([n, ip]) => `<div class="netrow" title="已加入同一${/^[A-Za-z0-9]/.test(n || "") ? " " : ""}${esc(n)}${/[A-Za-z0-9]$/.test(n || "") ? " " : ""}网络的玩家可使用此地址连接"><span class="nn">${esc(n)}</span><span class="mono">${ip}:${PORT()}</span>`
   + ib("copy", "copy", "复制", ` data-copy="${ip}:${PORT()}"`) + `</div>`).join("");
 const ntg = (key, t, on, tip = "", cls = "") => `<button class="ntg${on ? " on" : ""}${cls ? " " + cls : ""}" data-ntg="${key}" role="switch" aria-checked="${on}"${tip ? ` title="${esc(tip)}"` : ""}><span class="sw"></span>${t}</button>`;
 function frpsAddr() {
   const N = net(), h = N.frps.host.trim(), port = N.frps.remote.trim() || PORT();
-  return (h ? `<span class="mono" title="${esc(h)}:${esc(port)}">${esc(h)}:${esc(port)}</span>` : `<span class="ph">服务器地址</span><span class="mono">:${esc(port)}</span>`)
+  return (h ? `<span class="mono" title="${esc(h)}:${esc(port)}">${esc(h)}:${esc(port)}</span>` : `<span class="ph">frps 地址</span><span class="mono">:${esc(port)}</span>`)
     + ib("copy", "copy", "复制", ` data-copy="${esc(h)}:${esc(port)}"${h ? "" : " disabled"}`);
 }
 function lanPage() {
   const N = net(), on = N.frpsOn, fd = on ? "" : ` tabindex="-1"`;
   const lan = `<div class="lanp"><div class="lh"><i data-ic="wifi"></i><span class="t">局域网</span></div>`
-    + `<div class="lbody"><span class="lb" title="同一局域网的朋友在游戏里添加服务器时填这个">局域网联机地址</span>`
+    + `<div class="lbody"><span class="lb" title="同一局域网内的玩家在多人游戏中添加服务器时使用此地址">局域网联机地址</span>`
     + `<div class="bigaddr"><span class="mono">${LAN_IP}:${PORT()}</span>${ib("copy", "copy", "复制", ` data-copy="${LAN_IP}:${PORT()}"`)}</div>`
-    + `<div class="vlan"><div class="vlh"><span class="lb" title="你和朋友装了同一款虚拟局域网软件（Radmin VPN、ZeroTier 这类）、开着、进了同一个网络时，朋友填对应那一行；MineDeck 只把这台电脑上的地址列出来">虚拟局域网</span>`
+    + `<div class="vlan"><div class="vlh"><span class="lb" title="已启动并加入同一虚拟局域网（如 Radmin VPN、ZeroTier）时，使用对应地址联机；MineDeck 仅自动列出本机网卡地址">虚拟局域网</span>`
     + ib("vrefresh", "refresh", "重新检测") + `</div><div class="lwrap"><div class="list vrows" id="nvrows">${vlanRows()}</div><span class="thumb"></span></div></div>`
     + `<div class="vnone${vlanNets().length ? " gone" : ""}" id="nvnone"><i data-ic="info"></i><span>未检测到虚拟局域网，启动 Radmin、ZeroTier 等组网工具后将自动识别</span></div></div></div>`;
-  const stt = N.frpsSaved ? (C.st === "running" ? `<span class="npill ok"><i></i>已连上</span>` : `<span class="npill off"><i></i>没开</span>`) : "";
-  const frp = `<div class="lanp frpp${on ? " on" : ""}"${on ? "" : ` title="有自己的 frp 服务器才用这个，点一下打开"`}>`
-    + `<div class="lh">${ntg("frpsOn", "自建 frps", on, "MineDeck 带着 frpc 连你自己的 frps，外地的朋友也能进", "b")}${stt}</div>`
-    + `<div class="lbody"><span class="lb" title="外地的朋友在游戏里添加服务器时填这个：服务器地址加公网端口，公网端口空着就是本地端口">公网联机地址</span>`
+  const stt = N.frpsSaved ? (C.st === "running" ? `<span class="npill ok"><i></i>运行中</span>` : C.st === "starting" ? `<span class="npill warm"><i></i>连接中</span>` : `<span class="npill off"><i></i>已停止</span>`) : "";
+  const frp = `<div class="lanp frpp${on ? " on" : ""}"${on ? "" : ` title="适用于自有 frps 服务端，点击开启"`}>`
+    + `<div class="lh">${ntg("frpsOn", "自建 frps", on, "由 MineDeck 启动 frpc 连接自有 frps，实现公网联机", "b")}${stt}</div>`
+    + `<div class="lbody"><span class="lb" title="公网玩家连接时使用此地址，由 frps 地址与公网端口组成（公网端口留空时默认与本地端口一致）">公网联机地址</span>`
     + `<div class="bigaddr" id="nfaddr">${frpsAddr()}</div>`
     + `<div class="frps" title="本地端口 ${PORT()}">`
-    + `<input class="inp" data-f="host" placeholder="服务器地址" value="${esc(N.frps.host)}" autocomplete="off" spellcheck="false"${fd}>`
-    + `<input class="inp" data-f="port" placeholder="端口" value="${esc(N.frps.port)}" inputmode="numeric"${fd}>`
+    + `<input class="inp" data-f="host" placeholder="frps 地址" value="${esc(N.frps.host)}" autocomplete="off" spellcheck="false"${fd}>`
+    + `<input class="inp" data-f="port" placeholder="frps 端口" value="${esc(N.frps.port)}" inputmode="numeric"${fd}>`
     + `<input class="inp" data-f="token" type="password" placeholder="认证令牌（选填）" value="${esc(N.frps.token)}"${fd}>`
-    + `<input class="inp" data-f="remote" placeholder="公网端口" value="${esc(N.frps.remote)}" inputmode="numeric" title="朋友连的端口；空着就和本地端口一样（${PORT()}）"${fd}></div>`
-    + `<div class="lfoot"><button class="nb pri" data-act="frpsave"${N.frps.host.trim() ? "" : " disabled"} title="存下来；跟着服务器启动">${N.frpsSaved ? "保存" : "保存并连上"}</button></div></div></div>`;
+    + `<input class="inp" data-f="remote" placeholder="公网端口" value="${esc(N.frps.remote)}" inputmode="numeric" title="公网联机使用的端口，留空时默认与本地端口一致（${PORT()}）"${fd}></div>`
+    + `<div class="lfoot"><button class="nb pri" data-act="frpsave"${N.frps.host.trim() ? "" : " disabled"} title="保存配置，并跟随服务器启动">${N.frpsSaved ? "保存" : "保存并连上"}</button></div></div></div>`;
   return lan + frp;
 }
 
@@ -150,10 +151,10 @@ function tunBlock(t) {
     + `<span class="npill ${c}" data-pill><i></i>${s}</span><span class="nsp"></span>${ib("tmenu", "more", "更多")}</div>`
     + `<div class="lbody">`
     + (voice ? `<span class="lb" title="MineDeck 已经把它写进 Simple Voice Chat 的 voice_host，朋友不用填">语音地址</span>`
-      : `<span class="lb" title="外地的朋友在游戏里添加服务器时填这个">公网联机地址</span>`)
+      : `<span class="lb" title="公网玩家在多人游戏中添加服务器时使用此地址">公网联机地址</span>`)
     + `<div class="bigaddr"><span class="mono">${addrOf(t)}</span>${ib("copy", "copy", "复制", ` data-copy="${addrOf(t)}"`)}</div>${nodeLine(t)}`
-    + `<div class="tkv" title="在 ${PLAT[t.plat]} 的控制台里找这条隧道时认这个名字"><span class="k">隧道</span><span class="mono">${esc(t.name)}</span><span class="tag plain">${voice ? "UDP" : "TCP"}</span></div></div>`
-    + `<div class="tfoot">${ntg("follow", "跟随服务器启动", t.follow, "服务器启动时自动连上，停服后跟着断开")}<span class="nsp"></span>`
+    + `<div class="tkv" title="在${platIn(t.plat)}控制台中对应的隧道名称"><span class="k">隧道</span><span class="mono">${esc(t.name)}</span><span class="tag plain">${voice ? "UDP" : "TCP"}</span></div></div>`
+    + `<div class="tfoot">${ntg("follow", "跟随服务器启动", t.follow, "服务器启动时自动启动隧道，停止时自动关闭")}<span class="nsp"></span>`
     + (t.on || t.wait ? `<button class="nb stop" data-act="tstop"><i data-ic="stop"></i>停止隧道</button>` : `<button class="nb go" data-act="tstart"><i data-ic="play"></i>启动隧道</button>`)
     + `</div></div>`;
 }
@@ -162,18 +163,18 @@ function voiceBlock() {
   if (N.voice) return tunBlock(N.voice);
   return `<div class="tunp empty voice"><div class="lh"><i data-ic="voice"></i><span class="t">语音隧道</span><span class="sub">Simple Voice Chat</span></div>`
     + `<div class="vadd"><button class="nb pri" data-act="vadd"${N.busy ? " disabled" : ""} title="${esc(`Simple Voice Chat 的语音走 UDP，要单独一条隧道。MineDeck 在游戏隧道的同一个节点上建好，把地址写进 voice_host，朋友不用另外填`)}">`
-    + (N.busy ? `<i data-ic="spinner" class="spin"></i>正在建` : `<i data-ic="plus"></i>新建语音隧道`) + `</button></div></div>`;
+    + (N.busy ? `<i data-ic="spinner" class="spin"></i>创建中` : `<i data-ic="plus"></i>新建语音隧道`) + `</button></div></div>`;
 }
 const tunPage = () => tunBlock(net().game) + (net().svc ? voiceBlock() : "");
 
 // ---- 节点面板（同向导第四步；右上角多一颗主键） ----
 function nodeWhy(k, x) {
   if (x.off) return ["off", "离线"];
-  if (x.full) return ["full", "满载，暂时建不了隧道"];
+  if (x.full) return ["full", "节点已满载，暂无法创建隧道"];
   if (k === "openfrp") {
-    if (TIERS.indexOf(x.tier) > TIERS.indexOf(OF_USER.tier)) return ["perm", `${TIER_NAME[x.tier]} 用户才能用`];
-    if (x.real && !OF_USER.realname) return ["perm", "要先在 OpenFrp 实名"];
-  } else if (x.vip > SK_USER.level) return ["perm", "VIP 等级不够"];
+    if (TIERS.indexOf(x.tier) > TIERS.indexOf(OF_USER.tier)) return ["perm", `仅限 ${TIER_NAME[x.tier]} 用户使用`];
+    if (x.real && !OF_USER.realname) return ["perm", "需先完成 OpenFrp 实名认证"];
+  } else if (x.vip > SK_USER.level) return ["perm", "VIP 等级不足"];
   return null;
 }
 function nodeShown(k, x) {
@@ -187,11 +188,11 @@ function nodeShown(k, x) {
 }
 function nodeCard(k, x) {
   const N = net(), why = nodeWhy(k, x), cur = N.swap && N.game?.plat === k && N.game.node === x.key, on = !cur && N.pick[k] === x.key;
-  const st = x.off ? `<span class="tag bad">离线</span>` : x.full ? `<span class="tag plain">满载</span>` : cur ? `<span class="tag plain">在用</span>` : "";
-  const cls = `nd${on ? " on" : ""}${why ? " off" : ""}${cur ? " cur" : ""}`, tip = why ? why[1] : cur ? "现在用的就是这个节点" : `${k === "openfrp" ? x.key + " " : ""}${x.n}${x.d ? "\n" + x.d : ""}`;
+  const st = x.off ? `<span class="tag bad">离线</span>` : x.full ? `<span class="tag plain">满载</span>` : cur ? `<span class="tag plain">当前</span>` : "";
+  const cls = `nd${on ? " on" : ""}${why ? " off" : ""}${cur ? " cur" : ""}`, tip = why ? why[1] : cur ? "当前正在使用此节点" : `${k === "openfrp" ? x.key + " " : ""}${x.n}${x.d ? "\n" + x.d : ""}`;
   if (k === "openfrp") {
     const tags = `<span class="tag good">${x.bw}</span>` + (x.udp ? `<span class="tag plain">UDP</span>` : "") + (x.https ? `<span class="tag plain">HTTPS</span>` : "")
-      + (x.real && x.sec !== 0 ? `<span class="tag warn">实名</span>` : "") + (x.ext ? `<span class="tag warn" title="主地址有限制时，朋友要用扩展地址连">扩展地址</span>` : "");
+      + (x.real && x.sec !== 0 ? `<span class="tag warn">实名</span>` : "") + (x.ext ? `<span class="tag warn" title="主地址受限时，需使用扩展地址连接">扩展地址</span>` : "");
     return `<div class="${cls}" data-node="${esc(x.key)}" title="${esc(tip)}"><div class="r1">${x.tier ? `<span class="tag ${x.tier}">${TIER_NAME[x.tier]}</span>` : ""}`
       + `<span class="n"><span class="id">#${x.id}</span>${esc(x.n)}</span>${st}</div><div class="d one">${esc(x.d) || "&nbsp;"}</div><div class="r3">${tags}</div></div>`;
   }
@@ -205,19 +206,19 @@ function nodeCards(k) {
     return `<div class="ngrp"><div class="ngh"><h4>${t}</h4>${sub ? `<span class="s">${sub}</span>` : ""}<span class="c">${all.filter(x => !nodeWhy(k, x)).length} 个可用</span></div>`
       + `<div class="ncards">${list.map(x => nodeCard(k, x)).join("")}</div></div>`;
   }).join("");
-  return out || `<div class="nempty">没有对得上的节点</div>`;
+  return out || `<div class="nempty">没有匹配的节点</div>`;
 }
 function tunRows(k) {
   const N = net(), q = N.q.trim().toLowerCase(), list = PLAT_TUNS[k].filter(t => !q || (t.n + " " + t.node).toLowerCase().includes(q));
-  if (!list.length) return `<div class="nempty">平台上没有对得上的隧道</div>`;
+  if (!list.length) return `<div class="nempty">平台上没有匹配的隧道</div>`;
   return list.map(t => {
-    const bad = t.t !== "TCP" ? "这是 UDP 隧道（多半是语音用的），游戏要用 TCP" : t.lp !== PORT() ? `本地端口是 ${t.lp}，和这台服务器的 ${PORT()} 对不上；先到平台上把本地端口改成 ${PORT()}` : "";
+    const bad = t.t !== "TCP" ? "此为 UDP 隧道（通常用于语音），游戏隧道需使用 TCP 协议" : t.lp !== PORT() ? `本地端口为 ${t.lp}，与当前服务器端口 ${PORT()} 不一致；请先在平台将本地端口改为 ${PORT()}` : "";
     const x = nodeBy(k, t.node);
-    return `<div class="trow${N.use[k] === t.n ? " on" : ""}${bad ? " off" : ""}" data-use="${esc(t.n)}" title="${esc(bad || "用这条隧道")}">`
-      + `<span class="n">${esc(t.n)}</span><span class="tag plain">${t.t}</span><span class="k">${esc(k === "openfrp" ? `${x.key} ${x.n}` : x.n)} · 本地 ${t.lp}</span></div>`;
+    return `<div class="trow${N.use[k] === t.n ? " on" : ""}${bad ? " off" : ""}" data-use="${esc(t.n)}" title="${esc(bad || "选择此隧道")}">`
+      + `<span class="n">${esc(t.n)}</span><span class="tag plain">${t.t}</span><span class="k">${esc(k === "openfrp" ? `${x.key} ${x.n}` : x.n)} · 本地端口 ${t.lp}</span></div>`;
   }).join("");
 }
-const ckBox = (key, t) => `<span class="ck${net().show[key] ? " on" : ""}" data-ck="${key}" title="把${t}的节点也列出来（灰着，点不了）"><span class="bx"><i data-ic="check"></i></span>${t}</span>`;
+const ckBox = (key, t) => `<span class="ck${net().show[key] ? " on" : ""}" data-ck="${key}" title="显示${t}节点（不可选）"><span class="bx"><i data-ic="check"></i></span>${t}</span>`;
 function nodeBody(k) {
   const N = net(), fil = [["all", "全部"], ["udp", "支持 UDP"], ...(k === "sakura" ? [["pub", "公开游戏"]] : [])];
   const top = N.swap || N.tab[k] === "new"
@@ -229,25 +230,25 @@ function nodeBody(k) {
 function mainBtn(k) {
   const N = net(), newTab = N.swap || N.tab[k] === "new", ready = newTab ? !!N.pick[k] : !!N.use[k];
   const other = !N.swap && N.game && N.game.plat !== k;
-  const label = N.busy ? `<i data-ic="spinner" class="spin"></i>${N.swap ? "正在换" : "正在建"}` : N.swap ? "换过去" : other ? `换到 ${PLAT[k]}` : newTab ? "建隧道" : "用这条";
-  const tip = !ready ? (newTab ? "先选一个节点" : "先选一条隧道")
+  const label = N.busy ? `<i data-ic="spinner" class="spin"></i>${N.swap ? "更换中" : "创建中"}` : N.swap ? "确认更换" : other ? `切换至${platIn(k, " ", "")}` : newTab ? "新建隧道" : "使用此隧道";
+  const tip = !ready ? (newTab ? "请先选择节点" : "请先选择隧道")
     : N.swap ? "在新节点上建一条、连上以后，原来那条从平台上删掉；地址会变，记得告诉朋友"
-    : other ? `建好以后，${PLAT[N.game.plat]} 上那条停掉、和这台服务器解绑，平台上的不删` : newTab ? `本地端口 ${PORT()}，公网端口${k === "openfrp" ? "在节点允许的范围里自动挑" : "由樱花分配"}，其余用平台默认` : "";
+    : other ? `建好以后，${platIn(N.game.plat, "", " ")}上那条停掉、和这台服务器解绑，平台上的不删` : newTab ? `本地端口 ${PORT()}，公网端口${k === "openfrp" ? "在节点允许范围内自动分配" : "由樱花穿透自动分配"}，其余采用平台默认配置` : "";
   return `<button class="nb pri" data-act="nmain"${ready && !N.busy ? "" : " disabled"}${tip ? ` title="${esc(tip)}"` : ""}>${label}</button>`;
 }
 function nodePanel(k) {
-  const N = net(), on = v => N.tab[k] === v ? ` class="on"` : "";
-  const head = N.swap ? ib("swapback", "arrowLeft", "回到隧道") + `<span class="nt">换节点</span>`
-    : `<div class="seg" data-seg="tab"><i class="sgl"></i><span data-v="new"${on("new")} title="MineDeck 替你在 ${PLAT[k]} 上建一条隧道">新建隧道</span><span data-v="use"${on("use")} title="平台上已经建好的隧道，挑一条拿来用">已有隧道</span></div>`;
-  return `<div class="nbar">${head}<label class="nsearch"><i data-ic="search"></i><input id="nnq" placeholder="搜索节点" value="${esc(N.q)}" autocomplete="off" spellcheck="false"></label>`
-    + ib("nrefresh", "refresh", "刷新节点列表") + `<span id="nmainslot" style="display:contents">${mainBtn(k)}</span></div><div class="nbody">${nodeBody(k)}</div>`;
+  const N = net(), on = v => N.tab[k] === v ? ` class="on"` : "", useTab = !N.swap && N.tab[k] === "use";
+  const head = N.swap ? ib("swapback", "arrowLeft", "返回隧道") + `<span class="nt">更换节点</span>`
+    : `<div class="seg" data-seg="tab"><i class="sgl"></i><span data-v="new"${on("new")} title="由 MineDeck 在${platIn(k)}上创建新隧道">新建隧道</span><span data-v="use"${on("use")} title="从平台已创建的隧道中选择一条绑定到当前服务器">已有隧道</span></div>`;
+  return `<div class="nbar">${head}<label class="nsearch"><i data-ic="search"></i><input id="nnq" placeholder="${useTab ? "搜索隧道" : "搜索节点"}" value="${esc(N.q)}" autocomplete="off" spellcheck="false"></label>`
+    + ib("nrefresh", "refresh", useTab ? "刷新隧道列表" : "刷新节点列表") + `<span id="nmainslot" style="display:contents">${mainBtn(k)}</span></div><div class="nbody">${nodeBody(k)}</div>`;
 }
 function sakuraKey() {
   const N = net();
-  return `<div class="keyb"><div class="lrow"><span class="lb">樱花访问密钥</span><a class="tlink" title="在浏览器里打开樱花官网的用户信息页，复制上面的「访问密钥」">去官网复制</a></div>`
+  return `<div class="keyb"><div class="lrow"><span class="lb">樱花访问密钥</span><a class="tlink" title="在浏览器中打开樱花穿透官网用户信息页以获取「访问密钥」">去官网复制</a></div>`
     + `<div class="keyrow"><input class="inp" id="nskey" type="password" placeholder="粘贴访问密钥" value="${esc(N.key)}" autocomplete="off" spellcheck="false">`
     + `<button class="kbtn" data-act="connect"${N.connecting ? " disabled" : ""}>${N.connecting ? `<i data-ic="spinner" class="spin"></i>连接中` : "连接"}</button></div>`
-    + ntg("saveKey", "记住密钥", N.saveKey, "用 Windows 加密存在这台电脑上，以后建别的服务器不用再粘；设置 → 内网穿透里可以换或删") + `</div>`
+    + ntg("saveKey", "记住密钥", N.saveKey, "使用 Windows 加密保存在本机，后续配置其他服务器时无需重复粘贴；可在「设置 → 内网穿透」中更换或删除") + `</div>`
     + `<div class="nph">请先连接账号，以加载并选择可用节点</div>`;
 }
 function detail() {
@@ -342,12 +343,12 @@ function nmain() {
 // 删除隧道：确认框（同共用件页的危险确认框），默认连平台上的一起删
 let mask = null;
 function confirmDelete(which) {
-  const N = net(), t = which === "voice" ? N.voice : N.game, plat = PLAT[t.plat];
+  const N = net(), t = which === "voice" ? N.voice : N.game;
   const st = { both: true };
   mask = Object.assign(document.createElement("div"), { className: "nmask enter" });
   mask.innerHTML = `<div class="nmd" role="dialog" aria-modal="true"><div class="mc"><div class="mh"><span class="mi"><i data-ic="trash"></i></span><h3>删除${which === "voice" ? "语音" : "游戏"}隧道「${esc(t.name)}」？</h3></div>`
-    + (which === "game" && N.voice ? `<div class="mb">语音隧道「<b>${esc(N.voice.name)}</b>」也会一起删掉。</div>` : "")
-    + `<div>${ntg("both", `同时删掉 ${plat} 上的这条隧道`, true, `关着时只删 MineDeck 里的设置，${plat} 上的隧道留着，以后能在「已有隧道」里再拿来用`)}</div></div>`
+    + (which === "game" && N.voice ? `<div class="mb">关联的语音隧道「<b>${esc(N.voice.name)}</b>」也将一并删除。</div>` : "")
+    + `<div>${ntg("both", `同时删除${platIn(t.plat)}上的${which === "game" && N.voice ? "这两条" : "该"}隧道`, true, `关闭时仅移除 MineDeck 中的记录，保留${platIn(t.plat)}上的隧道，后续可在「已有隧道」中重新绑定`)}</div></div>`
     + `<div class="ma"><button class="nb" data-x="close">取消</button><button class="nb dgr" data-x="del">删除隧道</button></div></div>`;
   document.body.appendChild(mask); C.KIT.hydrate(mask);
   $("[data-x=close]", mask).focus({ focusVisible: false });
@@ -364,7 +365,7 @@ function toggleMenu(btn) {
   if (menu) return closeMenu();
   const which = btn.closest(".tunp").dataset.tun, t = which === "voice" ? net().voice : net().game;
   menu = Object.assign(document.createElement("div"), { className: "dm enter" }); menu.setAttribute("role", "menu");
-  menu.innerHTML = `<div class="it" role="menuitem"><i data-ic="share"></i>在 ${PLAT[t.plat]} 上打开</div><div class="sep"></div>`
+  menu.innerHTML = `<div class="it" role="menuitem"><i data-ic="share"></i>在${platIn(t.plat)}控制台打开</div><div class="sep"></div>`
     + `<div class="it dgr" role="menuitem" data-del="${which}"><i data-ic="trash"></i>删除隧道…</div>`;
   document.body.appendChild(menu); C.KIT.hydrate(menu);
   const r = btn.getBoundingClientRect();
@@ -398,7 +399,7 @@ document.addEventListener("click", e => {
     const first = !N.frpsSaved; N.frpsSaved = true;
     e.target.closest("[data-act]").textContent = "保存";
     if (first) {
-      $(".netv .frpp .lh").insertAdjacentHTML("beforeend", C.st === "running" ? `<span class="npill ok"><i></i>已连上</span>` : `<span class="npill off"><i></i>没开</span>`);
+      $(".netv .frpp .lh").insertAdjacentHTML("beforeend", C.st === "running" ? `<span class="npill ok"><i></i>运行中</span>` : C.st === "starting" ? `<span class="npill warm"><i></i>连接中</span>` : `<span class="npill off"><i></i>已停止</span>`);
       $(".netv .frpp .lh .npill").animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: "cubic-bezier(.2, .7, .2, 1)" });
       paintMeta();
     }
@@ -408,7 +409,7 @@ document.addEventListener("click", e => {
   if (tgl || fr) {
     const key = tgl ? tgl.dataset.ntg : "frpsOn";
     if (key === "frpsOn") {
-      N.frpsOn = !N.frpsOn; const p = $(".netv .frpp"); p.classList.toggle("on", N.frpsOn); p.title = N.frpsOn ? "" : "有自己的 frp 服务器才用这个，点一下打开";
+      N.frpsOn = !N.frpsOn; const p = $(".netv .frpp"); p.classList.toggle("on", N.frpsOn); p.title = N.frpsOn ? "" : "适用于自有 frps 服务端，点击开启";
       const t = $("[data-ntg=frpsOn]", p); t.classList.toggle("on", N.frpsOn); t.setAttribute("aria-checked", N.frpsOn);
       $$(".frps .inp", p).forEach(i => { if (N.frpsOn) i.removeAttribute("tabindex"); else i.tabIndex = -1; });
       if (N.frpsOn) $("[data-f=host]", p).focus({ preventScroll: true });
@@ -425,7 +426,7 @@ document.addEventListener("click", e => {
   }
   if (a === "tmenu") { toggleMenu(e.target.closest(".nib")); return; }
   if (a === "vadd") {
-    N.busy = true; swapItems($(".netv .tunp.empty .vadd"), `<button class="nb pri" disabled><i data-ic="spinner" class="spin"></i>正在建</button>`, 0, "Y");
+    N.busy = true; swapItems($(".netv .tunp.empty .vadd"), `<button class="nb pri" disabled><i data-ic="spinner" class="spin"></i>创建中</button>`, 0, "Y");
     setTimeout(() => {
       N.busy = false; N.voice = { kind: "voice", plat: N.game.plat, name: N.game.name + "_voice", node: N.game.node, port: N.game.port + 7, follow: true, on: false, wait: false };
       const old = $(".netv .tunp.empty"); if (!old) return;
@@ -453,7 +454,10 @@ document.addEventListener("click", e => {
   const sp = e.target.closest(".seg span"); if (sp) {
     if (sp.classList.contains("on")) return;
     N.tab[k] = sp.dataset.v; $$(".netv .seg span").forEach(x => x.classList.toggle("on", x === sp)); placeSeg(true);
-    paintMain(); swapItems($(".netv .nbody"), nodeBody(k), N.tab[k] === "use" ? 1 : -1); return;
+    const useTab = N.tab[k] === "use", nq = $("#nnq"), rb = $(".netv [data-act=nrefresh]");
+    if (nq) nq.placeholder = useTab ? "搜索隧道" : "搜索节点";
+    if (rb) { const rt = useTab ? "刷新隧道列表" : "刷新节点列表"; rb.title = rt; delete rb.dataset.tip; if (rb.hasAttribute("aria-label")) rb.setAttribute("aria-label", rt); }
+    paintMain(); swapItems($(".netv .nbody"), nodeBody(k), useTab ? 1 : -1); return;
   }
   const nf = e.target.closest("[data-nfil]"); if (nf) {
     const v = nf.dataset.nfil; if (N.filter === v) return;

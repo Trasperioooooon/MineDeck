@@ -84,15 +84,15 @@
       diff: "normal", mode: "adventure", clues: [], notes: [] },
     { name: "天空之城（建造存档）", root: "SkyCity_v2.1/SkyCity_build", ver: "1.20.4", mb: 214, layout: "旧版布局", layoutFull: "旧版布局（26.1 以前的原版）",
       dims: [["主世界", 40]], missing: ["下界", "末地"], dps: [], rp: false, players: 1, readme: "", hints: [], diff: "peaceful", mode: "creative", clues: [],
-      notes: [["warn", "单人存档：主人的背包和经验接不接得上，看用哪个账号进服", "这是单人存档。世界、建筑、箱子都在；主人身上的背包和经验接不接得上，取决于用哪个账号进服（正版验证开着、用同一个正版账号一般能接上）。MineDeck 不改写玩家文件"]] },
+      notes: [["warn", "单人存档：原玩家背包与经验能否衔接取决于登录账号", "此为单人存档，地形、建筑与容器内容均完整保留；原玩家的背包与经验能否衔接取决于进入服务器使用的账号（开启正版验证并使用同一正版账号通常可衔接）。MineDeck 不会修改玩家数据文件"]] },
     { name: "SkyCity", root: "SkyCity_v2.1/old/SkyCity", ver: "", mb: 1024, block: "只有备份用的 level.dat_old",
-      blockFull: "这个世界只有备份用的 level.dat_old，没有 level.dat。可以先把 level.dat_old 复制一份改名成 level.dat，确认能在单人游戏里打开，再来导入" },
+      blockFull: "该存档仅含备份文件 level.dat_old，缺少 level.dat。请先将 level.dat_old 复制并重命名为 level.dat，确认可在单人游戏中打开后再导入" },
   ] };
   const CREATE = { file: "朋友的机械动力存档.zip", mb: 2087, path: "D:\\Maps\\create_s2", cands: [
     { name: "机械动力生存 · 第二季", root: "create_s2/world", ver: "1.20.1", mb: 1843, layout: "旧版布局", layoutFull: "旧版布局（26.1 以前的原版）",
       dims: [["主世界", 412], ["下界", 38], ["末地", 9]], missing: [], dps: [], rp: false, players: 4, readme: "", hints: ["mods.txt"],
       diff: "normal", mode: "survival", clues: ["forge", "create", "createaddition", "railways"],
-      notes: [["info", "地图用过模组：缺了模组的方块和物品会消失", "地图里有 Create、Create Crafts & Additions、Steam 'n' Rails 的线索。服务器里没装的模组，它们的方块和物品第一次加载时会被清掉；这台服务器这三个都装了"]] },
+      notes: [["info", "该地图曾使用模组：缺少对应模组时相关方块与物品将消失", "检测到 Create、Create Crafts & Additions、Steam 'n' Rails 线索。若服务器未安装对应模组，相关方块与物品将在首次加载时被清除；当前服务器已全部安装"]] },
     { name: "测试世界", root: "create_s2/test", ver: "1.20.4", mb: 96, layout: "旧版布局", layoutFull: "旧版布局（26.1 以前的原版）",
       dims: [["主世界", 6]], missing: ["下界", "末地"], dps: [], rp: false, players: 1, readme: "", hints: [], diff: "peaceful", mode: "creative", clues: [], notes: [] },
   ] };
@@ -126,6 +126,7 @@
         if (o._tok !== tok) return;
         o.innerHTML = n.innerHTML; o.className = n.className; delete o.dataset.tip;
         if (n.hasAttribute("title")) o.setAttribute("title", n.getAttribute("title")); else o.removeAttribute("title");
+        if (o.classList.contains("wd-ps")) fitWdEl(o);
         o.getAnimations().forEach(a => a.cancel());
         o.animate([{ opacity: 0, transform: tf(5 * dir) }, { opacity: 1, transform: "none" }], { duration: 220, easing: EASE_OUT, fill: "backwards" });
       };
@@ -165,8 +166,12 @@
     return (C.folders || []).length ? `<div class="wd-fd">${C.folders.map(([i, t]) => `<button type="button" title="${esc(t + (C.sub === "backups" && D.dir ? "\n" + D.dir : ""))}"><i data-ic="${i}"></i></button>`).join("")}</div>` : "";
   };
   const live = () => C.st !== "stopped";
-  const addonNoun = () => ["paper", "purpur", "leaves", "folia", "velocity", "waterfall"].includes(C.S.core) ? "插件" : C.S.core === "vanilla" ? "" : "模组";
-  const keptWhat = () => `核心${addonNoun() ? "、" + addonNoun() : ""}和设置都不动`;
+  const addonNoun = () => ["paper", "purpur", "leaves", "folia", "velocity", "waterfall"].includes(C.S.core) ? "插件" : ["mohist", "banner"].includes(C.S.core) ? "插件和模组" : C.S.core === "vanilla" ? "" : "模组";
+  const addonList = () => addonNoun().replace("和", "、");
+  const keptWhat = () => `核心${addonList() ? "、" + addonList() : ""}和设置保持不变`;
+  const bkLabelPh = () => { const a = addonNoun(); return `备份标签（选填，如：${a === "插件" ? "更新插件前" : a === "模组" ? "更新模组前" : a ? "更新插件或模组前" : "更新版本前"}）`; };
+  const fitWdEl = el => { if (el.scrollWidth > el.clientWidth + 1) { el.title = el.textContent; delete el.dataset.tip; } else { el.removeAttribute("title"); delete el.dataset.tip; } };
+  const fitWdTitles = r => $$(".wd-ps", r).forEach(fitWdEl);
 
   // ---- 确认框：同共用件页（commons.html）的危险确认框。挂在 body 上，换标签时收掉 ----
   let mask = null;
@@ -203,12 +208,12 @@
     if (wf) {
       if (D.backups.some(b => b.file === wf.backup)) return "";
       const p = parse(wf.backup);
-      return `<button type="button" class="wd-now" title="${esc(`还原于 ${wf.at}；那份备份已经不在列表里了`)}"><i data-ic="globe"></i><span>当前世界：从 ${esc(p.time)} 的备份还原${p.label ? `（${esc(p.label)}）` : ""}</span></button>`;
+      return `<button type="button" class="wd-now" title="${esc(`还原于 ${wf.at}；该备份已不在列表中`)}"><i data-ic="map"></i><span>当前存档：从 ${esc(p.time)} 的备份还原${p.label ? `（${esc(p.label)}）` : ""}</span></button>`;
     }
     const og = origin(D);
     if (!og) return "";
-    const t = og.kind === "import" ? `当前世界：从「${esc(og.source)}」导入的地图` : "当前世界：换过一次地图，后来换回了换之前的那张";
-    return `<button type="button" class="wd-now" data-wd-act="tomap" title="${esc(`${og.kind === "import" ? "导入于" : "换回于"} ${og.at}；点了去「换地图」看`)}"><i data-ic="globe"></i><span>${t}</span></button>`;
+    const t = og.kind === "import" ? `当前存档：从「${esc(og.source)}」导入的地图` : "当前存档：已换回导入地图前的存档";
+    return `<button type="button" class="wd-now" data-wd-act="tomap" title="${esc(`${og.kind === "import" ? "导入于" : "换回于"} ${og.at}；点击前往「换地图」查看`)}"><i data-ic="map"></i><span>${t}</span></button>`;
   }
   function origin(D) {
     for (const p of D.points) {
@@ -217,19 +222,19 @@
     }
     return null;
   }
-  const keepTip = () => `保留最近 ${KEEP} 份，超过时删掉最旧的。份数所有服务器共用，在「设置 → 存储位置」里改`;
+  const keepTip = () => `保留最近 ${KEEP} 份，超出后自动删除最旧的备份。份数上限所有服务器共用，可在「设置 → 存储位置」中修改`;
   const countHTML = () => `${dat().backups.length}<small> / ${KEEP}</small>`;
   function schedBtn() {
     const D = dat();
     return D.sched
-      ? `<button type="button" class="wd-chip" data-wd-act="sched" title="每天 ${D.sched} 自动备份一份（标签「定时」）；在「定时任务」里改"><i data-ic="clock"></i>每天 ${D.sched}</button>`
-      : `<button type="button" class="wd-chip none" data-wd-act="sched" title="还没有定时备份；在「定时任务」里加"><i data-ic="clock"></i>定时备份</button>`;
+      ? `<button type="button" class="wd-chip" data-wd-act="sched" title="每天 ${D.sched} 自动备份（标签「定时」）；可在「定时任务」中修改"><i data-ic="clock"></i>每天 ${D.sched}</button>`
+      : `<button type="button" class="wd-chip none" data-wd-act="sched" title="尚未设置定时备份；可在「定时任务」中添加"><i data-ic="clock"></i>定时备份</button>`;
   }
-  const restoreTip = () => live() ? `会先保存世界并停服，再还原；只换世界，${keptWhat()}` : `只换世界，${keptWhat()}`;
+  const restoreTip = () => live() ? `将先保存存档并停止服务器，再执行还原；仅替换存档，${keptWhat()}` : `仅替换存档，${keptWhat()}`;
   function tagsHTML(b) {
     const D = dat(), cur = D.wf && D.wf.backup === b.file;
-    return (cur ? `<span class="wd-tag acc" title="${esc(`${D.wf.at} 从这份还原的`)}">现在的世界</span>` : "")
-      + (b.old ? `<button type="button" class="wd-tag" data-wd-act="old" title="${esc(`改存放位置以前做的，还在原来的文件夹，照常能还原、删除；点了打开那个文件夹\n${b.old}`)}">在原来的文件夹</button>` : "");
+    return (cur ? `<span class="wd-tag acc" title="${esc(`于 ${D.wf.at} 从此备份还原`)}">当前存档</span>` : "")
+      + (b.old ? `<button type="button" class="wd-tag" data-wd-act="old" title="${esc(`更改备份位置前创建，位于原文件夹，可正常还原或删除；点击打开文件夹\n${b.old}`)}">位于原文件夹</button>` : "");
   }
   function bkRow(b) {
     return `<div class="wd-row" data-wd-file="${esc(b.file)}"><span class="wd-time" title="${esc(b.file)}">${esc(b.time)}</span>`
@@ -240,17 +245,17 @@
   }
   function makeBtn(busy) {
     const starting = C.st === "starting";
-    const tip = starting ? "服务器正在启动或停止，请稍后再备份" : C.st === "running" ? "服务器开着也能备份：先暂停自动保存，压成压缩包，再恢复自动保存" : "";
+    const tip = starting ? "服务器正在启动或停止，请稍后再备份" : C.st === "running" ? "服务器运行中也可备份：先暂停自动保存，打包存档后再恢复自动保存" : "";
     return busy ? `<button type="button" class="wd-go" data-wd-act="make" aria-disabled="true"><i data-ic="spinner" class="wd-spin"></i>正在备份</button>`
-      : `<button type="button" class="wd-go" data-wd-act="make"${starting ? ' aria-disabled="true"' : ""}${tip ? ` title="${esc(tip)}"` : ""}><i data-ic="camera"></i>立即备份世界</button>`;
+      : `<button type="button" class="wd-go" data-wd-act="make"${starting ? ' aria-disabled="true"' : ""}${tip ? ` title="${esc(tip)}"` : ""}><i data-ic="camera"></i>立即备份存档</button>`;
   }
   function bkHTML() {
     const D = dat();
     return `<div class="wd-bk"><section class="wd-col">${folders()}`
       + `<div class="wd-hd fdpad"><span class="wd-t">备份</span><span class="wd-n" data-wd-k="n" title="${esc(keepTip())}">${countHTML()}</span><span class="wd-sp"></span>`
       + `<span class="wd-nowslot" data-wd-k="now">${nowLine()}</span>${schedBtn()}</div>`
-      + `<div class="wd-lw${D.backups.length ? "" : " is-none"}"><div class="list">${D.backups.map(bkRow).join("")}</div><span class="thumb"></span><div class="wd-none">还没有备份</div></div>`
-      + `<div class="wd-mk"><input class="wd-inp" maxlength="20" placeholder="备份标签（可选，如：更新模组前）" aria-label="备份标签（可选）" autocomplete="off" spellcheck="false">`
+      + `<div class="wd-lw${D.backups.length ? "" : " is-none"}"><div class="list">${D.backups.map(bkRow).join("")}</div><span class="thumb"></span><div class="wd-none">暂无备份</div></div>`
+      + `<div class="wd-mk"><input class="wd-inp" maxlength="20" placeholder="${esc(bkLabelPh())}" aria-label="备份标签（选填）" autocomplete="off" spellcheck="false">`
       + `<span class="wd-goslot">${makeBtn(false)}</span></div></section></div>`;
   }
   // 只换变了的那几处
@@ -307,11 +312,11 @@
   }
   function askRestore(b) {
     const D = dat(), lv = live(), n = lv ? (C.online || []).length : 0, nm = bkName(b);
-    ask({ icon: "restore", title: `还原备份<span class="nw">「${esc(nm)}」？</span>`, ok: lv ? "停止并还原" : "还原世界", w: 400,
+    ask({ icon: "restore", title: `还原备份<span class="nw">「${esc(nm)}」？</span>`, ok: lv ? "停止并还原" : "还原存档", w: 400,
       body: `<span class="mono" title="${esc(b.file)}">${b.label ? esc(b.time) + " · " : ""}${size(b.mb)}</span><br>`
-        + (C.st === "starting" ? `服务器正在启动：先停下来再还原，还原完不会自动开服。<br>`
-          : lv ? `服务器开着${n ? `，<b>${n}</b> 位玩家在线会掉线` : ""}：先保存世界并停服，再还原，还原完不会自动开服。<br>` : "")
-        + `只换世界；还原前先把现在的世界自动备份一份，想反悔可以再还原回来。`,
+        + (C.st === "starting" ? `服务器正在启动，将先停止再还原；还原后不会自动启动。<br>`
+          : lv ? `服务器正在运行${n ? `，当前有 <b>${n}</b> 位玩家在线，停止服务器后将断开连接` : ""}：将先保存存档并停止服务器，还原后不会自动启动。<br>` : "")
+        + `仅替换存档；还原前会自动备份当前存档，需要时可再次还原。`,
       onOk: () => doRestore(b) });
   }
   function doRestore(b) {
@@ -376,48 +381,48 @@
     const D = dat();
     if (pt.state === "committed") {
       const newest = D.points.find(x => x.state === "committed");
-      const noOld = "这次导入之前服务器还没有世界，没有可以换回的旧地图";
-      if (newest && newest !== pt) return ["", "更早的导入", "这之后又导入过别的地图。" + (!pt.hasOld ? noOld : "要先换回最近那一次，才能换回这一次之前的世界")];
-      if (pt.canReturn) return ["acc", "已导入", "正在用这张地图。导入前的世界留在恢复点里，可以换回"];
-      return ["acc", "已导入", "正在用这张地图。" + (pt.hasOld ? "现在不能换回导入前的世界" : noOld)];
+      const noOld = "导入前服务器尚无存档，无可换回的原存档";
+      if (newest && newest !== pt) return ["", "更早的导入", "此后已导入其他地图。" + (!pt.hasOld ? noOld : "需先换回最近一次导入，才能换回此次之前的存档")];
+      if (pt.canReturn) return ["acc", "已导入", "当前正在使用此地图。导入前的存档保留在恢复点中，可随时换回"];
+      return ["acc", "已导入", "当前正在使用此地图。" + (pt.hasOld ? "当前无法换回导入前的存档" : noOld)];
     }
-    return ({ restored: ["", "已换回", "已经换回导入前的地图。导入的那份地图（包括之后的改动）留在旁边，确认不要了可以删掉"],
-      restoring: ["warn", "正在换回", "正在换回导入前的地图"], "rolled-back": ["", "没有生效", "这次导入没有生效，服务器用的还是原来的世界"] })[pt.state]
-      || ["", "状态不明", "读不出这次导入的状态"];
+    return ({ restored: ["", "已换回", "已换回导入前的存档。曾导入的地图（含后续改动）仍另行保留，确认不再需要后可删除"],
+      restoring: ["warn", "正在换回", "正在换回导入前的存档"], "rolled-back": ["", "没有生效", "此次导入未生效，服务器仍使用原存档"] })[pt.state]
+      || ["", "状态不明", "无法读取此次导入的状态"];
   }
   function ptRow(pt) {
-    const [cls, tag, say] = pointSay(pt), why = live() ? (pt.canReturn ? "要换回或删除，先停止服务器" : "要删除恢复点，先停止服务器") : "";
+    const [cls, tag, say] = pointSay(pt), why = live() ? (pt.canReturn ? "请先停止服务器后再换回或删除" : "请先停止服务器后再删除恢复点") : "";
     const dis = why ? ' aria-disabled="true"' : "", busy = pt.state === "restoring";
-    const sizes = [pt.oldMb > 0 ? `导入前的世界 ${size(pt.oldMb)}` : "", pt.keptMb > 0 ? `留着的导入地图 ${size(pt.keptMb)}` : ""].filter(Boolean).join(" · ");
+    const sizes = [pt.oldMb > 0 ? `原存档 ${size(pt.oldMb)}` : "", pt.keptMb > 0 ? `已保留地图 ${size(pt.keptMb)}` : ""].filter(Boolean).join(" · ");
     return `<div class="wd-pt" data-wd-pt="${pt.id}"><div class="wd-pn"><span class="nm">${esc(pt.name)}</span><span class="wd-tag ${cls}" data-wd-k="tag" title="${esc(say)}">${tag}</span><span class="wd-sp"></span>`
       + `<span class="wd-pa" data-wd-k="acts">${busy ? `<span class="wd-busy">${icon("spinner", "wd-spin")}</span>`
-        : (pt.canReturn ? `<button type="button" class="wd-btn" data-wd-act="ret"${dis} title="${esc(why || "换回这次导入之前的世界；现在这张地图连同之后的改动移到旁边留着，不会删")}"><i data-ic="restore"></i>恢复导入前的地图</button>` : "")
+        : (pt.canReturn ? `<button type="button" class="wd-btn" data-wd-act="ret"${dis} title="${esc(why || "换回此次导入前的存档；当前地图（含导入后的所有改动）会另行保留，不会删除")}"><i data-ic="restore"></i>换回导入前的存档</button>` : "")
         + (DELETABLE.has(pt.state) ? `<button type="button" class="wd-ib" data-wd-act="pdel"${dis} title="${esc(why || "删除恢复点")}"><i data-ic="trash"></i></button>` : "")}</span></div>`
       + `<div class="wd-ps" data-wd-k="sub">${esc(pt.created)} 导入 · ${m(pt.source)}${sizes ? " · " + sizes : ""}</div></div>`;
   }
   // ---- 打开时那页：左「替换当前地图」、右「恢复点」 ----
-  const DZ_TIP = "下载的冒险、空岛、跑酷地图，自己的单人世界，朋友发来的旧服世界都行。压缩包里套了几层文件夹、旁边放着说明书和资源包都能找到；一个包里有几张地图会列出来让你挑。\n原来的世界不会删，整体留在恢复点里，可以换回；核心、版本、插件和各项设置都不动";
+  const dzTip = () => `支持冒险、空岛、跑酷地图，以及单人存档或旧服存档。压缩包内嵌套多层文件夹、附带说明书或资源包时均可识别；含多张地图时可从中选择。\n原存档不会删除，将完整保留在恢复点中随时换回；核心、版本${addonList() ? "、" + addonList() : ""}和各项设置均保持不变`;
   function dzInner() {
     const F = dat().flow;
     if (F.phase === "up") return `<span class="wd-dzi"><i data-ic="arrowUp"></i></span><b class="mono">${esc(F.fileName)}</b>`
       + `<div class="wd-upr"><div class="wd-upbar">${"<i></i>".repeat(30)}</div><button type="button" class="wd-ib" data-wd-act="upx" title="取消上传"><i data-ic="x"></i></button></div>`
       + `<span class="wd-dzs"><span class="num wd-uptxt">${upText()}</span></span>`;
     if (F.phase === "scan") return `<span class="wd-dzi"><i data-ic="spinner" class="wd-spin"></i></span><b>正在识别…</b><span class="wd-dzs">${m(F.fromPath ? F.path : F.fileName)}</span>`;
-    if (F.phase === "error") return `<span class="wd-dzi bad"><i data-ic="warn"></i></span><b>这是整合包，不能当地图导入</b><span class="wd-dzs bad">里面没有世界，换一个来源</span>`;
+    if (F.phase === "error") return `<span class="wd-dzi bad"><i data-ic="warn"></i></span><b>此文件为整合包，无法作为地图导入</b><span class="wd-dzs bad">未检测到可用存档，请更换来源</span>`;
     return `<span class="wd-dzi"><i data-ic="map"></i></span><b>拖入地图压缩包，或点击选择</b><span class="wd-dzs">.zip · 最大 8 GB</span>`;
   }
   const upText = () => { const F = dat().flow, mb = dat().src.mb; return `已上传 ${size(mb * F.pct / 100)} / ${size(mb)} · ${Math.floor(F.pct)}%`; };
   function homeHTML() {
     const D = dat(), F = D.flow, busy = F.phase === "up" || F.phase === "scan";
-    return `<div class="wd-home"><section class="wd-col wd-imp"><div class="wd-hd"><span class="wd-t">替换当前地图</span>`
-      + `<span class="wd-lv" title="${esc(`世界文件夹 ${D.level}（server.properties 的 level-name），服务器现在用的就是它`)}">${esc(D.level)}</span></div>`
-      + `<div class="wd-dz${busy ? " busy" : ""}${F.phase === "error" ? " bad" : ""}" data-wd-act="pick" tabindex="0" role="button" aria-label="拖入地图压缩包，或点击选择"${busy ? "" : ` title="${esc(DZ_TIP)}"`}><div class="wd-dzc">${dzInner()}</div></div>`
-      + `<label class="wd-prow"><input class="wd-path" spellcheck="false" autocomplete="off" value="${esc(F.fromPath ? F.path : "")}" aria-label="地图文件夹或 ZIP 文件的路径" placeholder="或填文件夹、ZIP 的路径，如 D:\\Maps\\SkyCity" title="这台电脑上的地图文件夹（里面有 level.dat，或者它的上一层），或者没解压的 ZIP">`
-      + `<button type="button" class="wd-ib" data-wd-act="browse" title="选择地图文件夹…（世界文件夹，里面有 level.dat；或者它的上一层）"><i data-ic="folder"></i></button>`
+    return `<div class="wd-home"><section class="wd-col wd-imp"><div class="wd-hd"><span class="wd-t">替换当前存档</span>`
+      + `<span class="wd-lv" title="${esc(`当前使用的存档文件夹 ${D.level}（对应 server.properties 中的 level-name）`)}">${esc(D.level)}</span></div>`
+      + `<div class="wd-dz${busy ? " busy" : ""}${F.phase === "error" ? " bad" : ""}" data-wd-act="pick" tabindex="0" role="button" aria-label="拖入地图压缩包，或点击选择"${busy ? "" : ` title="${esc(dzTip())}"`}><div class="wd-dzc">${dzInner()}</div></div>`
+      + `<label class="wd-prow"><input class="wd-path" spellcheck="false" autocomplete="off" value="${esc(F.fromPath ? F.path : "")}" aria-label="地图文件夹或 ZIP 文件的路径" placeholder="或输入文件夹 / ZIP 路径，如 D:\\Maps\\SkyCity" title="本机上的地图存档文件夹（含 level.dat 或其上级文件夹），或未解压的 ZIP 压缩包">`
+      + `<button type="button" class="wd-ib" data-wd-act="browse" title="选择地图文件夹（含 level.dat 的存档文件夹或其上级文件夹）"><i data-ic="folder"></i></button>`
       + `<button type="button" class="wd-ib" data-wd-act="scan" title="检测"><i data-ic="search"></i></button></label></section>`
-      + `<section class="wd-col wd-pts">${folders()}<div class="wd-hd fdpad"><span class="wd-t" title="导入地图时，原来的世界整体留在这里，可以换回。恢复点是原样留下的世界文件夹，不在普通备份里，也不会被定时备份挤掉，直到你在这里删掉">恢复点</span>`
+      + `<section class="wd-col wd-pts">${folders()}<div class="wd-hd fdpad"><span class="wd-t" title="导入地图时，原存档将完整保留于此，可随时换回。恢复点为原样留存的存档文件夹，独立于普通备份之外，不受备份保留份数限制，直至手动删除">恢复点</span>`
       + `<span class="wd-n" data-wd-k="pn">${D.points.length || ""}</span></div>`
-      + `<div class="wd-lw${D.points.length ? "" : " is-none"}"><div class="list">${D.points.map(ptRow).join("")}</div><span class="thumb"></span><div class="wd-none">还没有恢复点</div></div></section></div>`;
+      + `<div class="wd-lw${D.points.length ? "" : " is-none"}"><div class="list">${D.points.map(ptRow).join("")}</div><span class="thumb"></span><div class="wd-none">暂无恢复点</div></div></section></div>`;
   }
   // ---- 选了来源以后的三页：选择地图、核对、进度 ----
   function cover() {
@@ -432,23 +437,23 @@
   function candRow(c, i) {
     const F = dat().flow;
     return `<div class="wd-cand${i === F.cand ? " on" : ""}${c.block ? " off" : ""}" data-wd-cand="${i}"${c.block ? ` title="${esc(c.blockFull)}"` : ""}>`
-      + `<span class="wd-ci"><i data-ic="globe"></i></span><div class="wd-cm"><div class="n">${esc(c.name)}</div><div class="s">${m(c.root)} · ${size(c.mb)}</div></div>`
-      + (c.block ? `<span class="wd-tag bad">不能导入</span>` : "") + `</div>`;
+      + `<span class="wd-ci"><i data-ic="map"></i></span><div class="wd-cm"><div class="n">${esc(c.name)}</div><div class="s">${m(c.root)} · ${size(c.mb)}</div></div>`
+      + (c.block ? `<span class="wd-tag bad">无法导入</span>` : "") + `</div>`;
   }
   // 右栏：一张固定的小表（每张地图都是这几行，没有的写「没有」），换地图时只换变了的那几格（同 import.html 的 mapDetInner）
   function factsHTML(c) {
     const dims = c.dims.map(([n, r]) => `<span title="${r} 个区域文件">${n}</span>`).join(" · ")
-      + (c.missing.length ? `<span class="f" title="地图没有提供${c.missing.join("、")}，不是导丢了：服务器第一次用到时会生成全新的">${c.missing.join("、")}会新生成</span>` : "");
-      const dd = (k, v) => `<dd data-wd-k="${k}">${v}</dd>`, no = `<span class="f">没有</span>`;
+      + (c.missing.length ? `<span class="f" title="地图未包含${c.missing.join("、")}（并非导入遗漏），服务器首次加载时将自动生成">${c.missing.join("、")}将自动生成</span>` : "");
+      const dd = (k, v) => `<dd data-wd-k="${k}">${v}</dd>`, no = `<span class="f">无</span>`;
     const clue = c.clues.length ? `${c.clues.slice(0, 3).map(m).join("、")}${c.clues.length > 3 ? `<span class="f">等 ${c.clues.length} 个</span>` : ""}`
-      : `<span title="地图里没有读到服务端、模组的线索，无法确认它是不是纯原版">没有，按原版看</span>`;
+      : `<span title="未检测到服务端或模组线索，无法确认是否为纯原版">无（按原版处理）</span>`;
     const notes = (c.notes || []).map(([t, s, full]) => `<div class="wd-nt ${t}" title="${esc(full)}"><i data-ic="${t === "warn" ? "warn" : "info"}"></i><span>${esc(s)}</span></div>`).join("");
-    return `<dl class="wd-facts"><dt>保存于</dt>${dd("ver", m(c.ver || "没有记录"))}<dt>布局</dt>${dd("lay", `<span title="${esc(c.layoutFull)}">${c.layout}</span>`)}`
+    return `<dl class="wd-facts"><dt>保存于</dt>${dd("ver", m(c.ver || "未记录"))}<dt>布局</dt>${dd("lay", `<span title="${esc(c.layoutFull)}">${c.layout}</span>`)}`
       + `<dt>维度</dt>${dd("dim", dims)}<dt>数据包</dt>${dd("dp", c.dps.length ? c.dps.map(m).join("、") : no)}`
-      + `<dt>资源包</dt>${dd("rp", c.rp ? `${m("resources.zip")}<span class="f">不会自动发给玩家</span>` : no)}`
-      + `<dt>模组线索</dt>${dd("clue", clue)}<dt>玩家进度</dt>${dd("pl", c.players ? `${c.players} 个玩家的文件` : no)}`
-      + `<dt>说明书</dt>${dd("rd", c.readme ? `${m(c.readme)}<button type="button" class="wd-ib sm" data-wd-act="readme" title="查看说明书（只当纯文字显示，里面的网址不要随手打开）"><i data-ic="doc"></i></button>` : no)}`
-      + `<dt>不会导入</dt>${dd("hint", c.hints.length ? `<span title="来源里和地图放在一起的文件，不会导入">${c.hints.map(m).join("、")}</span>` : no)}</dl>`
+      + `<dt>资源包</dt>${dd("rp", c.rp ? `${m("resources.zip")}<span class="f">不会自动下发给玩家</span>` : no)}`
+      + `<dt>模组线索</dt>${dd("clue", clue)}<dt>玩家进度</dt>${dd("pl", c.players ? `${c.players} 份玩家数据` : no)}`
+      + `<dt>说明书</dt>${dd("rd", c.readme ? `${m(c.readme)}<button type="button" class="wd-ib sm" data-wd-act="readme" title="查看说明书（仅以纯文本显示，请勿随意访问其中的链接）"><i data-ic="doc"></i></button>` : no)}`
+      + `<dt>不会导入</dt>${dd("hint", c.hints.length ? `<span title="与地图位于同一文件夹的附带文件，不会导入">${c.hints.map(m).join("、")}</span>` : no)}</dl>`
       + `<div class="wd-notes" data-wd-k="notes">${notes}</div>`;
   }
   function pickHTML() {
@@ -456,50 +461,50 @@
     return `<div class="wd-flow">${cover()}<div class="wd-scols">`
       + `<section class="wd-col"><div class="wd-hd"><span class="wd-t">地图</span><span class="wd-n">${S.cands.length}</span></div>`
       + `<div class="wd-lw"><div class="list"><i class="wd-hl"></i>${S.cands.map(candRow).join("")}</div><span class="thumb"></span></div></section>`
-      + `<section class="wd-col wd-detc"><div class="wd-hd"><span class="wd-t">地图里有什么</span></div><div class="wd-det">${factsHTML(cand())}</div></section></div>`
+      + `<section class="wd-col wd-detc"><div class="wd-hd"><span class="wd-t">地图内容</span></div><div class="wd-det">${factsHTML(cand())}</div></section></div>`
       + footHTML(backBtn(), `<button type="button" class="wd-nb pri" data-wd-act="next">下一步<i data-ic="chevronRight"></i></button>`) + `</div>`;
   }
   // 核对（程序 planHTML 的 replace 那一种）
   const REL = {
-    same: ["ok", "版本一致", "版本一致，可以直接用"],
-    older: ["warn", "会升级", null],
-    newer: ["bad", "读不了", null],
-    unknown: ["warn", "判断不了", "判断不了地图和服务器谁新谁旧（地图里没有记录版本，或者版本对不上清单）"],
+    same: ["ok", "版本一致", "版本一致，可直接导入"],
+    older: ["warn", "将自动升级", null],
+    newer: ["bad", "无法读取", null],
+    unknown: ["warn", "无法判断", "无法判断地图与服务器的版本高低（地图未记录版本或版本不在列表中）"],
   };
   const needAck = rel => rel === "older" || rel === "unknown";
   function ackText(c, rel) {
     const mc = C.S.mc;
-    if (rel === "unknown") return ["地图没有记录版本，判断不了能不能直接用", REL.unknown[2]];
-    return [`地图会升级到 ${mc}，之后不能再用旧版本打开`, `这张地图最后保存于 ${c.ver}，比服务器的 ${mc} 旧。第一次启动时游戏会把这份地图升级到 ${mc}，升级以后不能再拿回旧版本用；导入前的世界留在恢复点里，不受影响。老地图的机关、命令、数据包在新版本里不一定还好用`];
+    if (rel === "unknown") return ["地图未记录版本，无法判断是否兼容", REL.unknown[2]];
+    return [`地图将升级至 ${mc}，升级后无法再以旧版本打开`, `该地图最后保存于 ${c.ver}，低于服务器的 ${mc}。首次启动时游戏会将其升级至 ${mc}，之后无法再用于旧版本；导入前的存档将保留在恢复点中，不受影响。旧版地图的机关、命令与数据包在新版本中可能失效`];
   }
   function checkHTML() {
     const D = dat(), F = D.flow, c = cand(), rel = relation(c), [rc, rt] = REL[rel], sets = rel === "newer" ? [] : settingsOf(c), S = C.S; // 读不了的地图不列可改的设置
-    const relTip = rel === "newer" ? `地图比服务器新，${S.mc} 读不了它，不能导入。可以新建一台 ${c.ver} 的服务器来用这张地图` : rel === "older" ? ackText(c, rel)[1] : REL[rel][2];
+    const relTip = rel === "newer" ? `地图版本高于服务器，${S.mc} 无法读取，无法导入。可新建一台 ${c.ver} 的服务器使用此地图` : rel === "older" ? ackText(c, rel)[1] : REL[rel][2];
     const left = `<section class="wd-col wd-chk"><div class="wd-hd"><span class="wd-t">核对</span></div>`
-      + `<div class="wd-rel"><div class="wd-rv"><span class="k">地图保存于</span><span class="v mono">${esc(c.ver || "没有记录")}</span></div><i data-ic="arrowRight"></i>`
-      + `<div class="wd-rv"><span class="k">这台服务器</span><span class="v"><span class="mono">${esc(S.label)} ${esc(S.mc)}</span></span></div><span class="wd-sp"></span>`
+      + `<div class="wd-rel"><div class="wd-rv"><span class="k">地图保存于</span><span class="v mono">${esc(c.ver || "未记录")}</span></div><i data-ic="arrowRight"></i>`
+      + `<div class="wd-rv"><span class="k">当前服务器</span><span class="v"><span class="mono">${esc(S.label)} ${esc(S.mc)}</span></span></div><span class="wd-sp"></span>`
       + `<span class="wd-tag ${rc}" title="${esc(relTip)}">${rt}</span></div>`
-      + `<dl class="wd-facts"><dt>换掉</dt><dd><span>${D.worlds.map(m).join("、")}</span><span class="f" title="整体移进恢复点，不会删；以后可以在「恢复点」里换回来">移进恢复点</span></dd>`
-      + `<dt>不动</dt><dd>核心和版本、Java、内存、端口、${addonNoun() ? addonNoun() + "、" : ""}白名单和 OP、其他设置</dd>`
-      + `<dt>空间</dt><dd>需要约 ${size(c.mb * 1.08)}<span class="f">D 盘还剩 214 GB</span></dd></dl>`
+      + `<dl class="wd-facts"><dt>替换</dt><dd><span>${D.worlds.map(m).join("、")}</span><span class="f" title="将完整移入恢复点而不删除，后续可在「恢复点」中换回">移入恢复点</span></dd>`
+      + `<dt>保留</dt><dd>核心和版本、Java、内存、端口、${addonList() ? addonList() + "、" : ""}白名单和管理员、其他设置</dd>`
+      + `<dt>空间</dt><dd>需要约 ${size(c.mb * 1.08)}<span class="f">D 盘剩余 214 GB</span></dd></dl>`
       + `<div class="wd-notes">${(c.notes || []).map(([t, s, full]) => `<div class="wd-nt ${t}" title="${esc(full)}"><i data-ic="${t === "warn" ? "warn" : "info"}"></i><span>${esc(s)}</span></div>`).join("")}</div></section>`;
-    const right = sets.length ? `<section class="wd-col wd-setc"><div class="wd-hd"><span class="wd-t" title="地图里的设置和这台服务器的不一样。默认都不改；打开的才改，换回旧地图时会一并改回去">可以一起改的设置</span></div>`
+    const right = sets.length ? `<section class="wd-col wd-setc"><div class="wd-hd"><span class="wd-t" title="以下设置项与地图记录不同。默认保持不变；开启后将在导入时同步修改，换回原存档时一并恢复">可同步修改的设置</span></div>`
       + `<div class="wd-sets">${sets.map(s => `<button type="button" class="wd-set${F.sets[s.key] ? " on" : ""}" data-wd-set="${s.key}" role="switch" aria-checked="${!!F.sets[s.key]}">`
         + `<span class="wd-sw"></span><span class="nm">${SET_NAME[s.key]}</span><span class="wd-sp"></span><span class="v">${SET_VAL[s.before] || s.before}${icon("arrowRight")}<b>${SET_VAL[s.after] || s.after}</b></span></button>`).join("")}</div></section>` : "";
     // 底下一条：要确认的、要停服的；地图比服务器新时换成一句红字（不能往下走）
     let strip = "";
-    if (rel === "newer") strip = `<div class="wd-strip"><span class="wd-sbad" title="${esc(relTip)}"><i data-ic="warn"></i>地图比服务器新，${esc(S.mc)} 读不了它，不能导入</span></div>`;
+    if (rel === "newer") strip = `<div class="wd-strip"><span class="wd-sbad" title="${esc(relTip)}"><i data-ic="warn"></i>地图版本高于服务器，${esc(S.mc)} 无法读取，无法导入</span></div>`;
     else if (needAck(rel) || live()) {
       const [s, full] = needAck(rel) ? ackText(c, rel) : ["", ""];
       strip = `<div class="wd-strip">` + (needAck(rel) ? `<button type="button" class="wd-tg${F.ack ? " on" : ""}" data-wd-tg="ack" role="switch" aria-checked="${F.ack}" title="${esc(full)}"><span class="wd-sw"></span><span class="t">我已了解：<b>${esc(s)}</b></span></button>` : "")
-        + (live() ? `<button type="button" class="wd-tg${F.stop ? " on" : ""}" data-wd-tg="stop" role="switch" aria-checked="${F.stop}" title="服务器现在开着。打开以后，导入时先让它自己保存并退出（不强制结束）；等不到它停下就放弃导入，一个文件都不换"><span class="wd-sw"></span><span class="t">停服并导入</span></button>` : "") + `</div>`;
+        + (live() ? `<button type="button" class="wd-tg${F.stop ? " on" : ""}" data-wd-tg="stop" role="switch" aria-checked="${F.stop}" title="服务器正在运行。开启后，导入前会先通知服务器保存并正常退出（不强制终止）；若超时未能停止则中止导入，不会修改任何文件"><span class="wd-sw"></span><span class="t">停止并导入</span></button>` : "") + `</div>`;
     }
-    const go = rel === "newer" ? `<button type="button" class="wd-nb pri" aria-disabled="true" title="${esc(relTip)}"><i data-ic="download"></i>导入并替换当前地图</button>`
-      : `<button type="button" class="wd-nb pri" data-wd-act="go"><i data-ic="download"></i>导入并替换当前地图</button>`;
+    const go = rel === "newer" ? `<button type="button" class="wd-nb pri" aria-disabled="true" title="${esc(relTip)}"><i data-ic="download"></i>导入并替换当前存档</button>`
+      : `<button type="button" class="wd-nb pri" data-wd-act="go"><i data-ic="download"></i>导入并替换当前存档</button>`;
     return `<div class="wd-flow">${cover()}<div class="wd-scols chk${sets.length ? "" : " one"}">${left}${right}</div>${strip}${footHTML(backBtn(), go)}</div>`;
   }
   // 进度：五步（internal/worldimport/service.go importSteps 的原话），复制那一步有 30 格的经验条
-  const STEPS = ["核对地图和服务器", "复制地图到暂存区", "停服并占用这台服务器", "换上新地图", "完成"];
+  const STEPS = ["核对地图和服务器", "复制地图到暂存区", "停止并锁定服务器", "换上新地图", "完成"];
   function stepIco(i) {
     const T = dat().flow.task;
     if (T.cancelled && i >= T.step && i < 4) return i === T.step ? `<i class="wd-dash"></i>` : `<i class="wd-px"></i>`;
@@ -516,18 +521,20 @@
       + `<div class="wd-lw wd-log"><div class="list">${T.log.map(l => `<div>${esc(l)}</div>`).join("")}</div><span class="thumb"></span></div>`
       + `<div class="wd-msg" data-wd-k="msg">${taskMsg()}</div></div></section>${footHTML(taskLeft(), taskRight())}</div>`;
   }
-  const taskMsg = () => { const T = dat().flow.task; return T.cancelled ? `<span class="wd-mi2">${icon("info")}已取消换地图：没有替换任何文件，原来的世界没动。</span>` : T.ended ? `<span class="wd-ok">${icon("check")}地图已经换上。</span>` : ""; };
+  const taskMsg = () => { const T = dat().flow.task; return T.cancelled ? `<span class="wd-mi2">${icon("info")}已取消换地图：未替换任何文件，原存档未变动。</span>` : T.ended ? `<span class="wd-ok">${icon("check")}地图已替换完成。</span>` : ""; };
   function taskLeft() {
     const T = dat().flow.task;
-    if (T.cancelled) return `<button type="button" class="wd-nb back" data-wd-act="again"><i data-ic="refresh"></i>重新核对这张地图</button>`;
+    if (T.cancelled) return `<button type="button" class="wd-nb" data-wd-act="again"><i data-ic="refresh"></i>重新核对地图</button>`;
     if (T.ended) return "";
     const can = T.step <= 1;
-    return `<button type="button" class="wd-nb" data-wd-act="cancel"${can ? ` title="地图还在复制，原来的世界没有动"` : ` aria-disabled="true" title="已经开始换地图，不能取消了：会换完，出错就自动退回原来的世界"`}>取消导入</button>`;
+    return `<button type="button" class="wd-nb" data-wd-act="cancel"${can ? ` title="地图正在复制，原存档尚未变动"` : ` aria-disabled="true" title="已开始替换存档，无法取消；若出错将自动退回原存档"`}>取消导入</button>`;
   }
-  const taskRight = () => { const T = dat().flow.task; return T.ended ? `<button type="button" class="wd-nb pri" data-wd-act="done">${T.cancelled ? "回到换地图页" : `${icon("check")}完成`}</button>` : ""; };
+  const taskRight = () => { const T = dat().flow.task; return T.ended ? `<button type="button" class="wd-nb pri" data-wd-act="done">${T.cancelled ? "返回换地图" : `${icon("check")}完成`}</button>` : ""; };
   const mapInner = () => { const F = dat().flow; return F.screen === "pick" ? pickHTML() : F.screen === "check" ? checkHTML() : F.screen === "task" ? taskHTML() : homeHTML(); };
   function mapAfter(r) {
     $$(".wd-lw", r).forEach(w => C.thinBar(w));
+    fitWdTitles(r);
+    document.fonts?.ready.then(() => r.isConnected && fitWdTitles(r));
     placeHL(false);
     if (dat().flow.screen === "pick" && dat().flow.readme) openReadme(false);
   }
@@ -561,7 +568,7 @@
     const F = dat().flow, dz = $(".wd-dz", r);
     const busy = F.phase === "up" || F.phase === "scan";
     dz.classList.toggle("busy", busy); dz.classList.toggle("bad", F.phase === "error");
-    delete dz.dataset.tip; if (busy) dz.removeAttribute("title"); else dz.setAttribute("title", DZ_TIP); // 正在传、正在识别时不出那段说明
+    delete dz.dataset.tip; if (busy) dz.removeAttribute("title"); else dz.setAttribute("title", dzTip()); // 正在传、正在识别时不出那段说明
     swapItems($(".wd-dzc", r), dzInner(), 1);
   }
   function paintUp() {
@@ -602,7 +609,7 @@
   function openReadme(animate = true) {
     const r = mapRoot(), col = r && $(".wd-detc", r); if (!col || $(".wd-rdm", col)) return;
     dat().flow.readme = true;
-    col.insertAdjacentHTML("beforeend", `<div class="wd-rdm"><div class="wd-rh"><span class="mono">${esc(cand().readme)}</span><span class="wd-sp"></span><span class="f">地图作者写的，只当纯文字看</span>`
+    col.insertAdjacentHTML("beforeend", `<div class="wd-rdm"><div class="wd-rh"><span class="mono">${esc(cand().readme)}</span><span class="wd-sp"></span><span class="f">地图作者附带说明，仅以纯文本显示</span>`
       + `<button type="button" class="wd-ib" data-wd-act="rdclose" title="收起"><i data-ic="x"></i></button></div><div class="wd-lw"><div class="list"><pre>${esc(README)}</pre></div><span class="thumb"></span></div></div>`);
     const p = hy($(".wd-rdm", col)); C.thinBar($(".wd-lw", p));
     if (animate) p.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: EASE_OUT });
@@ -628,11 +635,11 @@
       return;
     }
     const sets = settingsOf(c).filter(s => F.sets[s.key]);
-    ask({ icon: "download", w: 420, title: `用<span class="nw">「${esc(c.name)}」</span>替换当前地图？`, ok: live() ? "停服并替换" : "替换地图",
-      body: `现在的世界（${D.worlds.map(m).join("、")}）整体移进恢复点，以后可以在这一页换回。`
-        + (sets.length ? `<br>同时改：${sets.map(s => `${SET_NAME[s.key]}改成${SET_VAL[s.after]}`).join("、")}。` : "")
-        + (live() ? `<br>服务器会先停止（等它自己保存退出，不强制结束）。` : "")
-        + `<br>${keptWhat().replace("和设置都不动", "和其他设置不变")}。`,
+    ask({ icon: "download", w: 420, title: `用<span class="nw">「${esc(c.name)}」</span>替换当前存档？`, ok: live() ? "停止并替换" : "替换存档",
+      body: `当前存档（${D.worlds.map(m).join("、")}）将完整移入恢复点，后续可在本页换回。`
+        + (sets.length ? `<br>同步修改设置：${sets.map(s => `${SET_NAME[s.key]}改为${SET_VAL[s.after]}`).join("、")}。` : "")
+        + (live() ? `<br>将先通知服务器保存并正常停止（不强制终止）。` : "")
+        + `<br>${keptWhat().replace("和设置保持不变", "和其他设置不变")}。`,
       onOk: startTask });
   }
   function startTask() {
@@ -641,15 +648,15 @@
     F.screen = "task"; stepMap(1);
     const tok = ++F.tok, T = F.task;
     const at = (ms, fn) => setTimeout(() => { if (F.tok === tok && !T.cancelled) fn(); }, ms);
-    at(900, () => { T.step = 1; T.log.push("核对通过：地图和这台服务器对得上"); paintTask(); copy(); });
+    at(900, () => { T.step = 1; T.log.push("核对通过：地图与当前服务器兼容"); paintTask(); copy(); });
     const copy = () => {
       if (F.tok !== tok || T.cancelled) return;
       T.pct = Math.min(100, T.pct + 3 + Math.random() * 3); paintTask(true);
       if (T.pct < 100) { setTimeout(copy, 90); return; }
       T.log.push(`已复制 ${size(c.mb)} 到暂存区`);
       T.step = 2; paintTask();
-      at(900, () => { T.log.push(live() ? "服务器已保存并退出，占用这台服务器" : "占用这台服务器，暂停启动"); T.step = 3; paintTask(); });
-      at(2100, () => { T.log.push(`原来的世界移进恢复点：${D.worlds.join("、")}`); T.log.push("新地图已换上"); T.step = 4; paintTask(); });
+      at(900, () => { T.log.push(live() ? "服务器已保存并退出，已锁定当前服务器" : "已锁定当前服务器，暂停启动"); T.step = 3; paintTask(); });
+      at(2100, () => { T.log.push(`原存档已移入恢复点：${D.worlds.join("、")}`); T.log.push("新地图已替换完成"); T.step = 4; paintTask(); });
       at(2700, () => { T.ended = true; paintTask(); });
     };
   }
@@ -684,8 +691,8 @@
     stepMap(-1);
   }
   function askReturn(pt) {
-    ask({ icon: "restore", w: 400, title: `换回<span class="nw">「${esc(pt.name)}」</span>导入前的地图？`, ok: "换回导入前的地图",
-      body: `现在这张地图（包括导入以后服务器里的所有改动）会移到旁边留着，不会删。`,
+    ask({ icon: "restore", w: 400, title: `换回<span class="nw">「${esc(pt.name)}」</span>导入前的存档？`, ok: "换回导入前的存档",
+      body: `当前地图（含导入后的所有改动）会另行保留，不会删除。`,
       onOk: () => {
         const D = dat(); pt.state = "restoring"; paintPoint(pt);
         setTimeout(() => {
@@ -695,10 +702,10 @@
       } });
   }
   function askDelPoint(pt) {
-    const what = pt.state === "committed" ? (pt.hasOld ? `删掉的是 ${esc(pt.created)} 导入「${esc(pt.name)}」之前的那份世界${pt.oldMb ? `（${size(pt.oldMb)}）` : ""}。删了以后就不能再换回导入前的地图。` : "这次导入之前服务器还没有世界，删掉的只是这次导入的记录。")
-      : pt.state === "restored" ? `删掉的是换回旧地图时留在旁边的那份导入地图${pt.keptMb ? `（${size(pt.keptMb)}）` : ""}，连同这次导入的记录。` : "这次导入没有生效，删掉的是它留下的记录和临时文件。";
+    const what = pt.state === "committed" ? (pt.hasOld ? `将删除 ${esc(pt.created)} 导入「${esc(pt.name)}」前的原存档${pt.oldMb ? `（${size(pt.oldMb)}）` : ""}，删除后将无法换回。` : "导入前服务器尚无存档，仅删除此次导入记录。")
+      : pt.state === "restored" ? `将删除换回原存档时保留的导入地图${pt.keptMb ? `（${size(pt.keptMb)}）` : ""}及此次导入记录。` : "此次导入未生效，将删除相关记录与临时文件。";
     ask({ icon: "trash", w: 400, title: `删除恢复点<span class="nw">「${esc(pt.name)}」？</span>`, ok: "删除恢复点",
-      body: `${what}<br>删除后<b class="dg">无法恢复</b>，正在用的世界不受影响。`,
+      body: `${what}<br>删除后<b class="dg">无法恢复</b>，当前使用的存档不受影响。`,
       onOk: () => {
         const D = dat(); D.points = D.points.filter(x => x !== pt);
         const r = mapRoot(), row = r && $(`[data-wd-pt="${pt.id}"]`, r);
@@ -754,5 +761,5 @@
       r.addEventListener("drop", e => { const dz = e.target.closest?.(".wd-dz"); if (!dz) return; e.preventDefault(); dz.classList.remove("over"); startUpload(e.dataTransfer?.files?.[0]?.name); });
     },
   };
-  addEventListener("resize", () => placeHL(false));
+  addEventListener("resize", () => { placeHL(false); const r = mapRoot(); if (r) fitWdTitles(r); });
 })();

@@ -61,17 +61,17 @@
 
   // ---- 画 ----
   function row(D, k) {
-    const m = meta(k), tip = m ? `${m.desc}\n默认：${m.def === "" ? "空" : m.def}` : "";
+    const m = meta(k), tip = m ? `${m.desc}\n默认：${m.def === "" ? "留空" : m.def}` : "";
     return `<div class="rw-row${D.cur[k] !== D.base[k] ? " mod" : ""}" data-k="${esc(k)}" data-search="${esc(k + " " + (m ? m.label : ""))}">`
       + `<span class="rw-k">${esc(k)}</span><span class="rw-cn"${tip ? ` title="${esc(tip)}"` : ""}>${m ? esc(m.label) : ""}</span>`
-      + `<input class="rw-v" value="${esc(D.cur[k])}" placeholder="空" autocomplete="off" spellcheck="false" aria-label="${esc(k)}${m ? "（" + esc(m.label) + "）" : ""}">`
+      + `<input class="rw-v" value="${esc(D.cur[k])}" placeholder="留空" autocomplete="off" spellcheck="false" aria-label="${esc(k)}${m ? "（" + esc(m.label) + "）" : ""}">`
       + `<span class="rw-dot" title="未保存"></span></div>`;
   }
   const countText = (D, n) => (skey(D.q) ? `找到 ${n} 项` : `共 ${D.keys.length} 项`);
   function html(ctx) {
     C = ctx;
     const D = none() || !CAT ? null : data(), dis = !D ? " disabled" : "";
-    const empty = D ? "" : none() ? `<div class="rw-empty" title="第一次启动服务器以后，服务端会生成全部配置项">配置文件还没生成</div>` : `<div class="rw-empty">正在读取…</div>`;
+    const empty = D ? "" : none() ? `<div class="rw-empty" title="首次启动服务器后，服务端会自动生成全部配置项">配置文件尚未生成</div>` : `<div class="rw-empty">正在读取…</div>`;
     const rows = D ? D.keys.map(k => row(D, k)).join("") : "";
     const n = D ? dirtyKeys(D).length : 0, on = n ? " on" : "";
     return `<div class="rw"><div class="rw-tb"><span class="rw-f">server.properties</span><span class="rw-c">${D ? countText(D, D.keys.length) : ""}</span><span class="rw-sp"></span>`
@@ -82,7 +82,7 @@
       + `<div class="rw-none">没有匹配的配置项</div>${empty}</div></section>`
       + `<div class="rw-bar"><span class="rw-note" data-mode=""></span><span class="rw-sp"></span><span class="rw-n${on}" aria-live="polite"><i></i><span>${n} 项修改未保存</span></span>`
       + `<button type="button" class="rw-discard${on}" data-rw="discard"${n ? "" : ' tabindex="-1"'}>放弃修改</button>`
-      + `<button type="button" class="rw-save${on}" data-rw="save"${n ? "" : ` aria-disabled="true" title="${D ? "没有要保存的修改" : none() ? "配置文件还没生成" : "正在读取…"}"`}>保存</button></div></div>`;
+      + `<button type="button" class="rw-save${on}" data-rw="save"${n ? "" : ` aria-disabled="true" title="${D ? "暂无未保存的修改" : none() ? "配置文件尚未生成" : "正在读取…"}"`}>保存</button></div></div>`;
   }
 
   // ---- 挂上去 ----
@@ -144,7 +144,7 @@
     t.classList.toggle("on", on); x.classList.toggle("on", on); x.tabIndex = on ? 0 : -1;
     if (!D.saving) {
       s.classList.toggle("on", on);
-      if (on) { s.removeAttribute("aria-disabled"); setTip(s, ""); } else { s.setAttribute("aria-disabled", "true"); setTip(s, "没有要保存的修改"); }
+      if (on) { s.removeAttribute("aria-disabled"); setTip(s, ""); } else { s.setAttribute("aria-disabled", "true"); setTip(s, "暂无未保存的修改"); }
     }
     paintNote(D);
   }
@@ -154,8 +154,8 @@
     return running() && dirtyKeys(D).length ? "live" : "";
   }
   function noteHTML(D, mode) {
-    if (mode === "live") return `<i data-ic="warn"></i><span>保存后要重启才生效</span>`;
-    if (mode === "pending") return `<i data-ic="warn"></i><span>已保存，重启服务器以后生效</span>`
+    if (mode === "live") return `<i data-ic="warn"></i><span>保存后需重启生效</span>`;
+    if (mode === "pending") return `<i data-ic="warn"></i><span>已保存，重启服务器后生效</span>`
       + `<button type="button" class="rw-btn" data-rw="restart"${D.restarting ? " disabled" : ""}>${D.restarting ? `<i data-ic="spinner" class="rw-spin"></i>正在重启` : `<i data-ic="refresh"></i>立即重启`}</button>`;
     return "";
   }

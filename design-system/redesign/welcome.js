@@ -27,14 +27,14 @@
   // 下载源：三段的字和说明同「设置 → 下载与网络」（settings-download.js，照程序 setDownload）；程序引导卡里那三句说明是另一种写法，见返回的清单
   const OPTS = [
     { v: "auto", t: "自动（推荐）", d: "国内镜像（BMCLAPI / 清华）优先，失败自动切换官方源" },
-    { v: "mirror", t: "仅国内镜像", d: "只用 BMCLAPI 和清华镜像。Paper 和 Purpur 没有国内镜像，这两项仍从官方下载。" },
-    { v: "official", t: "仅官方源", d: "只用 Mojang / Forge / Adoptium 等官方源（海外网络适用）" },
+    { v: "mirror", t: "仅国内镜像", d: "仅使用 BMCLAPI 与清华镜像（Paper、Purpur 无国内镜像，仍从官方下载）" },
+    { v: "official", t: "仅官方源", d: "仅使用 Mojang / Forge / Adoptium 等官方源（海外网络适用）" },
   ];
-  const SRC_TIP = "下载 Java 与服务端核心时的线路选择\n之后可在「设置」里随时更改";
+  const SRC_TIP = "下载 Java 与服务端核心时的线路选择\n之后可在「设置 → 下载与网络」中随时更改";
   // 存放位置：示例路径放在 C 盘（「设置 → 存储位置」草图用的是 D:\MineDeck，可那句说明说「想放到 D 盘……」，放 D 盘读着别扭）；
   // 说明是程序原话，「左下角软件」那个位置已经没有了，改指底部导航
   const PATH = { hd: "C:\\MineDeck\\", tl: "servers" };
-  const PATH_TIP = "每台服务器一个子文件夹。想放到 D 盘等大容量分区，可到底部导航的「设置 → 存储位置」更改。";
+  const PATH_TIP = "每台服务器独立占用一个子文件夹。如需存放至 D 盘等大容量分区，可在底部导航「设置 → 存储位置」中更改。";
   // 保存失败时「详情」里的原文：编的（程序里是后端写 config.json 时报的错）
   const RAW = "open C:\\MineDeck\\config.json: Access is denied.";
 
@@ -56,7 +56,7 @@
 
   // ---- 画 ----
   const headHTML = k => k === "setup"
-    ? `<div class="wl-head"><h1 class="wl-q">确认下载源与存放位置</h1></div>`
+    ? `<div class="wl-head"><h1 class="wl-q">确认下载源与存储位置</h1></div>`
     : `<div class="wl-head"><img class="wl-logo" src="../../internal/web/ui/img/logo-16.png" alt=""><div class="wl-ht"><h1>欢迎使用 MineDeck</h1><p>Minecraft 开服工具</p></div></div>`;
   const termsHTML = () => `<div class="wl-col wl-terms"><h2 class="wl-h">用户协议与免责声明</h2>`
     + `<div class="wl-lw"><div class="list wl-tx" tabindex="0" aria-label="用户协议与免责声明">${TERMS}</div><i class="thumb"></i></div></div>`;
@@ -68,11 +68,11 @@
     + `<div class="wl-pb"><i data-ic="folder"></i><span class="wl-pt"><span class="hd">${esc(PATH.hd)}</span><span class="tl">${esc(PATH.tl)}</span></span></div></div>`
     + `</div>`;
   const agreeHTML = () => `<div class="wl-agree${S.agree ? " on" : ""}" role="switch" tabindex="0" aria-checked="${S.agree}">`
-    + `<span class="wl-sw"></span><span class="wl-at">${AGREE}</span><span class="wl-msg">开始使用前需要同意</span></div>`;
+    + `<span class="wl-sw"></span><span class="wl-at">${AGREE}</span><span class="wl-msg">请先同意上述协议</span></div>`;
   function pageHTML() {
     const k = kind();
     const body = k === "all" ? termsHTML() + fieldsHTML() + agreeHTML() : k === "terms" ? termsHTML() + agreeHTML() : fieldsHTML();
-    return headHTML(k) + `<section class="wl-pnl${k === "setup" ? " fit" : ""}" aria-label="${k === "setup" ? "下载源与存放位置" : "用户协议与免责声明"}">${body}</section>`;
+    return headHTML(k) + `<section class="wl-pnl${k === "setup" ? " fit" : ""}" aria-label="${k === "setup" ? "下载源与存储位置" : "用户协议与免责声明"}">${body}</section>`;
   }
   function mountPage() {
     const p = $("#wl-page");
@@ -156,7 +156,7 @@
   function paintNext() {
     const b = $("#wl-next"), off = needAgree();
     if (b.getAttribute("aria-disabled") !== String(off)) b.setAttribute("aria-disabled", off);
-    setTip(b, off ? "先同意用户协议与免责声明" : "");
+    setTip(b, off ? "请先同意《用户协议与免责声明》及 Minecraft EULA" : "");
     navLabel();
   }
   function paintNav() {
@@ -248,7 +248,7 @@
     const box = $("#wl-toasts"), d = document.createElement("div");
     d.className = "wl-tst enter"; d.title = "点击查看详情";
     d.innerHTML = `<span class="ti"><i data-ic="warn"></i></span><span class="tm">无法保存首次使用的设置</span>`
-      + `<button type="button" class="wl-ib" data-tx aria-label="关闭这条提示"><i data-ic="x"></i></button>`
+      + `<button type="button" class="wl-ib" data-tx aria-label="关闭提示"><i data-ic="x"></i></button>`
       + `<span class="ta"><button type="button" class="wl-sb" data-td>详情</button></span>`;
     KIT.hydrate(d); box.appendChild(d);
     let left = 20000, timer = 0, since = 0, holds = 0, gone = false;

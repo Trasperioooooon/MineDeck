@@ -28,8 +28,8 @@
   };
 
   const MASK = "***"; // 同后端 webhookMask
-  const TIP = "服务器启停 / 崩溃、玩家进出、备份完成、隧道上线等事件，可以推送到群机器人等外部服务。\n有事件时，会向这个地址 POST 一条 JSON。留空就是关闭。";
-  const TIP_LAN = "\n从局域网打开时只显示地址的开头，后面的部分藏起来了，要改就把整个地址重新填一遍。";
+  const TIP = "支持将服务器启停 / 崩溃、玩家进出、备份完成、隧道上线等事件推送至群机器人等外部服务。\n触发事件时将向该地址 POST 一条 JSON；留空即关闭推送。";
+  const TIP_LAN = "\n通过局域网访问时仅显示地址前缀（路径与参数已隐藏），如需修改请重新填写完整地址。";
   // 同后端 maskWebhook：只留协议和主机，后面换成 ***
   const maskOf = u => { if (!u) return ""; try { const p = new URL(u); return p.protocol + "//" + p.host + "/" + MASK; } catch { return MASK; } };
   let N = null;
@@ -88,9 +88,9 @@
     const box = root()?.querySelector(".sn-in"); if (!box) return;
     const inp = $("input", box), u = inp.value.trim();
     if (N.draft === null || inp.value === N.saved) return; // 没改：保存灰着，回车也不存（同 bindSaveInput）
-    if (N.lan && u.includes(MASK)) { bad(box, "*** 要整个换掉", "Webhook 地址里的 *** 是藏起来的部分，要改就把整个地址重新填一遍"); return; }
-    if (u && !/^https?:\/\//.test(u)) { bad(box, "要以 http(s):// 开头", "Webhook 地址需以 http(s):// 开头"); return; }
-    if (u && (!hostOf(u) || /\s/.test(hostOf(u)))) { bad(box, "格式不对", "Webhook 地址的格式不对，要写成 https://主机名/路径 这样"); return; }
+    if (N.lan && u.includes(MASK)) { bad(box, "请填写完整地址", "地址中的 *** 为隐藏部分，修改时请重新填写完整地址"); return; }
+    if (u && !/^https?:\/\//.test(u)) { bad(box, "需以 http(s):// 开头", "Webhook 地址需以 http(s):// 开头"); return; }
+    if (u && (!hostOf(u) || /\s/.test(hostOf(u)))) { bad(box, "地址格式无效", "Webhook 地址格式无效，请按 https://主机名/路径 格式填写"); return; }
     N.saved = N.lan ? maskOf(u) : u; N.draft = null; // 存空的就是关掉推送（程序提示「已关闭 Webhook 推送」，这里框空着、占位字写着「留空关闭」）
     if (inp.value !== N.saved) inp.value = N.saved;
     const b = $(".sn-ib", box);

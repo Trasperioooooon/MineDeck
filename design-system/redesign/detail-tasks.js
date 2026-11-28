@@ -38,10 +38,10 @@
   const STEPS = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 360, 480, MAX_EVERY];
   const SWEEP = "kill @e[type=item]";
   const PRESETS = [ // 字照程序（一键添加的两样，悬停的话也是程序的）
-    { id: "save", label: "每小时存档", task: { type: "backup", every: 60, group: "存档" }, proxy: "代理端没有世界，不用备份",
-      tip: () => `每隔 1 小时备份一次世界，放进「存档」文件夹；服务器停着时不备份。保留最近 ${KEEP} 份（所有服务器共用），超过保留份数时删掉最旧的，手动备份也算在内` },
-    { id: "sweep", label: "每小时扫地", task: { type: "command", every: 60, args: SWEEP, group: "扫地" }, proxy: "代理端没有 kill 这条命令",
-      tip: () => `每隔 1 小时执行 ${SWEEP}，清掉地上的掉落物，放进「扫地」文件夹；服务器没开时不执行` },
+    { id: "save", label: "每小时存档", task: { type: "backup", every: 60, group: "存档" }, proxy: "代理端没有存档，不支持备份",
+      tip: () => `每隔 1 小时备份一次存档，放入「存档」文件夹；服务器未运行时不执行。每台服务器保留最近 ${KEEP} 份（含手动备份，可在「设置 → 存储位置」中修改），超出时自动清理最旧的备份` },
+    { id: "sweep", label: "每小时扫地", task: { type: "command", every: 60, args: SWEEP, group: "扫地" }, proxy: "代理端不支持 kill 命令",
+      tip: () => `每隔 1 小时执行 ${SWEEP}，清理地面掉落物，放入「扫地」文件夹；服务器未运行时不执行` },
   ];
   const SAMPLE = {
     // 和「世界与备份 → 备份」对得上（主会话 11-27 改）：Paper 只有每天 04:00 一个定时备份（备份列表里标「定时」的都是 04:00），Forge 没有定时备份
@@ -52,9 +52,9 @@
     vanilla: { crash: false, list: [] },
     proxy: { crash: true, list: [{ type: "restart", at: "05:00" }] },
   };
-  const CRASH_TIP = "异常退出后，会隔 10 秒、30 秒、60 秒再启动。连续崩溃 3 次就不再自动启动，并给出提示";
+  const CRASH_TIP = "异常退出后依次间隔 10 秒、30 秒、60 秒自动重启；连续崩溃 3 次后停止重试并提示";
   const AT_TIP = "每天到这个时刻执行一次（24 小时制）";
-  const EVERY_TIP = "从每天 0 点起算，每隔 1 小时就是每个整点执行\n最短：命令 5 分钟、备份 30 分钟、重启 1 小时；最长 12 小时，更长的请选「每天」";
+  const EVERY_TIP = "从每日 00:00 起对齐周期（如每隔 1 小时即整点执行）\n最短间隔：命令 5 分钟、备份 30 分钟、重启 1 小时；最长 12 小时，更长周期请选「每天」";
 
   // ---- 小工具 ----
   const pad2 = n => String(n).padStart(2, "0");
@@ -114,10 +114,10 @@
     return n >= 1440 ? "明天 00:00" : `今天 ${hm(n)}`;
   }
   const slots = m => [0, m, 2 * m].filter(x => x < 1440).map(hm).join("、") + "……"; // 同程序
-  const keepText = t => `保留最近 ${KEEP} 份（所有服务器共用，手动备份也算）` + (t.every ? `，大约 ${ago(t.every * KEEP)}以前的会被删掉` : "");
+  const keepText = t => `每台服务器保留最近 ${KEEP} 份（含手动备份）` + (t.every ? `，约 ${ago(t.every * KEEP)}前的备份将被自动清理` : "");
   function rowTip(t) {
-    const out = [idle(t) ? (t.type === "backup" ? "服务器停着时不备份" : "服务器没开时不执行") : `下次 ${nextRun(t)}`];
-    if (t.every) out.push(`从每天 0 点起算：${slots(t.every)}`);
+    const out = [idle(t) ? (t.type === "backup" ? "服务器未运行时不执行定时备份" : "服务器未运行时不执行") : `下次 ${nextRun(t)}`];
+    if (t.every) out.push(`从每日 00:00 起算：${slots(t.every)}`);
     if (t.type === "backup") out.push(keepText(t));
     return out.join("\n");
   }
@@ -128,7 +128,7 @@
     return `<div class="tk-row${t.group ? " in" : ""}${draft ? " draft" : ""}${idle(t) ? " idle" : ""}" role="listitem" data-key="${esc(keyOf(t))}" data-id="${t.id}" title="${esc(rowTip(t))}">`
       + `<i data-ic="${ty.ic}" class="tk-ti"></i><span class="tk-when">${whenText(t)}</span>`
       + `<span class="tk-what${cmd ? " mono" : ""}">${cmd ? esc(t.args) : ty.name}</span><span class="tk-dot" title="未保存"></span>`
-      + `<button type="button" class="tk-more" data-tk="more" title="更多" aria-label="${esc(`${whenText(t)} ${cmd ? t.args : ty.name}`)}：移到文件夹、删除"><i data-ic="more"></i></button></div>`;
+      + `<button type="button" class="tk-more" data-tk="more" title="更多" aria-label="${esc(`${whenText(t)} ${cmd ? t.args : ty.name}`)}：移至文件夹、删除"><i data-ic="more"></i></button></div>`;
   };
   const folderRow = (g, n) => `<div class="tk-fd" role="listitem" data-key="${esc("f:" + g)}"><i data-ic="folder" class="tk-fi"></i><span class="tk-fn">${esc(g)}</span><span class="tk-fc">${n}</span></div>`;
   // 列表里该有的每一行（键、怎么画、已经在的怎么只改变了的那几处）：不放文件夹的在上（同程序），文件夹按 D.order 排在下面
@@ -150,7 +150,7 @@
   function presetState(D, p) {
     if (C.S.proxy) return { off: true, tip: p.proxy };
     const had = D.list.find(t => same(t, p.task));
-    return had ? { has: true, tip: `已经有了${had.group ? `，在「${had.group}」文件夹里` : ""}` } : { tip: p.tip() };
+    return had ? { has: true, tip: `已存在该任务${had.group ? `（位于「${had.group}」文件夹）` : ""}` } : { tip: p.tip() };
   }
   const chip = (D, p) => {
     const s = presetState(D, p);
@@ -162,16 +162,16 @@
   const fld = (label, ctl) => `<div class="tk-fld"><span class="tk-lb">${label}</span>${ctl}</div>`;
   function whenCtl(D) {
     const F = D.form;
-    if (F.mode === "at") return `<label class="tk-iw tk-at" title="24 小时制，如 04:00、21:30"><input class="tk-in" value="${esc(F.at)}" maxlength="5" inputmode="numeric" placeholder="时:分" autocomplete="off" spellcheck="false" aria-label="每天几点（时:分）">`
-      + `<span class="tk-msg" title="时间写成 时:分，如 04:00 或 21:30（24 小时制）">时间不对</span></label>`;
+    if (F.mode === "at") return `<label class="tk-iw tk-at" title="24 小时制，如 04:00、21:30"><input class="tk-in" value="${esc(F.at)}" maxlength="5" inputmode="numeric" placeholder="时:分" autocomplete="off" spellcheck="false" aria-label="每日执行时间（时:分）">`
+      + `<span class="tk-msg" title="请按 24 小时制填写时:分，如 04:00 或 21:30">时间无效</span></label>`;
     return `<div class="tk-stp"><button type="button" data-tk="ev-"><i data-ic="minus"></i></button><b class="tk-sv">${dur(F.every)}</b><button type="button" data-tk="ev+"><i data-ic="plus"></i></button></div>`;
   }
   const cmdOff = D => D.form.type !== "command";
-  const cmdBox = D => `<label class="tk-iw tk-cmd${cmdOff(D) ? " off" : ""}"${cmdOff(D) ? ' title="只有「命令」要填"' : ""}>`
+  const cmdBox = D => `<label class="tk-iw tk-cmd${cmdOff(D) ? " off" : ""}"${cmdOff(D) ? ' title="仅「命令」类型需要填写"' : ""}>`
     + `<input class="tk-in mono" value="${esc(D.form.args)}" placeholder="${C.S.proxy ? "如 velocity reload" : "如 say 大家好"}" autocomplete="off" spellcheck="false" aria-label="命令内容"${cmdOff(D) ? " disabled" : ""}>`
-    + `<span class="tk-msg" title="定时命令需要填写命令内容">要填命令</span></label>`;
+    + `<span class="tk-msg" title="定时命令需要填写命令内容">请填写命令</span></label>`;
   const folderBtn = D => `<button type="button" class="tk-sel" data-tk="fsel" aria-haspopup="menu"><i data-ic="folder"></i>`
-    + `<span class="tk-selv${D.form.group ? "" : " ph"}">${D.form.group ? esc(D.form.group) : "不放文件夹"}</span><i data-ic="chevronDown" class="tk-chev"></i></button>`;
+    + `<span class="tk-selv${D.form.group ? "" : " ph"}">${D.form.group ? esc(D.form.group) : "无文件夹"}</span><i data-ic="chevronDown" class="tk-chev"></i></button>`;
   function addForm(D) {
     const F = D.form, noBackup = C.S.proxy ? PRESETS[0].proxy : "";
     return `<section class="tk-add" aria-label="添加定时任务"><div class="tk-pre">${PRESETS.map(p => chip(D, p)).join("")}</div><div class="tk-hr"></div>`
@@ -185,7 +185,7 @@
     return `<div class="tk-bar"><button type="button" class="tk-tg${D.crash ? " on" : ""}" data-tk="crash" role="switch" aria-checked="${D.crash}" title="${CRASH_TIP}"><span class="tk-sw"></span>崩溃自动重启</button>`
       + `<span class="tk-sp"></span><span class="tk-n${on}" aria-live="polite"><i></i><span>${n} 项修改未保存</span></span>`
       + `<button type="button" class="tk-discard${on}" data-tk="discard"${n ? "" : ' tabindex="-1"'}>放弃修改</button>`
-      + `<button type="button" class="tk-save${on}" data-tk="save"${n ? "" : ' aria-disabled="true" title="没有要保存的修改"'}>保存</button></div>`;
+      + `<button type="button" class="tk-save${on}" data-tk="save"${n ? "" : ' aria-disabled="true" title="暂无未保存的修改"'}>保存</button></div>`;
   }
   function html(ctx) {
     C = ctx; const D = data();
@@ -297,13 +297,13 @@
     t.classList.toggle("on", on); x.classList.toggle("on", on); x.tabIndex = on ? 0 : -1;
     if (D.saving) return;
     s.classList.toggle("on", on);
-    if (on) { s.removeAttribute("aria-disabled"); setTip(s, ""); } else { s.setAttribute("aria-disabled", "true"); setTip(s, "没有要保存的修改"); }
+    if (on) { s.removeAttribute("aria-disabled"); setTip(s, ""); } else { s.setAttribute("aria-disabled", "true"); setTip(s, "暂无未保存的修改"); }
   }
   function paintCrash(D) { const b = root()?.querySelector(".tk-tg"); if (b) { b.classList.toggle("on", D.crash); b.setAttribute("aria-checked", D.crash); } }
   function paintCmd(D) {
     const w = root()?.querySelector(".tk-cmd"); if (!w) return;
     const off = cmdOff(D);
-    w.classList.toggle("off", off); w.querySelector("input").disabled = off; setTip(w, off ? "只有「命令」要填" : "");
+    w.classList.toggle("off", off); w.querySelector("input").disabled = off; setTip(w, off ? "仅「命令」类型需要填写" : "");
     if (off) w.classList.remove("bad");
   }
   function paintStepper(D) {
@@ -311,12 +311,12 @@
     const F = D.form, lo = MIN_EVERY[F.type], v = s.querySelector(".tk-sv"), [mi, pl] = s.querySelectorAll("button");
     if (v.textContent !== dur(F.every)) v.textContent = dur(F.every);
     const down = STEPS.some(x => x < F.every && x >= lo), up = STEPS.some(x => x > F.every);
-    mi.setAttribute("aria-disabled", !down); setTip(mi, down ? "短一档" : `${TYPES[F.type].name}最短每隔 ${dur(lo)}`);
-    pl.setAttribute("aria-disabled", !up); setTip(pl, up ? "长一档" : `最长每隔 ${dur(MAX_EVERY)}，更长的请选「每天」`);
+    mi.setAttribute("aria-disabled", !down); setTip(mi, down ? "缩短间隔" : `${TYPES[F.type].name}最短间隔为 ${dur(lo)}`);
+    pl.setAttribute("aria-disabled", !up); setTip(pl, up ? "延长间隔" : `最长间隔为 ${dur(MAX_EVERY)}，更长周期请选「每天」`);
   }
   function paintFolderBtn(D) {
     const v = root()?.querySelector(".tk-selv"); if (!v) return;
-    v.textContent = D.form.group || "不放文件夹"; v.classList.toggle("ph", !D.form.group);
+    v.textContent = D.form.group || "无文件夹"; v.classList.toggle("ph", !D.form.group);
   }
   const changed = (D, reveal) => { fixOrder(D); sync(D, reveal); paintBar(D); paintPresets(D); };
 
@@ -395,8 +395,8 @@
   let menu = null;
   const menuItem = (attrs, ic, label, here) => `<div class="tk-it${here ? " here" : ""}" role="menuitem" ${attrs}><i data-ic="${ic}"></i><span>${esc(label)}</span>`
     + (here ? `<i data-ic="check" class="tk-ck"></i>` : "") + `</div>`;
-  const newItem = `<div class="tk-it" role="menuitem" data-new><i data-ic="plus"></i><span>新文件夹…</span></div>`;
-  const folderItems = (names, cur) => names.map(g => menuItem(`data-mv="${esc(g)}"`, "folder", g, g === cur)).join("") + menuItem(`data-mv=""`, "doc", "不放文件夹", !cur);
+  const newItem = `<div class="tk-it" role="menuitem" data-new><i data-ic="plus"></i><span>新建文件夹…</span></div>`;
+  const folderItems = (names, cur) => names.map(g => menuItem(`data-mv="${esc(g)}"`, "folder", g, g === cur)).join("") + menuItem(`data-mv=""`, "doc", "无文件夹", !cur);
   function openMenu(anchor, inner, pick, under) {
     if (menu && menu._a === anchor) { closeMenu(); return; }
     closeMenu();
@@ -425,7 +425,7 @@
   // 「新文件夹…」就地变成输入框（最多 32 个字）：回车挪进去，空着回车晃一下；和已有的同名就是挪进那一个
   function newFolderBox(it) {
     const box = document.createElement("label"); box.className = "tk-nf";
-    box.innerHTML = `<i data-ic="folder"></i><input maxlength="32" placeholder="如 存档、扫地、活动提醒" autocomplete="off" spellcheck="false" aria-label="新文件夹的名字">`;
+    box.innerHTML = `<i data-ic="folder"></i><input maxlength="32" placeholder="如 存档、扫地、活动提醒" autocomplete="off" spellcheck="false" aria-label="新建文件夹名称">`;
     it.replaceWith(box); C.KIT.hydrate(box); box.querySelector("input").focus();
   }
   function onMenuKey(e) {
@@ -459,7 +459,7 @@
       }
       case "more": {
         const t = D.list.find(x => x.id === +b.closest(".tk-row").dataset.id); if (!t) return;
-        openMenu(b, `<div class="tk-hd">移到文件夹</div>${folderItems(D.order, t.group || "")}${newItem}<div class="tk-sep"></div>`
+        openMenu(b, `<div class="tk-hd">移至文件夹</div>${folderItems(D.order, t.group || "")}${newItem}<div class="tk-sep"></div>`
           + `<div class="tk-it tk-dgr" role="menuitem" data-del><i data-ic="trash"></i><span>删除</span></div>`,
           d => { if ("del" in d) remove(D, t); else move(D, t, d.mv); });
         break;

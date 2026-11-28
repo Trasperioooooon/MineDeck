@@ -60,9 +60,9 @@
     { v: "dark", t: "深色", ic: "moon" },
   ];
   const TOGGLES = [
-    { k: "heart", t: "首页的爱心跳动", tip: "首页字标右边那颗像素心每 4.2 秒跳一下（悬停时不跳）；关掉以后心还在，只是不跳" },
-    { k: "label", t: "首页显示「点击赞赏」标签", tip: "心右上方那个「点击赞赏」标签；点标签上的 × 就等于关掉这里，想要回来在这里打开" },
-    { k: "ai", t: "在底部导航显示 AI 助手", tip: "底部导航里 AI 助手那一颗；关掉以后不显示，在这里打开" },
+    { k: "heart", t: "首页爱心跳动", tip: "首页字标右侧像素爱心每 4.2 秒跳动一次（悬停时暂停）；关闭后保持静止，不会隐藏" },
+    { k: "label", t: "首页显示「点击赞赏」标签", tip: "显示像素爱心右上方的「点击赞赏」标签；点击标签上的 × 将同步关闭此项，需要时可在此重新开启" },
+    { k: "ai", t: "底部导航显示 AI 助手", tip: "关闭后隐藏底部导航中的 AI 助手入口，需要时可在此重新开启" },
   ];
   const BG_NAME = "雪山.jpg"; // 草图里假装选的那一张
 
@@ -110,7 +110,7 @@
   const bgInner = D => (D.bg
     ? `<span class="sa-bgi"></span><button type="button" class="sa-bgx" data-sa="bgx" title="移除背景图" aria-label="移除背景图"><i data-ic="x"></i></button>`
     : `<span class="sa-bge"><i data-ic="saImage"></i><span class="sa-bgb">选择背景图…</span></span>`);
-  const bgTip = D => (D.bg ? `${BG_NAME}\n点一下换一张` : "");
+  const bgTip = D => (D.bg ? `${BG_NAME}\n点击更换背景图` : "");
   const tgHTML = D => `<div class="sa-tgs">${TOGGLES.map((g, i) => (i === 2 ? `<i class="sa-hr"></i>` : "")
     + `<button type="button" class="sa-tg${D[g.k] ? " on" : ""}" data-tg="${g.k}" role="switch" aria-checked="${D[g.k]}" title="${esc(g.tip)}"><span class="sa-swc"></span><span class="sa-tl">${esc(g.t)}</span></button>`).join("")}</div>`;
 
@@ -118,9 +118,9 @@
     C = ctx; const D = data(), t = html0.dataset.theme;
     return `<div class="sa"><section class="sa-col" aria-label="主题与配色">`
       + `<div class="sa-f"><div class="sa-lb"><span>主题模式</span></div>${segHTML(D)}</div>`
-      + `<div class="sa-f"><div class="sa-lb"><span title="点一下，整个界面都会换">配色方案</span></div>${cardsHTML(D, t)}</div>`
+      + `<div class="sa-f"><div class="sa-lb"><span title="选择后立即应用到整个界面">配色方案</span></div>${cardsHTML(D, t)}</div>`
       + `<div class="sa-f"><div class="sa-lb"><span title="按钮、选中项与链接使用的颜色；默认跟随配色方案">强调色</span></div>${accHTML(D)}</div></section>`
-      + `<section class="sa-col sa-side" aria-label="背景图与首页">`
+      + `<section class="sa-col sa-side" aria-label="背景图与界面显示">`
       + `<div class="sa-f"><div class="sa-lb"><span>背景图</span></div><div class="sa-bg${D.bg ? "" : " none"}" role="button" tabindex="0" data-sa="bg"`
       + ` aria-label="${D.bg ? "更换背景图…" : "选择背景图…"}"${D.bg ? ` title="${esc(bgTip(D))}"` : ""}>${bgInner(D)}</div></div>`
       + `${tgHTML(D)}</section></div>`;

@@ -1051,11 +1051,11 @@ function cardHTML(x, has) {
 // 翻到头时最后一行的字：到了 100 个是「仅展示热门前 100 项，更多内容可通过搜索或分类查找」（文案作者 11-26 定），不到 100 就是全部了
 // 样本只有总榜前 100（「全部」里藏掉纯前置库以后不到 100）：「全部」到头了说「仅展示热门前 100 项」；按类别、搜索筛的是这 100 个里的，就说「已显示全部」
 function gridEnd(total) {
-  return `<div class="gend">${!acat && !aq && window.MR_SAMPLE[addonNoun].total > CAP ? `仅展示热门前 ${CAP} 项，更多内容可通过搜索或分类查找` : `已显示全部 ${total} 个。`}</div>`;
+  return `<div class="gend">${!acat && !aq && window.MR_SAMPLE[addonNoun].total > CAP ? `仅展示热门前 ${CAP} 项，更多内容可通过搜索或分类查找` : `已显示全部 ${total} 项`}</div>`;
 }
 function gridHTML() {
   const items = gridItems(), has = new Set(picked.map(p => p.id));
-  if (!items.length) return `<div class="cempty" style="grid-column: 1 / -1; margin-top: 60px">未找到匹配的${addonNoun}，请换个关键词或分类。</div>`;
+  if (!items.length) return `<div class="cempty" style="grid-column: 1 / -1; margin-top: 60px">未找到匹配的${addonNoun}，请更换关键词或分类</div>`;
   shown = Math.min(PAGE, items.length); loadingMore = false;
   return items.slice(0, shown).map(x => cardHTML(x, has)).join("") + (shown >= Math.min(items.length, CAP) ? gridEnd(Math.min(items.length, CAP)) : "");
 }
@@ -1086,9 +1086,9 @@ function moreCards() {
 }
 function crowHTML(p) {
   const x = addonOf(p.id), by = p.by && addonOf(p.by);
-  const why = by ? `${esc(by.n)} 的前置依赖` : addonNoun === "插件" && x.cs === "required" ? "需客户端同步安装" : addonNoun === "模组" && x.cs !== "required" ? "仅服务端，客户端不用装" : esc(x.d);
+  const why = by ? `${esc(by.n)} 的前置依赖` : addonNoun === "插件" && x.cs === "required" ? "需客户端同步安装" : addonNoun === "模组" && x.cs !== "required" ? "仅服务端，客户端无需安装" : esc(x.d);
   return `<div class="crow" data-id="${x.id}">${tile(x)}<div class="m"><div class="n">${esc(x.n)}${by ? `<span class="ftag">前置</span>` : ""}</div><div class="why">${why}</div></div>
-    <span class="x" data-unpick="${x.id}" aria-label="从清单里拿掉 ${esc(x.n)}"><i data-ic="x"></i></span></div>`;
+    <span class="x" data-unpick="${x.id}" title="移除" aria-label="从清单移除 ${esc(x.n)}"><i data-ic="x"></i></span></div>`;
 }
 function step2() {
   const noun = nounOfCore(core);
@@ -1111,7 +1111,7 @@ function cartMeta() {
   document.querySelector(".cart")?.classList.toggle("has", n > 0);
   navLabel();
   const note = document.getElementById("anote");
-  if (note) note.innerHTML = friends ? `${KIT.icon("info")}其中 ${friends} 个需客户端同步安装` : "";
+  if (note) note.innerHTML = friends ? `${KIT.icon("info")}其中 ${friends} 项需客户端同步安装` : "";
 }
 // 挑一个 / 拿掉一个。挑的时候把它要的前置一起放进来（标「前置」）；拿掉的时候，只因为它才进来的前置一起拿掉
 function toggleAddon(id) {
@@ -1259,7 +1259,7 @@ function pathNote() {
 }
 function pathTip() {
   const slug = slugOf(SET.name);
-  return `存放在 ${ROOT}\\${pathDir()}` + (slug ? "" : "（名称里没有英文字母或数字，文件夹就按创建时间起名）") + "\n点一下更改存储路径…";
+  return `存储路径：${ROOT}\\${pathDir()}` + (slug ? "" : "（名称不含英文字母或数字，将按创建时间命名文件夹）") + "\n点击更改存储路径";
 }
 const portOk = () => { const v = Number(SET.port); return Number.isInteger(v) && v >= 1 && v <= 65535; };
 let portState = () => portOk() ? `<span class="st" title="端口可用"><i data-ic="check"></i></span>` : `<span class="st bad" title="端口需为 1 ~ 65535 的整数">1~65535</span>`;
@@ -1313,7 +1313,7 @@ function paintMem() {
   st.classList.toggle("warn", big); st.title = big ? "分配内存过大可能加剧 Java 垃圾回收（GC）停顿，导致游戏周期性掉帧。" : "";
   // 图例：系统已占、分配（只有颜色，数在步进里）、剩余（= 可用 − 分配，和格子上淡的那一截一样长）
   const lg = document.getElementById("smleg");
-  if (lg) lg.innerHTML = `<span><i class="used"></i>系统已占 <b>${gs(used)}</b></span><span><i class="alloc"></i>分配</span><span><i class="free"></i>剩余 <b>${gs(RAM.avail - v)}</b></span>`;
+  if (lg) lg.innerHTML = `<span><i class="used"></i>系统已占 <b>${gbTxt(used)}</b></span><span><i class="alloc"></i>分配</span><span><i class="free"></i>剩余 <b>${gbTxt(RAM.avail - v)}</b></span>`;
   document.querySelectorAll("[data-mp]").forEach(b => b.classList.toggle("on", +b.dataset.mp === v));
 }
 // 在格子上点、拖：落在哪儿就分到哪儿，按 0.5 GB 取整，拖不过上限
@@ -1329,7 +1329,7 @@ const avatarTile = () => SET.icon ? `<span class="sav icon"><img src="${SET.icon
   : `<span class="sav" style="--c:${MDPixel16.CORE_COLORS[core] || "#7a8aa0"}">${MDPixel16.svg(core, 48)}</span>`;
 function avatarBtn() {
   return `<div class="avbtn" data-act="icon" title="更换服务器图标…">${avatarTile()}
-      <span class="avov"><i data-ic="camera"></i></span>${SET.icon ? `<span class="avx" data-act="unicon" title="换回核心头像"><i data-ic="x"></i></span>` : ""}</div>`;
+      <span class="avov"><i data-ic="camera"></i></span>${SET.icon ? `<span class="avx" data-act="unicon" title="改用核心头像"><i data-ic="x"></i></span>` : ""}</div>`;
 }
 const seg = (key, opts) => `<div class="seg" data-seg="${key}"><i class="sgl"></i>${opts.map(([v, t]) => `<span data-v="${v}"${SET[key] === v ? ` class="on"` : ""}>${t}</span>`).join("")}</div>`;
 // 开关：说明 d 写在名字下面；只想放悬停里的写在 tip（第三步的「允许飞行」）
@@ -1341,8 +1341,8 @@ function step3() {
   if (!SET.memTouched) SET.mem = Math.min(proxy ? 1024 : 4096, MEM_CAP);
   // 顶上一块：图标跨两行，名称、服务器介绍（点了就能改）；右下角一句提示（作者 11-26 要的），点它也是改名称
   const id = `<div class="col idcol" style="--c:${MDPixel16.CORE_COLORS[core] || "#7a8aa0"}"><div class="idrow">${avatarBtn()}<div class="idtext">
-      <input class="ie title" id="sname" maxlength="40" value="${esc(SET.name)}" aria-label="名称" placeholder="服务器名称">
-      ${proxy ? "" : `<input class="ie sub" id="smotd" maxlength="59" value="${esc(SET.motd)}" aria-label="服务器介绍" placeholder="服务器介绍" title="服务器介绍（MOTD），显示在多人游戏的服务器列表里">`}
+      <input class="ie title" id="sname" maxlength="40" value="${esc(SET.name)}" aria-label="服务器名称" placeholder="服务器名称">
+      ${proxy ? "" : `<input class="ie sub" id="smotd" maxlength="59" value="${esc(SET.motd)}" aria-label="服务器简介" placeholder="服务器简介" title="服务器简介（MOTD），显示在多人游戏服务器列表中">`}
     </div><span class="idhint" data-act="editname">${proxy ? "单击以修改服务器名称" : "单击以修改服务器名称/简介"}</span></div></div>`;
   // 左栏：内存分配（带快捷预设）、存储路径和端口配置
   const left = `<div class="col"><h3>服务器配置</h3><div class="lgrid">${memCtl(proxy)}
@@ -1351,12 +1351,15 @@ function step3() {
         + `<input class="inp${portOk() ? "" : " bad"}" id="sport" inputmode="numeric" value="${esc(SET.port)}"><span id="pst">${portState()}</span></div></div>`}
     </div></div>`;
   // 右栏：游戏规则（代理端换成一句话）
+  const flyTip = ["neoforge", "fabric", "forge", "mohist", "banner"].includes(core)
+    ? "开启后可避免骑乘、模组位移等情况被服务端误判为飞行而断开连接"
+    : "开启后可避免被误判为飞行而断开连接";
   const right = proxy
-    ? `<div class="col"><h3>游戏规则</h3><div class="pnote" title="代理端不跑游戏世界，没有难度、游戏模式这些规则，也不用同意 Minecraft EULA；监听端口和转发规则在第一次启动、生成配置文件以后再设置">代理端只做转发，没有游戏规则</div></div>`
+    ? `<div class="col"><h3>游戏规则</h3><div class="pnote" title="代理端不运行游戏存档，无难度、游戏模式等规则，也无需同意 Minecraft EULA；监听端口与转发规则将在首次启动生成配置文件后设置">代理端仅负责转发，无游戏规则</div></div>`
     : `<div class="col"><h3>游戏规则</h3>
       <div class="fld"><span class="lb">难度</span>${seg("diff", [["peaceful", "和平"], ["easy", "简单"], ["normal", "普通"], ["hard", "困难"]])}</div>
       <div class="fld"><span class="lb">默认游戏模式</span>${seg("mode", [["survival", "生存"], ["creative", "创造"], ["adventure", "冒险"], ["spectator", "旁观"]])}</div>
-      <div class="fld g-fly" title="开着可以防止骑乘、模组的移动被误当成飞行踢出去"><span class="lb">允许飞行</span>${seg("flight", [["1", "开"], ["0", "关"]])}</div></div>`;
+      <div class="fld g-fly" title="${flyTip}"><span class="lb">允许飞行</span>${seg("flight", [["1", "开"], ["0", "关"]])}</div></div>`;
   // EULA 照第一稿放回面板里（作者 11-26：「还是按照最开始，放在框内比较好」）：横跨两栏的一条，左边开关，没开时点「下一步」整条标红、右边出一句
   const eula = proxy ? "" : `<div class="eula" data-eula><div class="tg${SET.eula ? " on" : ""}" style="pointer-events:none"><span class="sw"></span></div>
       <span>我已阅读并同意 <a href="https://aka.ms/MinecraftEULA" target="_blank" rel="noopener noreferrer">Minecraft 最终用户许可协议（EULA）</a></span><span class="msg">开服前需要同意 EULA</span></div>`;
@@ -1416,7 +1419,7 @@ let vlanFound = 0;
 const vlanNets = () => LAN_NETS.slice(0, [0, 2, 5][vlanFound]);
 function vlanRows() {
   const proxy = isProxyCore();
-  return vlanNets().map(([n, ip]) => `<div class="netrow" title="朋友也在你的 ${esc(n)} 网络里时填这个"><span class="nn">${esc(n)}</span><span class="mono">${ip}:${proxy ? "" : esc(SET.port)}</span>`
+  return vlanNets().map(([n, ip]) => `<div class="netrow" title="已加入同一${/^[A-Za-z0-9]/.test(n || "") ? " " : ""}${esc(n)}${/[A-Za-z0-9]$/.test(n || "") ? " " : ""}网络的玩家可使用此地址连接"><span class="nn">${esc(n)}</span><span class="mono">${ip}:${proxy ? "" : esc(SET.port)}</span>`
     + (proxy ? "" : `<button class="ib" data-act="copy" data-copy="${ip}:${esc(SET.port)}" title="复制"><i data-ic="copy"></i></button>`) + `</div>`).join("");
 }
 // 刷新：图标转 0.6 秒，检测到的一行一行浮进来（同节点面板的刷新），左下角的提示淡掉
@@ -1436,9 +1439,9 @@ function refreshVlan(b) {
 // 11-26 作者：局域网和自建 frps 两页都太空，并成一张卡（下面一页左右两块），自建 frps 在那一页里用开关打开
 const VIAS = [["lan", "局域网 / 自建 frps"], ["openfrp", "OpenFrp"], ["sakura", "樱花穿透"]];
 const VIA_TIP = {
-  lan: "和你连同一个 Wi-Fi、同一个路由器的朋友能进；有自己的 frp 服务器的，打开「自建 frps」，外地的朋友也能进",
-  openfrp: "用 OpenFrp 的内网穿透，外地的朋友也能进；MineDeck 在平台上建一条隧道，跟着服务器一起启动",
-  sakura: "用樱花的内网穿透，外地的朋友也能进；MineDeck 在平台上建一条隧道，跟着服务器一起启动",
+  lan: "同一局域网内可直接联机；如有自有 frps，开启「自建 frps」即可公网联机",
+  openfrp: "通过 OpenFrp 实现公网联机；MineDeck 将在平台创建隧道并随服务器一同启动",
+  sakura: "通过樱花穿透实现公网联机；MineDeck 将在平台创建隧道并随服务器一同启动",
 };
 const isTun = k => k === "openfrp" || k === "sakura";
 const tabOf = k => LINK.tab[k] || "new"; // 「新建隧道 / 用已有的」两个平台各记各的
@@ -1494,7 +1497,7 @@ const PLAT_TUNS = {
 };
 const nodesOf = k => k === "openfrp" ? OF_NODES : SK_NODES;
 const ltg = (key, t, tip, on = LINK[key]) => `<div class="tg sm${on ? " on" : ""}" data-ltg="${key}" title="${esc(tip)}"><div class="m"><div class="t">${t}</div></div><span class="sw"></span></div>`;
-const nchip = n => `<span class="nchip" data-name="${esc(n)}">${esc(n)}<span class="nx" data-unname="${esc(n)}" title="拿掉"><i data-ic="x"></i></span></span>`;
+const nchip = n => `<span class="nchip" data-name="${esc(n)}">${esc(n)}<span class="nx" data-unname="${esc(n)}" title="移除"><i data-ic="x"></i></span></span>`;
 const shakeEl = el => el?.animate([{ transform: "none" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "none" }],
   { duration: 360, easing: "cubic-bezier(.3, .7, .2, 1)" });
 function viaMeta(k) {
@@ -1505,13 +1508,13 @@ function viaMeta(k) {
 // 这个节点为什么用不了：[哪一类, 悬停的话]，用得了返回 null。满载、离线、无权限三类照「满载 / 离线 / 无权限」三个勾决定藏不藏；公开招人那类不藏、灰着
 function nodeWhy(k, x) {
   if (x.off) return ["off", "离线"];
-  if (x.full) return ["full", "满载，暂时建不了隧道"];
+  if (x.full) return ["full", "节点已满载，暂无法创建隧道"];
   if (k === "openfrp") {
-    if (TIERS.indexOf(x.tier) > TIERS.indexOf(OF_USER.tier)) return ["perm", `${TIER_NAME[x.tier]} 用户才能用`];
-    if (x.real && !OF_USER.realname) return ["perm", "要先在 OpenFrp 实名"];
+    if (TIERS.indexOf(x.tier) > TIERS.indexOf(OF_USER.tier)) return ["perm", `仅限 ${TIER_NAME[x.tier]} 用户使用`];
+    if (x.real && !OF_USER.realname) return ["perm", "需先完成 OpenFrp 实名认证"];
   } else {
-    if (x.vip > SK_USER.level) return ["perm", "VIP 等级不够"];
-    if (LINK.pub && !x.pub) return ["pub", "公开招人只能用公开游戏节点"];
+    if (x.vip > SK_USER.level) return ["perm", "VIP 等级不足"];
+    if (LINK.pub && !x.pub) return ["pub", "公开招人模式仅限使用公开游戏节点"];
   }
   return null;
 }
@@ -1529,7 +1532,7 @@ function nodeCard(k, x) {
   const cls = `nd${on ? " on" : ""}${why ? " off" : ""}`, tip = why ? why[1] : `${x.key.startsWith("#") ? x.key + " " : ""}${x.n}${x.d ? "\n" + x.d : ""}`;
   if (k === "openfrp") {
     const tags = `<span class="tag good">${x.bw}</span>` + (x.udp ? `<span class="tag plain">UDP</span>` : "") + (x.https ? `<span class="tag plain">HTTPS</span>` : "")
-      + (x.real && x.sec !== 0 ? `<span class="tag warn">实名</span>` : "") + (x.ext ? `<span class="tag warn" title="主地址有限制时，朋友要用扩展地址连">扩展地址</span>` : "");
+      + (x.real && x.sec !== 0 ? `<span class="tag warn">实名</span>` : "") + (x.ext ? `<span class="tag warn" title="主地址受限时，需使用扩展地址连接">扩展地址</span>` : "");
     return `<div class="${cls}" data-node="${esc(x.key)}" title="${esc(tip)}"><div class="r1">${x.tier ? `<span class="tag ${x.tier}">${TIER_NAME[x.tier]}</span>` : ""}`
       + `<span class="n"><span class="id">#${x.id}</span>${esc(x.n)}</span>${st}</div><div class="d one">${esc(x.d) || "&nbsp;"}</div><div class="r3">${tags}</div></div>`;
   }
@@ -1546,44 +1549,44 @@ function nodeCards(k) {
     return `<div class="ngrp"><div class="ngh"><h4>${t}</h4>${sub ? `<span class="s">${sub}</span>` : ""}<span class="c">${n} 个可用</span></div>`
       + `<div class="ncards">${list.map(x => nodeCard(k, x)).join("")}</div></div>`;
   }).join("");
-  return out || `<div class="nempty">没有对得上的节点</div>`;
+  return out || `<div class="nempty">没有匹配的节点</div>`;
 }
 // 「用已有的」：平台上已经建好的隧道
 function tunRows(k) {
   const q = LINK.q.trim().toLowerCase(), list = PLAT_TUNS[k].filter(t => !q || (t.n + " " + t.node).toLowerCase().includes(q));
-  if (!list.length) return `<div class="nempty">平台上没有对得上的隧道</div>`;
+  if (!list.length) return `<div class="nempty">平台上没有匹配的隧道</div>`;
   return list.map(t => {
-    const bad = t.t !== "TCP" ? "这是 UDP 隧道（多半是语音用的），游戏要用 TCP；语音隧道建好服务器后在「联机」里加"
-      : t.lp !== +SET.port ? `本地端口是 ${t.lp}，和这台服务器的 ${SET.port} 对不上；先到平台上把本地端口改成 ${SET.port}` : "";
-    return `<div class="trow${LINK.use[k] === t.n ? " on" : ""}${bad ? " off" : ""}" data-use="${esc(t.n)}" title="${esc(bad || "用这条隧道，跟着服务器一起启动")}">`
-      + `<span class="n">${esc(t.n)}</span><span class="tag plain">${t.t}</span><span class="sp"></span><span class="k">${esc(t.node)} · 本地 ${t.lp}</span></div>`;
+    const bad = t.t !== "TCP" ? "此为 UDP 隧道（通常用于语音），游戏联机需使用 TCP 隧道；语音隧道可在创建服务器后于「联机」页添加"
+      : t.lp !== +SET.port ? `本地端口为 ${t.lp}，与当前服务器端口 ${SET.port} 不一致；请先在平台将本地端口修改为 ${SET.port}` : "";
+    return `<div class="trow${LINK.use[k] === t.n ? " on" : ""}${bad ? " off" : ""}" data-use="${esc(t.n)}" title="${esc(bad || "使用此隧道，并随服务器一同启动")}">`
+      + `<span class="n">${esc(t.n)}</span><span class="tag plain">${t.t}</span><span class="sp"></span><span class="k">${esc(t.node)} · 本地端口 ${t.lp}</span></div>`;
   }).join("");
 }
-const ckBox = (k, t) => `<span class="ck${LINK.show[k] ? " on" : ""}" data-ck="${k}" title="把${t}的节点也列出来（灰着，点不了）"><span class="bx"><i data-ic="check"></i></span>${t}</span>`;
+const ckBox = (k, t) => `<span class="ck${LINK.show[k] ? " on" : ""}" data-ck="${k}" title="显示${t}节点（不可选）"><span class="bx"><i data-ic="check"></i></span>${t}</span>`;
 // 节点面板第一行以下（切「新建隧道 / 用已有的」时整段换）
 function nodeBody(k) {
   const fil = [["all", "全部"], ["udp", "支持 UDP"], ...(k === "sakura" ? [["pub", "公开游戏"]] : [])];
   const top = tabOf(k) === "new" ? `<div class="nfil"><div class="nfils"><i class="nfhl"></i>${fil.map(([v, t]) => `<button class="nf${LINK.filter === v ? " on" : ""}" data-nfil="${v}">${t}</button>`).join("")}</div><span class="sp"></span>`
     + ckBox("full", "满载") + ckBox("off", "离线") + ckBox("perm", "无权限")
-    + (k === "sakura" ? ltg("pub", "公开招人", "发到论坛、服务器列表、QQ 大群，或在 B 站、抖音上宣传招人的服务器要打开；樱花规定这种只能用公开游戏节点，用错会被封号。只和熟人玩不用开") : "") + `</div>` : "";
+    + (k === "sakura" ? ltg("pub", "公开招人", "发到论坛、服务器列表、QQ 大群，或在 B 站、抖音上宣传招人的服务器需开启；樱花穿透规定此类服务器只能用公开游戏节点，用错会被封号。仅熟人联机无需开启") : "") + `</div>` : "";
   return top + `<div class="lwrap nwrap"><div class="list nlist" id="nlist">${tabOf(k) === "new" ? nodeCards(k) : tunRows(k)}</div><i class="thumb"></i></div>`;
 }
 function nodePanel(k) {
-  const tip = k === "openfrp" ? `MineDeck 替你在 OpenFrp 上建一条隧道：本地端口 ${SET.port}，公网端口在节点允许的范围里自动挑，其余设置用平台默认，跟着服务器一起启动`
-    : `MineDeck 替你在樱花上建一条隧道：本地端口 ${SET.port}，公网端口由樱花分配，其余设置用平台默认，跟着服务器一起启动`;
-  const on = v => tabOf(k) === v ? ` class="on"` : "";
+  const tip = k === "openfrp" ? `在 OpenFrp 自动创建隧道：本地端口 ${SET.port}，公网端口将在节点允许范围内自动分配，其余保持平台默认，并随服务器一同启动`
+    : `在樱花穿透自动创建隧道：本地端口 ${SET.port}，公网端口由平台自动分配，其余保持平台默认，并随服务器一同启动`;
+  const on = v => tabOf(k) === v ? ` class="on"` : "", use = tabOf(k) === "use";
   return `<div class="nbar"><div class="seg sm" data-lseg="tab"><i class="sgl"></i><span data-v="new"${on("new")} title="${esc(tip)}">新建隧道</span>`
-    + `<span data-v="use"${on("use")} title="平台上已经建好的隧道，挑一条拿来用">已有隧道</span></div><span class="nmsg" id="nmsg"></span>`
-    + `<label class="nsearch"><i data-ic="search"></i><input id="nq" placeholder="搜索节点" value="${esc(LINK.q)}" autocomplete="off" spellcheck="false"></label>`
-    + `<button class="ib" data-act="nrefresh" title="刷新节点列表"><i data-ic="refresh"></i></button></div>`
+    + `<span data-v="use"${on("use")} title="从平台已创建的隧道中选择一条绑定到当前服务器">已有隧道</span></div><span class="nmsg" id="nmsg"></span>`
+    + `<label class="nsearch"><i data-ic="search"></i><input id="nq" placeholder="${use ? "搜索隧道" : "搜索节点"}" value="${esc(LINK.q)}" autocomplete="off" spellcheck="false"></label>`
+    + `<button class="ib" data-act="nrefresh" title="${use ? "刷新隧道列表" : "刷新节点列表"}"><i data-ic="refresh"></i></button></div>`
     + `<div class="nbody">${nodeBody(k)}</div>`;
 }
 // 樱花没连上：粘访问密钥
 function sakuraKey() {
-  return `<div class="keyb"><div class="lrow"><span class="lb">樱花访问密钥</span><a class="tlink" data-act="sakurakey" title="在浏览器里打开樱花官网的用户信息页，复制上面的「访问密钥」">去官网复制</a></div>
+  return `<div class="keyb"><div class="lrow"><span class="lb">樱花访问密钥</span><a class="tlink" data-act="sakurakey" title="在浏览器中打开樱花穿透官网的用户信息页，复制「访问密钥」">去官网复制</a></div>
       <div class="keyrow"><input class="inp" id="skey" type="password" placeholder="粘贴访问密钥" value="${esc(LINK.key)}" autocomplete="off" spellcheck="false">`
     + `<button class="kbtn" data-act="connect"${LINK.connecting ? " disabled" : ""}>${LINK.connecting ? `<i data-ic="spinner" class="spin"></i>连接中` : "连接"}</button></div>
-      ${ltg("saveKey", "记住密钥", "用 Windows 加密存在这台电脑上，以后建别的服务器不用再粘；设置 → 内网穿透里可以换或删。\n不记住的话，这条隧道照样能用（它自己存着一份），下次建服务器要再粘一次")}</div>
+      ${ltg("saveKey", "记住密钥", "使用 Windows 加密保存在本机，后续配置其他服务器时无需重复粘贴；可在「设置 → 内网穿透」中更换或删除。\n若关闭此项，当前隧道仍可正常使用（凭据随隧道单独保存），下次新建时需重新输入。")}</div>
     <div class="nph">请先连接账号，以加载并选择可用节点</div>`;
 }
 // 卡片下面那一块
@@ -1598,37 +1601,37 @@ function viaDetail() {
 function lanPage() {
   const proxy = isProxyCore(), on = LINK.frpsOn && !proxy, fd = on ? "" : " tabindex=\"-1\"";
   const lan = `<div class="lanp"><div class="lh"><i data-ic="wifi"></i><span class="t">局域网</span></div>`
-    + `<div class="lbody"><span class="lb" title="同一局域网的朋友在游戏里添加服务器时填这个">局域网联机地址</span>`
+    + `<div class="lbody"><span class="lb" title="同一局域网内的玩家在多人游戏中添加服务器时使用此地址">局域网联机地址</span>`
     + `<div class="bigaddr"><span class="mono">${LAN_IP}:${proxy ? "" : esc(SET.port)}</span>`
-    + (proxy ? `<span class="unk" title="代理端的端口写在它自己的配置文件里，第一次启动才生成">端口启动后才知道</span>`
+    + (proxy ? `<span class="unk" title="代理端监听端口写入自身配置文件，将于首次启动时生成">端口启动后才知道</span>`
       : `<button class="ib" data-act="copy" data-copy="${LAN_IP}:${esc(SET.port)}" title="复制"><i data-ic="copy"></i></button>`) + `</div>`
-    + `<div class="vlan"><div class="vlh"><span class="lb" title="你和朋友装了同一款虚拟局域网软件（Radmin VPN、ZeroTier 这类）、开着、进了同一个网络时，朋友填对应那一行；MineDeck 只把这台电脑上的地址列出来，不替你装、不替你建网络">虚拟局域网</span>`
+    + `<div class="vlan"><div class="vlh"><span class="lb" title="所有玩家运行同一款虚拟局域网工具（如 Radmin VPN、ZeroTier）并加入同一网络后，可输入对应地址联机；MineDeck 仅读取本机网卡地址，不负责安装或组网">虚拟局域网</span>`
       + `<button class="ib" data-act="vrefresh" title="重新检测"><i data-ic="refresh"></i></button></div><div class="lwrap vwrap"><div class="list vrows" id="vrows">${vlanRows()}</div><i class="thumb"></i></div></div>`
     + `<div class="vnone${vlanNets().length ? " gone" : ""}" id="vnone"><i data-ic="info"></i><span>未检测到虚拟局域网，启动 Radmin、ZeroTier 等组网工具后将自动识别</span></div>`
     + `</div></div>`;
-  const frp = `<div class="lanp frpp${on ? " on" : ""}${proxy ? " off" : ""}" title="${esc(proxy ? "代理端的端口第一次启动以后才知道，启动过以后在服务器的「联机」里开" : on ? "" : "有自己的 frp 服务器才用这个，点一下打开")}">`
-    + `<div class="lh">${ltg("frpsOn", "自建 frps", "MineDeck 带着 frpc 连你自己的 frps，外地的朋友也能进", on)}</div>`
-    + `<div class="lbody"><span class="lb" title="外地的朋友在游戏里添加服务器时填这个：服务器地址加公网端口，公网端口空着就是本地端口">公网联机地址</span>`
+  const frp = `<div class="lanp frpp${on ? " on" : ""}${proxy ? " off" : ""}" title="${esc(proxy ? "代理端端口需在首次启动生成配置文件后确定，启动后可在服务器的「联机」页开启自建 frps" : on ? "" : "适用于自有 frps 服务端，点击开启")}">`
+    + `<div class="lh">${ltg("frpsOn", "自建 frps", "由 MineDeck 启动 frpc 连接自有 frps，实现公网联机", on)}</div>`
+    + `<div class="lbody"><span class="lb" title="公网玩家在游戏多人联机中输入此地址：由 frps 地址与公网端口组成，公网端口留空时默认与本地端口一致">公网联机地址</span>`
     + `<div class="bigaddr" id="faddr">${frpsAddr()}</div>`
     + `<div class="frps" title="本地端口 ${esc(SET.port)}">`
-    + `<input class="inp" id="fhost" placeholder="服务器地址" value="${esc(LINK.frps.host)}" autocomplete="off" spellcheck="false"${fd}>`
-    + `<input class="inp" id="fport" placeholder="端口" value="${esc(LINK.frps.port)}" inputmode="numeric"${fd}>`
+    + `<input class="inp" id="fhost" placeholder="frps 地址" value="${esc(LINK.frps.host)}" autocomplete="off" spellcheck="false"${fd}>`
+    + `<input class="inp" id="fport" placeholder="frps 端口" value="${esc(LINK.frps.port)}" inputmode="numeric"${fd}>`
     + `<input class="inp" id="ftoken" type="password" placeholder="认证令牌（选填）" value="${esc(LINK.frps.token)}"${fd}>`
-    + `<input class="inp" id="fremote" placeholder="公网端口" value="${esc(LINK.frps.remote)}" inputmode="numeric" title="朋友连的端口；空着就和本地端口一样（${esc(SET.port)}）"${fd}></div></div></div>`;
+    + `<input class="inp" id="fremote" placeholder="公网端口" value="${esc(LINK.frps.remote)}" inputmode="numeric" title="公网联机使用的端口，留空时默认与本地端口一致（${esc(SET.port)}）"${fd}></div></div></div>`;
   return lan + frp;
 }
 // 自建 frps 那块的大字：服务器地址加公网端口（空着用本地端口），边填边拼；地址没填时用淡字占着位置，复制灰着。
 // 服务器地址在上面大字和下面框里各出现一次，和「一个值只说一次」有出入，作者 11-26 定保持：这一行是为了把朋友要填的整串地址呈现出来、给人复制
 function frpsAddr() {
   const h = LINK.frps.host.trim(), port = LINK.frps.remote.trim() || (isProxyCore() ? "" : SET.port); // 代理端的本地端口启动后才知道，只写到冒号（同局域网那行）
-  return (h ? `<span class="mono" title="${esc(h)}:${esc(port)}">${esc(h)}:${esc(port)}</span>` : `<span class="ph">服务器地址</span><span class="mono">:${esc(port)}</span>`)
+  return (h ? `<span class="mono" title="${esc(h)}:${esc(port)}">${esc(h)}:${esc(port)}</span>` : `<span class="ph">frps 地址</span><span class="mono">:${esc(port)}</span>`)
     + `<button class="ib" data-act="copy" data-copy="${esc(h)}:${esc(port)}" title="复制"${h && port ? "" : " disabled"}><i data-ic="copy"></i></button>`;
 }
 function paintFrpsAddr() { const el = document.getElementById("faddr"); if (el) { el.innerHTML = frpsAddr(); KIT.hydrate(el); } }
 // 自建 frps 开关一动：四个框淡进淡出，打开时光标落在服务器地址
 function afterFrps() {
   const p = document.querySelector(".frpp"); if (!p) return;
-  p.classList.toggle("on", LINK.frpsOn); p.title = LINK.frpsOn ? "" : "有自己的 frp 服务器才用这个，点一下打开";
+  p.classList.toggle("on", LINK.frpsOn); p.title = LINK.frpsOn ? "" : "适用于自有 frps 服务端，点击开启";
   p.querySelectorAll(".frps .inp").forEach(i => { if (LINK.frpsOn) i.removeAttribute("tabindex"); else { i.tabIndex = -1; i.classList.remove("bad"); } });
   if (LINK.frpsOn) document.getElementById("fhost")?.focus({ preventScroll: true });
 }
@@ -1638,9 +1641,9 @@ const wtg = (key, t, tip) => `<div class="tg${isOn(SET[key]) ? " on" : ""}" data
 // 底部「谁能进」：正版验证一块在左（只包住开关和字），白名单一块占其余的宽，开关在字的左边（同第三步的 EULA）。
 // 原来两块右边各有一句提醒（「谁拿到地址都能进」「名单是空的」「白名单只认名字」），11-26 作者说开服的人都懂，「名单是空的」反倒让人以为非填不可，都拿掉了
 function whoStrip() {
-  if (isProxyCore()) return `<div class="who"><div class="wt one" title="正版验证在代理端自己的配置文件里改，白名单在后面接的各台服务器上开">谁能进：代理端在自己的配置里设</div></div>`;
-  return `<div class="who"><div class="wt wt-on">${wtg("online", "正版验证", "开着只有正版账号能进；关着时离线账号也能进，但不用正版 UUID，也不显示正版皮肤")}</div>`
-    + `<div class="wt wt-wl${SET.wl ? " open" : ""}">${wtg("wl", "白名单", "开着只有名单里的玩家能进；关着时知道地址的人都能进")}`
+  if (isProxyCore()) return `<div class="who"><div class="wt one" title="正版验证需在代理端自身配置文件中修改，白名单需在各后端子服中分别开启">谁能进：代理端在自己的配置里设</div></div>`;
+  return `<div class="who"><div class="wt wt-on">${wtg("online", "正版验证", "开启后仅允许正版账号加入；关闭后允许离线账号加入，但不会使用正版 UUID，也不显示正版皮肤")}</div>`
+    + `<div class="wt wt-wl${SET.wl ? " open" : ""}">${wtg("wl", "白名单", "开启后仅允许名单内的玩家加入；关闭后知晓地址的任意玩家均可加入")}`
     + `<div class="wnames" id="names"><div class="wscroll" id="wlscroll">${LINK.names.map(nchip).join("")}`
     + `<input id="wlname" maxlength="16" placeholder="${LINK.names.length ? "" : WL_PH}" autocomplete="off" spellcheck="false"></div></div>`
     + `<span id="wlnote"></span></div></div>`;
@@ -1649,8 +1652,8 @@ function step4() {
   const proxy = isProxyCore(), v = viaOf();
   const card = ([k, n], i) => {
     const off = proxy && k !== "lan";
-    return `<div class="vcard${v === k ? " on" : ""}${off ? " off" : ""}" data-via="${k}" style="grid-column:${i + 1}" title="${esc(off ? "代理端的端口第一次启动以后才知道，启动过以后在服务器的「联机」里开" : VIA_TIP[k])}">`
-      + `<div class="n">${n}</div><div class="m">${off ? "启动后再开" : viaMeta(k)}</div></div>`;
+    return `<div class="vcard${v === k ? " on" : ""}${off ? " off" : ""}" data-via="${k}" style="grid-column:${i + 1}" title="${esc(off ? "代理端端口需在首次启动生成配置文件后确定，启动后可在服务器的「联机」页开启内网穿透" : VIA_TIP[k])}">`
+      + `<div class="n">${n}</div><div class="m">${off ? "首次启动后开启" : viaMeta(k)}</div></div>`;
   };
   const slots = VIAS.map((_, i) => `<i class="vslot" style="grid-column:${i + 1}"></i>`).join(""); // 底色一层，和卡片同一格
   return `<div class="setp link"><div class="col lcol"><div class="vias">${slots}<i class="vhl"></i>${VIAS.map(card).join("")}</div>`
@@ -1722,6 +1725,8 @@ function pickVia(k) {
 function pickTab(v, box, sp) {
   LINK.tab[LINK.via] = v;
   box.querySelectorAll("span").forEach(x => x.classList.toggle("on", x === sp)); placeSeg(box, true);
+  const nq = document.getElementById("nq"); if (nq) nq.placeholder = v === "use" ? "搜索隧道" : "搜索节点";
+  const nr = document.querySelector('[data-act="nrefresh"]'); if (nr) { const rt = v === "use" ? "刷新隧道列表" : "刷新节点列表"; nr.title = rt; delete nr.dataset.tip; if (nr.hasAttribute("aria-label")) nr.setAttribute("aria-label", rt); }
   document.getElementById("nmsg")?.classList.remove("show");
   swapItems(document.querySelector(".nbody"), nodeBody(LINK.via), v === "use" ? 1 : -1, "X", afterDetail);
 }
@@ -1797,7 +1802,7 @@ function addName(v) {
   const n = v.trim(), inp = document.getElementById("wlname"), box = document.getElementById("names"), note = document.getElementById("wlnote");
   if (!n) return;
   if (!/^[A-Za-z0-9_]{1,16}$/.test(n)) {
-    box.classList.add("bad"); note.textContent = "玩家名不合法"; note.title = "1~16 位字母、数字或下划线";
+    box.classList.add("bad"); note.textContent = "玩家名不合法"; note.title = "1～16 位字母、数字或下划线";
     shakeEl(box); // 同别处拦下一步的那一下
     return;
   }
@@ -1831,7 +1836,7 @@ function checkLink() {
   }
   if (v === "sakura" && !LINK.sakura) { const inp = document.getElementById("skey"); inp?.classList.add("bad"); inp?.focus(); shakeEl(inp); return false; }
   if (isTun(v)) {
-    const need = tabOf(v) === "new" ? (!LINK.node[v] && "先选一个节点") : (!LINK.use[v] && "先选一条隧道");
+    const need = tabOf(v) === "new" ? (!LINK.node[v] && "请先选择节点") : (!LINK.use[v] && "请先选择隧道");
     if (!need) return true;
     const m = document.getElementById("nmsg"); if (m) { m.textContent = need; m.classList.add("show"); }
     shakeEl(document.querySelector(".nwrap"));
@@ -2245,14 +2250,14 @@ let FLOW = FLOW_NAMES[QS.get("flow")] ? QS.get("flow") : "modpack";
 const LAST = { modpack: "导入并创建", map: "创建服务器", transfer: "导入交接包", adopt: "接管服务器" };
 // 第一步各条路的字。drop：框里的一句；fmt：收什么、多大（上限在上传之前就拦，同程序）；tip：程序原来写在页头的长说明，收进悬停；need：没选就点下一步时的那句
 const SRCF = {
-  modpack: { title: "选择整合包以进行下一步", ico: "package", drop: "拖入整合包，或点击选择", fmt: ".mrpack · .zip · 最大 4 GB", need: "先选择整合包",
-    tip: "Modrinth 的 .mrpack、CurseForge 的 .zip，或作者打包好的现成服务端压缩包。清单和服务端文件可以在最外层，也可以套在文件夹里（只有一个文件夹一层层套着的，最多认三层）。核心和版本会自动识别" },
-  map: { title: "选择地图以进行下一步", ico: "map", drop: "拖入地图压缩包，或点击选择", fmt: ".zip · 最大 8 GB", need: "先选择地图",
-    tip: "下载的冒险、空岛、跑酷地图，自己的单人世界，朋友发来的旧服世界都行。压缩包里套了几层文件夹、旁边放着说明书和资源包都能找到；一个包里有几张地图会列出来让你挑" },
-  transfer: { title: "选择交接包以进行下一步", ico: "archiveRestore", drop: "拖入交接包，或点击选择", fmt: ".mdpack · 最大 8 GB", need: "先选择交接包",
-    tip: "MineDeck 导出的 .mdpack 交接包：世界、配置、模组和插件都在包里，导入后可以直接启动。扩展名被改过的包，选文件时切到「所有文件」" },
-  adopt: { title: "选择服务器文件夹以进行下一步", ico: "folderInput", drop: "选择服务器所在的文件夹", fmt: "", need: "先选择服务器所在的文件夹",
-    tip: "包含服务端核心或启动文件的文件夹。文件留在原地，世界、模组、插件和配置都不改动。只能在运行 MineDeck 的这台电脑上操作" },
+  modpack: { title: "选择整合包以进行下一步", ico: "package", drop: "拖入整合包，或点击选择", fmt: ".mrpack · .zip · 最大 4 GB", need: "请先选择整合包",
+    tip: "支持 Modrinth（.mrpack）、CurseForge（.zip）或现成服务端压缩包。清单与服务端文件可在最外层，也可套在文件夹里（每层只有一个文件夹时，最多认三层）。核心与版本将自动识别" },
+  map: { title: "选择地图以进行下一步", ico: "map", drop: "拖入地图压缩包，或点击选择", fmt: ".zip · 最大 8 GB", need: "请先选择地图",
+    tip: "支持下载的冒险、空岛、跑酷地图，以及单人存档或旧服存档。压缩包内存在多层嵌套或附带说明与资源包时均可识别；包含多张地图时将列出供选择" },
+  transfer: { title: "选择交接包以进行下一步", ico: "archiveRestore", drop: "拖入交接包，或点击选择", fmt: ".mdpack · 最大 8 GB", need: "请先选择交接包",
+    tip: "MineDeck 导出的 .mdpack 交接包：包含存档、配置、模组与插件，导入后可直接启动。若文件扩展名被修改，请在文件选择窗口中切换为「所有文件」" },
+  adopt: { title: "选择服务器文件夹以进行下一步", ico: "folderInput", drop: "选择服务器文件夹", fmt: "", need: "请先选择服务器文件夹",
+    tip: "包含服务端核心或启动文件的文件夹。文件保留在原路径，不会改动原有存档、模组、插件与配置。仅支持在运行 MineDeck 的本机操作" },
 };
 
 // ---- 假数据（都是示例：包名、地图名、文件名、路径编的，玩家名用 steve、alex）----
@@ -2278,9 +2283,9 @@ const MAPSRC = { file: "SkyCity_v2.1.zip", bytes: 1.3 * 1024 ** 3, path: "D:\\Ma
     diff: "normal", mode: "adventure", core: "vanilla", notes: [] },
   { id: "b", name: "天空之城（建造存档）", root: "SkyCity_v2.1/SkyCity_build", ver: "1.20.4", size: "214 MB", layout: "旧版布局", layoutFull: "旧版布局（26.1 以前的原版）",
     dims: [["主世界", 40]], missing: ["下界", "末地"], dps: [], rp: false, players: 1, readme: "", hints: [], diff: "peaceful", mode: "creative", core: "vanilla",
-    notes: [["warn", "单人存档：主人的背包和经验接不接得上，看用哪个账号进服", "这是单人存档。世界、建筑、箱子都在；主人身上的背包和经验接不接得上，取决于用哪个账号进服（正版验证开着、用同一个正版账号一般能接上）。MineDeck 不改写玩家文件"]] },
-  { id: "c", name: "SkyCity", root: "SkyCity_v2.1/old/SkyCity", ver: "", size: "1.0 GB", block: "只有备份用的 level.dat_old",
-    blockFull: "这个世界只有备份用的 level.dat_old，没有 level.dat。可以先把 level.dat_old 复制一份改名成 level.dat，确认能在单人游戏里打开，再来导入" },
+    notes: [["warn", "单人存档：原玩家背包与经验能否衔接取决于加入账号", "此为单人存档，地形、建筑与容器内容均完整保留；原玩家背包与经验能否衔接取决于加入账号（开启正版验证并使用同一正版账号通常可延续）。MineDeck 不会修改玩家数据文件"]] },
+  { id: "c", name: "SkyCity", root: "SkyCity_v2.1/old/SkyCity", ver: "", size: "1.0 GB", block: "仅含备份文件 level.dat_old",
+    blockFull: "该存档仅包含备份文件 level.dat_old，缺少 level.dat。可先将 level.dat_old 复制并重命名为 level.dat，确认可在单人游戏中正常打开后再导入" },
 ] };
 const README = "天空之城 SkyCity v2.1\n作者：steve　测试：alex\n\n建议难度：普通　游戏模式：冒险\n建议人数：1～4 人\n\n【玩法】\n从出生点的告示牌开始，一路往上爬到城顶的灯塔。\n一共五层，每层有一个钥匙，拿齐五把才能开灯塔的门。\n掉下去会回到这一层的存档点，不扣东西。\n\n【注意】\n地图自带数据包 skycity_core，别删，删了机关不动。\n不要改游戏规则 commandBlockOutput，会刷屏。\n多人玩时建议关掉 PVP。\n\n【资源包】\n资源包 resources.zip 放在世界文件夹里，进服前自己装上。\n不装也能玩，只是钥匙和门的样子是原版的。\n\n【更新记录】\nv2.1　修了第三层的门卡住\nv2.0　加了第五层\nv1.0　第一版\n\n更新记录、反馈：https://example.com/skycity\n请勿二次发布。";
 // 交接包：alex 交过来的 Fabric 服（瘦身包，不带核心）。字段照 transfer.Summary；模组清单、有没有同意过 EULA 摘要里现在没有（见开头「要后端补」2）
@@ -2292,11 +2297,11 @@ const TP = { file: "alex-survival.mdpack", bytes: 2.6 * 1024 ** 3, name: "alex �
 // 接管：识别结果照 /api/adopt/scan（targets、xmxMb、port、eula、hasWorld、whitelistOn、notes）。unknown 是认不出核心和版本的那一种
 const AD_OK = { dir: "D:\\MyServer", name: "MyServer", xmx: 6144, port: 25565, eula: true, worlds: ["world", "world_nether", "world_the_end"], wl: true,
   targets: [{ file: "paper-1.20.4-499.jar", core: "paper", mc: "1.20.4", build: "499" }, { file: "server.jar", core: "vanilla", mc: "1.20.4" }],
-  notes: [["info", "旁边的 server.jar 是原版，没有用它", "这个文件夹里除了 Paper 还有一个原版 jar（server.jar），已按启动脚本和文件名选了 Paper；不对可以在「启动文件」里换。未改动你的配置"],
-    ["info", "启动脚本里别的 JVM 参数不会带过来", "原来的启动脚本里还有别的 JVM 参数，不会自动带过来。需要的话（比如外置登录用的 -javaagent），接管后在「设置 → 启动与内存」里补上"]] };
+  notes: [["info", "已忽略同文件夹内的原版 server.jar", "该文件夹中除 Paper 外还存在原版 server.jar，已按启动脚本与文件名预选 Paper；如需调整可在「启动文件」中切换。原配置未被改动"],
+    ["info", "原启动脚本中的其他 JVM 参数不会自动带入", "原启动脚本包含其他 JVM 参数，接管时不会自动继承。如需保留（如外置登录所用的 -javaagent），接管后可在「设置 → 启动与内存」中补充"]] };
 const AD_UNK = { dir: "D:\\MyServer", name: "MyServer", xmx: 4096, port: 25566, eula: false, worlds: ["world"], wl: null,
   targets: [{ file: "server-custom.jar", core: "", mc: "" }],
-  notes: [["warn", "没认出核心和版本，请选一个最接近的核心、填上版本", "没认出这是哪种服务端，请选一个最接近的：插件服选 Paper，模组服按加载器选 Forge、NeoForge 或 Fabric。没认出版本，请手动填写"]] };
+  notes: [["warn", "未识别到核心与版本，请手动选择核心并填写版本号", "未能识别服务端类型，请选择最接近的核心：插件服选 Paper，模组服按加载器选 Forge、NeoForge 或 Fabric；版本号请手动填写"]] };
 const AD = () => SRC.v === "unknown" ? AD_UNK : AD_OK;
 const MAPC = () => MAPSRC.cands[SRC.cand];
 const ALL_CORES = ["vanilla", "paper", "purpur", "leaves", "folia", "fabric", "forge", "neoforge", "mohist", "banner", "velocity", "waterfall"];
@@ -2334,10 +2339,10 @@ function dzInner() {
   if (SRC.phase === "busy") return `<span class="dzi"><i data-ic="spinner" class="spin"></i></span><b>正在识别…</b><span class="dzs"><span class="mono">${esc(SRC.path || srcFile())}</span></span>`;
   if (SRC.phase === "error") {
     const E = {
-      modpack: ["这个文件有 4.6 GB，超过 4 GB 的导入上限", `现成的服务端请先解压到文件夹，再用<a data-src="flow:adopt">接管本地服</a>`],
-      map: ["这是整合包，不能当地图导入", `里面没有世界，整合包请用<a data-src="flow:modpack">导入整合包</a>`],
-      transfer: ["这个交接包有 9.3 GB，超过 8 GB 的导入上限", `把整个服务器文件夹拷到这台电脑上，再用<a data-src="flow:adopt">接管本地服</a>`],
-      adopt: ["这个文件夹里找不到能启动的文件", `下一层的 <span class="mono">survival</span> 像是服务器的文件夹`],
+      modpack: ["文件大小 4.6 GB，超出 4 GB 导入上限", `现成服务端请先解压至文件夹，再使用<a data-src="flow:adopt">「接管本地服」</a>`],
+      map: ["该文件为整合包，无法作为地图导入", `其中不含存档，请改用<a data-src="flow:modpack">「导入整合包」</a>`],
+      transfer: ["交接包大小 9.3 GB，超出 8 GB 导入上限", `请将完整服务器文件夹复制到本机，再使用<a data-src="flow:adopt">「接管本地服」</a>`],
+      adopt: ["该文件夹中未找到可启动的服务端文件", `子文件夹 <span class="mono">survival</span> 疑似服务器文件夹`],
     }[FLOW];
     return `<span class="dzi bad"><i data-ic="warn"></i></span><b>${E[0]}</b><span class="dzs" id="dzs">${E[1]}</span>`;
   }
@@ -2349,9 +2354,9 @@ const upText = () => `已上传 ${fmtB(srcBytes() * SRC.pct / 100)} / ${fmtB(src
 // 地图、接管下面一行填路径（程序：这台电脑上的人可以选文件夹或填路径；别的设备上地图只能传 ZIP、接管不能用，草图没画那一种）
 function prowHTML() {
   const bad = SRC.phase === "error" && FLOW === "adopt" ? " bad" : "";
-  if (FLOW === "map") return `<label class="prow${bad}" id="prow"><input id="srcpath" spellcheck="false" autocomplete="off" value="${esc(SRC.path)}" aria-label="地图文件夹或 ZIP 文件的路径" placeholder="或填这台电脑上的文件夹、ZIP 路径，如 D:\\Maps\\SkyCity">`
-    + `<button class="ib" data-src="browse" title="选择地图文件夹…（世界文件夹，里面有 level.dat；或者它的上一层）"><i data-ic="folder"></i></button><button class="ib" data-src="scan" title="检测"><i data-ic="search"></i></button></label>`;
-  if (FLOW === "adopt") return `<label class="prow${bad}" id="prow"><input id="srcpath" spellcheck="false" autocomplete="off" value="${esc(SRC.path)}" aria-label="服务器所在的文件夹" placeholder="或填文件夹的完整路径，如 D:\\MyServer">`
+  if (FLOW === "map") return `<label class="prow${bad}" id="prow"><input id="srcpath" spellcheck="false" autocomplete="off" value="${esc(SRC.path)}" aria-label="地图文件夹或 ZIP 文件的路径" placeholder="或输入本机文件夹或 ZIP 路径，如 D:\\Maps\\SkyCity">`
+    + `<button class="ib" data-src="browse" title="选择地图文件夹…（包含 level.dat 的存档文件夹或其上一级文件夹）"><i data-ic="folder"></i></button><button class="ib" data-src="scan" title="识别"><i data-ic="search"></i></button></label>`;
+  if (FLOW === "adopt") return `<label class="prow${bad}" id="prow"><input id="srcpath" spellcheck="false" autocomplete="off" value="${esc(SRC.path)}" aria-label="服务器文件夹路径" placeholder="或输入文件夹完整路径，如 D:\\MyServer">`
     + `<button class="ib" data-src="scan" title="识别"><i data-ic="search"></i></button></label>`;
   return "";
 }
@@ -2370,18 +2375,18 @@ function modpackDone() {
   const P = PACK, cf = SRC.v === "cf";
   const sub = `${CORE[P.core][0]} ${m(P.loader)} · Minecraft ${m(P.mc)} · ${m(cf ? P.cfFile : P.file)}${cf ? "（CurseForge）" : ""}`;
   const grp = (t, n, rows, cls = "") => `<div class="fgh${cls}">${t}<span class="n">${n}</span></div>` + rows.join("");
-  const row = (f, tag = "", skip = false) => `<div class="frow${skip ? " skip" : ""}"${skip ? ` title="清单里写明服务端用不上，不装；导入结果里也会列出来"` : ""}>${m(f)}${tag}</div>`;
+  const row = (f, tag = "", skip = false) => `<div class="frow${skip ? " skip" : ""}"${skip ? ` title="清单标明仅客户端使用，服务端将跳过安装；导入结果中仍会列出"` : ""}>${m(f)}${tag}</div>`;
   const list = cf ? `<div class="nph">请先配置 CurseForge API Key，以加载文件清单</div>`
     : grp("需处理", P.pending.length, P.pending.map(([f, h]) => row(f, `<span class="tag warn" title="下载地址 ${esc(h)} 不在允许的站点里">需处理</span>`)), " warn")
       + grp("模组", P.mods.length, P.mods.map(f => row(f)))
-      + grp("仅客户端，不装", P.client.length, P.client.map(f => row(f, "", true)));
-  const lsrc = `<div class="lsrc" data-src="lsrc" title="待处理的文件在这个文件夹里有同名的，就原样用它（不校验、不要求线上匹配）；还是没装上的，导入后在任务页或这台服务器的详情页里逐个处理">${KIT.icon("folder")}`
-    + (SRC.lsrc ? `<span class="v">${esc(SRC.lsrc)}</span><button class="ib" data-src="lsrcx" title="清空"><i data-ic="x"></i></button>` : `<span class="ph">本地来源文件夹（选填）</span>`) + `</div>`;
+      + grp("仅客户端（不安装）", P.client.length, P.client.map(f => row(f, "", true)));
+  const lsrc = `<div class="lsrc" data-src="lsrc" title="若该文件夹中存在与需处理项同名的文件，将直接使用本地文件替代（不做校验或线上匹配）；其余未自动安装的文件可在导入后于任务页或服务器详情页逐项处理">${KIT.icon("folder")}`
+    + (SRC.lsrc ? `<span class="v">${esc(SRC.lsrc)}</span><button class="ib" data-src="lsrcx" title="清除"><i data-ic="x"></i></button>` : `<span class="ph">本地来源文件夹（选填）</span>`) + `</div>`;
   const strip = cf
-    ? `<div class="bstrip"><i data-ic="warn"></i><span class="msg" title="解析 CurseForge 整合包要配自己的 API Key（免费申请，在「设置 → 下载与网络」里绑定）。不配也能导入，这些文件要自己补：它们会列进「没装上的文件」，也写进服务器文件夹里的「未解析模组清单.txt」。Modrinth 整合包不受这个限制">未配置 CurseForge API Key，${P.cfRefs} 个文件不能自动下载<a data-src="cfkey">去设置</a></span>${lsrc}</div>`
-    : P.pending.length ? `<div class="bstrip"><i data-ic="warn"></i><span class="msg" title="下载地址不在允许的站点里、缺校验值或者不是 https。不会让整个导入失败：导入后在任务页或这台服务器的详情页里逐个处理——跳过、用本地文件，或看过风险说明后下载">需处理的文件不能自动下载</span>${lsrc}</div>` : "";
-  return covHTML(P.core, esc(P.name), sub, "换一个整合包")
-    + `<div class="scols c1"><div class="col"><h3>包里的文件</h3><div class="lwrap"><div class="list flist">${list}</div><i class="thumb"></i></div></div></div>` + strip;
+    ? `<div class="bstrip"><i data-ic="warn"></i><span class="msg" title="解析 CurseForge 整合包需配置个人 API Key（可免费申请，在「设置 → 下载与网络」中配置）。未配置仍可导入，相关文件需手动补全：导入后将列于「没装上的文件」，同时写入服务器文件夹内的「未解析模组清单.txt」。Modrinth 整合包无此限制">未配置 CurseForge API Key，${P.cfRefs} 个文件无法自动下载<a data-src="cfkey">去设置</a></span>${lsrc}</div>`
+    : P.pending.length ? `<div class="bstrip"><i data-ic="warn"></i><span class="msg" title="下载地址不在允许站点列表内、缺少校验值或未使用 HTTPS，不会导致整体导入失败。导入完成后可在任务页或服务器详情页逐项处理：跳过、使用本地文件，或阅读风险提示后下载">需处理的文件无法自动下载</span>${lsrc}</div>` : "";
+  return covHTML(P.core, esc(P.name), sub, "重新选择整合包")
+    + `<div class="scols c1"><div class="col"><h3>整合包文件</h3><div class="lwrap"><div class="list flist">${list}</div><i class="thumb"></i></div></div></div>` + strip;
 }
 
 // 地图：封面条（来源）+ 左栏候选（挑一张）+ 右栏这张地图里有什么，最下面要留意的
@@ -2390,27 +2395,27 @@ function mapDone() {
   const name = fromPath ? esc(SRC.path.split("\\").pop()) : m(S.file);
   const sub = fromPath ? `文件夹 · ${m(SRC.path)}` : `压缩包 · ${fmtB(S.bytes)}`;
   const rows = S.cands.map((c, i) => `<div class="row cand${i === SRC.cand ? " on" : ""}${c.block ? " off" : ""}" data-cand="${i}"${c.block ? ` title="${esc(c.blockFull)}"` : ""}>`
-    + `<span class="ci"><i data-ic="globe"></i></span><div class="m"><div class="n">${esc(c.name)}</div><div class="s">${m(c.root)} · ${c.size}</div></div>`
-    + (c.block ? `<span class="tag bad">不能导入</span>` : "") + `</div>`).join("");
-  return covHTML("vanilla", name, sub, "换一个来源")
+    + `<span class="ci"><i data-ic="map"></i></span><div class="m"><div class="n">${esc(c.name)}</div><div class="s">${m(c.root)} · ${c.size}</div></div>`
+    + (c.block ? `<span class="tag bad">无法导入</span>` : "") + `</div>`).join("");
+  return covHTML("vanilla", name, sub, "重新选择来源")
     + `<div class="scols c2"><div class="col"><h3>地图<span class="cnt" style="font-family:var(--mono);color:var(--accent-text)">· ${S.cands.length}</span></h3>`
     + `<div class="lwrap"><div class="list" id="clist"><i class="hl"></i>${rows}</div><i class="thumb"></i></div></div>`
-    + `<div class="col" id="mcol"><h3>地图里有什么</h3><div class="mdet" id="mdet" style="display:flex;flex-direction:column;flex:1;min-height:0">${mapDetInner()}</div></div></div>`;
+    + `<div class="col" id="mcol"><h3>地图详情</h3><div class="mdet" id="mdet" style="display:flex;flex-direction:column;flex:1;min-height:0">${mapDetInner()}</div></div></div>`;
 }
 // 右栏：一张固定的小表（每张地图都是这几行，没有的写「没有」），换地图时只换变了的那几格（逐项换）
 function mapDetInner(c = MAPC()) {
   const dims = c.dims.map(([n, r]) => `<span class="dim" title="${r} 个区域文件">${n}</span>`).join(" · ")
-    + (c.missing.length ? `<span class="f" title="地图没有提供${c.missing.join("、")}，不是导丢了：服务器第一次用到时会生成全新的">${c.missing.join("、")}会新生成</span>` : "");
+    + (c.missing.length ? `<span class="f" title="该地图未包含${c.missing.join("、")}，并非导入遗漏，服务器第一次用到时会新生成">${c.missing.join("、")}会新生成</span>` : "");
   const dd = (k, v, cls = "") => `<dd data-k="${k}"${cls ? ` class="${cls}"` : ""}>${v}</dd>`;
   const notes = c.notes.map(([t, s, full]) => `<div class="nt ${t}" title="${esc(full)}"><i data-ic="${t === "warn" ? "warn" : "info"}"></i><span>${s}</span></div>`).join("");
   return `<dl class="facts"><dt>保存于</dt>${dd("ver", m(c.ver))}<dt>布局</dt>${dd("lay", `<span title="${esc(c.layoutFull)}">${c.layout}</span>`)}`
-    + `<dt>维度</dt>${dd("dim", dims)}<dt>数据包</dt>${dd("dp", c.dps.length ? c.dps.map(m).join("、") : `<span class="f">没有</span>`)}`
-    + `<dt>资源包</dt>${dd("rp", c.rp ? `${m("resources.zip")}<span class="f">不会自动发给玩家</span>` : `<span class="f">没有</span>`)}`
+    + `<dt>维度</dt>${dd("dim", dims)}<dt>数据包</dt>${dd("dp", c.dps.length ? c.dps.map(m).join("、") : `<span class="f">无</span>`)}`
+    + `<dt>资源包</dt>${dd("rp", c.rp ? `${m("resources.zip")}<span class="f">不会自动下发给玩家</span>` : `<span class="f">无</span>`)}`
     + `<dt>核心线索</dt>${dd("clue", (c.clues || []).length ? `${c.clues.map(m).join("、")}<span class="f">预选 ${CORE[c.core][0]}</span>`
-      : `<span title="地图里没有读到服务端、模组的线索，无法确认它是不是纯原版">没有，先按原版</span>`)}`
-    + `<dt>玩家进度</dt>${dd("pl", c.players ? `${c.players} 个玩家的文件` : `<span class="f">没有</span>`)}`
-    + `<dt>说明书</dt>${dd("rd", c.readme ? `${m(c.readme)}<button class="ib" data-src="readme" title="查看说明书（只当纯文字显示，里面的网址不要随手打开）"><i data-ic="doc"></i></button>` : `<span class="f">没有</span>`)}`
-    + `<dt>不会导入</dt>${dd("hint", c.hints.length ? `<span title="来源里和地图放在一起的文件，不会导入">${c.hints.map(m).join("、")}</span>` : `<span class="f">没有</span>`)}</dl>`
+      : `<span title="未在地图中检测到服务端或模组特征，无法确认是否为纯净原版">无（默认按原版）</span>`)}`
+    + `<dt>玩家进度</dt>${dd("pl", c.players ? `${c.players} 位玩家数据` : `<span class="f">无</span>`)}`
+    + `<dt>说明书</dt>${dd("rd", c.readme ? `${m(c.readme)}<button class="ib" data-src="readme" title="查看说明书（仅以纯文本显示，请勿随意访问其中链接）"><i data-ic="doc"></i></button>` : `<span class="f">无</span>`)}`
+    + `<dt>不会导入</dt>${dd("hint", c.hints.length ? `<span title="位于地图同文件夹的附带文件，导入时将忽略">${c.hints.map(m).join("、")}</span>` : `<span class="f">无</span>`)}</dl>`
     + `<div class="notes" data-k="notes">${notes}</div>`;
 }
 
@@ -2418,16 +2423,19 @@ function mapDetInner(c = MAPC()) {
 function transferDone() {
   const T = TP;
   const sub = `${CORE[T.core][0]} ${m(T.build)} · Minecraft ${m(T.mc)} · ${m(T.file)} · ${fmtB(T.bytes)}`;
-  const facts = `<dl class="facts"><dt>包用途</dt><dd title="原服主导出时选的。两种包里的东西完全一样，只是这句说明不同">${T.mode === "distributable" ? "发给朋友，照着开一台" : "服主交接（整台交给你）"}</dd>`
-    + `<dt>世界</dt><dd>${m(T.world)}</dd>`
-    + `<dt>核心文件</dt><dd title="${T.full ? "完整模式：包里有核心和依赖库，导入时不再下载" : "瘦身包：包里没有服务端核心，导入时在这台电脑上重新下载、重新安装"}">${T.full ? "包里有" : "导入时下载"}</dd>`
+  const facts = `<dl class="facts"><dt>包用途</dt><dd title="由导出方在导出时选择；两种交接包的内容完全一致，仅用途说明不同">${T.mode === "distributable" ? "好友分享（新建同款服务器）" : "服主交接（整台移交）"}</dd>`
+    + `<dt>存档</dt><dd>${m(T.world)}</dd>`
+    + `<dt>核心文件</dt><dd title="${T.full ? "完整模式：包内已含服务端核心与依赖库，导入时无需下载" : "瘦身包：包内不含服务端核心，导入时将在本机重新下载安装"}">${T.full ? "已包含" : "导入时下载"}</dd>`
     + `<dt>导出自</dt><dd>MineDeck ${m(T.from)}<span class="f">${m(T.at)}</span></dd>`
-    + `<dt>不带过来</dt><dd title="原来的 JVM 参数、定时任务、崩溃自动重启、游戏内 AI、AI 伙伴和音乐共享不会带过来，原来开着的 RCON 会先关掉。导入日志里会列出原来的 JVM 参数">JVM 参数、定时任务等</dd></dl>`;
+    + `<dt>不导入</dt><dd title="原服务器的 JVM 参数、定时任务、崩溃自动重启、游戏内 AI、AI 伙伴与音乐共享不会随包导入；原已开启的 RCON 将自动关闭。原 JVM 参数将在导入日志中列出">JVM 参数、定时任务等</dd></dl>`;
+  const isHybrid = T.core === "mohist" || T.core === "banner", isPlugin = PLUGIN_CORES.includes(T.core);
+  const extTitle = isHybrid ? "插件和模组" : isPlugin ? "插件" : "模组";
+  const ext = isHybrid ? "插件和模组" : isPlugin ? "插件" : "模组";
   const mods = T.mods.map(([n, v]) => `<div class="frow"><span class="mono" style="font-family:var(--font);font-size:13px">${esc(n)}</span><span class="mono" style="flex:none;color:var(--faint)">${esc(v)}</span></div>`).join("");
-  return covHTML(T.core, esc(T.name), sub, "换一个交接包")
+  return covHTML(T.core, esc(T.name), sub, "重新选择交接包")
     + `<div class="scols c2"><div class="col"><h3>交接包</h3>${facts}</div>`
-    + `<div class="col"><h3>模组<span class="cnt" style="font-family:var(--mono);color:var(--accent-text)">· ${T.mods.length}</span></h3><div class="lwrap"><div class="list">${mods}</div><i class="thumb"></i></div></div></div>`
-    + `<div class="bstrip one"><i data-ic="warn"></i><span class="msg" title="包里的模组、插件${T.full ? "和服务端核心" : ""}是对方电脑上的程序，启动服务器时会在你的电脑上运行。只导入信得过的人给的包">包里的模组和插件会在这台电脑上运行，只导入信得过的人给的包</span></div>`;
+    + `<div class="col"><h3>${extTitle}<span class="cnt" style="font-family:var(--mono);color:var(--accent-text)">· ${T.mods.length}</span></h3><div class="lwrap"><div class="list">${mods}</div><i class="thumb"></i></div></div></div>`
+    + `<div class="bstrip one"><i data-ic="warn"></i><span class="msg" title="包内${ext}${T.full ? "及服务端核心" : ""}来自导出方设备，启动服务器时将在本机运行，请仅导入可信来源提供的交接包">包内${ext}将在本机运行，请仅导入来自可信来源的交接包</span></div>`;
 }
 
 // 接管：封面条（建议的名称、文件夹）+ 左栏启动文件（挑一个，核心跟着换）+ 右栏识别结果。认不出核心时右栏顶上是核心片和版本框
@@ -2436,19 +2444,19 @@ function adoptDone() {
   // 一行两行字：文件名，下面是认出来的核心、版本、构建（同程序 targetLabel；认不出就照实说）
   const rows = A.targets.map((x, i) => `<div class="row cand tgt${i === SRC.tgt ? " on" : ""}" data-tgt="${i}"><span class="ci"><i data-ic="doc"></i></span>`
     + `<div class="m"><div class="n">${esc(x.file)}</div>`
-    + (x.core ? `<div class="s">${CORE[x.core][0]} ${m(x.mc)}${x.build ? ` · 构建 ${m(x.build)}` : ""}</div>` : `<div class="s warn">没认出是哪种服务端</div>`) + `</div></div>`).join("");
+    + (x.core ? `<div class="s">${CORE[x.core][0]} ${m(x.mc)}${x.build ? ` · 构建 ${m(x.build)}` : ""}</div>` : `<div class="s warn">未识别到服务端类型</div>`) + `</div></div>`).join("");
   // 核心和版本一直能改（同程序的「服务端类型」下拉和「Minecraft 版本」框）：认出来的预先选好、填好；换启动文件时跟着换；认不出的空着，没选没填不让往下走
   const pick = `<div class="pickc"><span class="lb">核心</span><div class="chips" id="achips"><i class="chl"></i>`
     + ALL_CORES.map(k => `<span class="chip${SRC.acore === k ? " on" : ""}" data-acore="${k}">${CORE[k][0]}</span>`).join("") + `</div>`
-    + `<span class="lb" id="amclb">${SRC.acore === "velocity" || SRC.acore === "waterfall" ? "代理端版本" : "版本"}</span><input class="inp" id="amc" maxlength="40" spellcheck="false" placeholder="如 1.20.1" value="${esc(SRC.amc)}" aria-label="版本"></div>`;
-  const wl = A.wl === true ? ["开（沿用原来的）", "沿用原来的设置：只有名单里的玩家能进。接管后可以在这台服务器的「玩家」里加名字、或者关掉"]
-    : A.wl === false ? ["关（沿用原来的）", "沿用原来的设置：任何知道地址的人都能进。只想让熟人进，接管后到「玩家」里打开它"]
-    : ["没写，按服务端默认", "原来的 server.properties 里没写这一项，服务端按自己的默认值：26.3 起是开（名单是空的话谁都进不来），更早的版本是关。接管后在「玩家」里能直接开关"];
-  const facts = `<dl class="facts"><dt>世界</dt><dd>${A.worlds.length ? A.worlds.map(m).join("、") : `<span class="nt warn" title="这个文件夹里没看到世界（world），启动后会生成一个新世界。世界放在别处的话，先确认选对了文件夹">没有，启动后生成新的</span>`}</dd>`
-    + `<dt>EULA</dt><dd>${A.eula ? "已同意" : `<span class="f">没同意过</span>`}</dd><dt>白名单</dt><dd title="${esc(wl[1])}">${wl[0]}</dd></dl>`;
+    + `<span class="lb" id="amclb">${SRC.acore === "velocity" || SRC.acore === "waterfall" ? "版本" : "游戏版本"}</span><input class="inp" id="amc" maxlength="40" spellcheck="false" placeholder="如 1.20.1" value="${esc(SRC.amc)}" aria-label="版本"></div>`;
+  const wl = A.wl === true ? ["开启（沿用原配置）", "沿用原配置：仅允许名单内的玩家加入，接管后可在「玩家」页管理或关闭"]
+    : A.wl === false ? ["关闭（沿用原配置）", "沿用原配置：知晓地址的任意玩家均可加入，如需限制可在接管后于「玩家」页开启"]
+    : ["未配置（按服务端默认）", "原 server.properties 未配置此项，将按服务端默认值生效：26.3 及以上默认开启（空名单将拦截所有玩家），更早版本默认关闭；接管后可在「玩家」页调整"];
+  const facts = `<dl class="facts"><dt>存档</dt><dd>${A.worlds.length ? A.worlds.map(m).join("、") : `<span class="nt warn" title="该文件夹中未检测到存档（world），首次启动将自动生成新存档。若存档位于其他路径，请确认已选择正确文件夹">无，启动后新建</span>`}</dd>`
+    + `<dt>EULA</dt><dd>${A.eula ? "已同意" : `<span class="f">未同意</span>`}</dd><dt>白名单</dt><dd title="${esc(wl[1])}">${wl[0]}</dd></dl>`;
   const notes = A.notes.map(([k, s, full]) => `<div class="nt ${k}" title="${esc(full)}"><i data-ic="${k === "warn" ? "warn" : "info"}"></i><span>${s}</span></div>`).join("");
   const k = SRC.acore || "unknown";
-  return covHTML(k, esc(A.name), `<span title="文件留在原地。接管前先停掉原来的服务器，不然启动时端口会冲突">${m(A.dir)}</span>`, "换一个文件夹")
+  return covHTML(k, esc(A.name), `<span title="文件保留在原路径。接管前请先停止原服务器，避免启动时发生端口冲突">${m(A.dir)}</span>`, "重新选择文件夹")
     + `<div class="scols c2a"><div class="col"><h3>启动文件<span class="cnt" style="font-family:var(--mono);color:var(--accent-text)">· ${A.targets.length}</span></h3>`
     + `<div class="lwrap"><div class="list" id="tlist"><i class="hl"></i>${rows}</div><i class="thumb"></i></div></div>`
     + `<div class="col"><h3>识别结果</h3>${pick}${facts}<div class="notes">${notes}</div></div></div>`;
@@ -2546,10 +2554,10 @@ const _verTag = verTag;
 verTag = (v, vs, k) => FLOW === "map" && v === MAPC().ver ? `<span class="tag" title="地图保存于 ${v}">地图</span>` : _verTag(v, vs, k);
 verRows = (k, sel) => { const vs = versOf(k), mv = FLOW === "map" ? MAPC().ver : "";
   return vs.map(v => { const old = mv && cmpVer(v, mv) < 0;
-    return `<div class="row vrow${v === sel ? " on" : ""}${v.includes("snapshot") ? " snap" : ""}${old ? " dis" : ""}" data-ver="${v}"${old ? ` title="比地图保存的 ${mv} 旧，读不了这张地图"` : ""}>${v}<span class="sp"></span>${verTag(v, vs, k)}</div>`; }).join(""); };
+    return `<div class="row vrow${v === sel ? " on" : ""}${v.includes("snapshot") ? " snap" : ""}${old ? " dis" : ""}" data-ver="${v}"${old ? ` title="低于地图保存版本 ${mv}，无法加载该地图"` : ""}>${v}<span class="sp"></span>${verTag(v, vs, k)}</div>`; }).join(""); };
 // 地图那条路哪些核心能用：代理端没有世界；版本列表里最新的都比地图旧的，读不了这张地图（程序在最后核对时拦，这里直接灰掉）。一类里一个都用不了，那张玩法卡也灰掉
 const coreOK = k => FLOW !== "map" || (k !== "velocity" && k !== "waterfall" && (!MAPC().ver || versOf(k).some(v => cmpVer(v, MAPC().ver) >= 0)));
-const coreWhyNot = k => k === "velocity" || k === "waterfall" ? "代理端没有世界，不能用地图开服" : `${CORE[k][0]} 最新只到 ${versOf(k)[0]}，读不了保存于 ${MAPC().ver} 的地图`;
+const coreWhyNot = k => k === "velocity" || k === "waterfall" ? "代理端不运行游戏存档，无法使用地图创建服务器" : `${CORE[k][0]} 最高仅支持至 ${versOf(k)[0]}，无法加载保存于 ${MAPC().ver} 的地图`;
 const playOK = i => PLAYS[i].cores.some(coreOK);
 const firstCore = i => { const p = PLAYS[i]; return [p.rec, ...p.cores].filter(Boolean).find(coreOK) || p.rec || p.cores[0]; };
 coreRows = pl => { const p = PLAYS[pl]; if (!hasCores(pl)) return "";
@@ -2560,7 +2568,7 @@ coreRows = pl => { const p = PLAYS[pl]; if (!hasCores(pl)) return "";
     return `<div class="row${k === core ? " on" : ""}${dis ? " dis" : ""}" data-core="${k}"${dis ? ` title="${esc(coreWhyNot(k))}"` : ""}>${MDPixel16.svg(k, 32)}${CORE[k][0]}<span class="sp"></span>${tag}</div>`; }).join(""); };
 // 照 wizard.html 的 step1，最下面那行换成「核对地图」
 function step1() {
-  const plays = `<div class="plays">${PLAYS.map((x, i) => `<div class="play${i === play ? " on" : ""}${playOK(i) ? "" : " dis"}" data-play="${i}" style="--c:${MDPixel16.CORE_COLORS[x.ico]}"${playOK(i) ? "" : ` title="这一类的核心都读不了这张地图（保存于 ${MAPC().ver}）"`}>${cover(x.ico, 48)}<div class="t">${x.t}</div><div class="s">${x.s}</div></div>`).join("")}<i class="pframe"></i></div>`;
+  const plays = `<div class="plays">${PLAYS.map((x, i) => `<div class="play${i === play ? " on" : ""}${playOK(i) ? "" : " dis"}" data-play="${i}" style="--c:${MDPixel16.CORE_COLORS[x.ico]}"${playOK(i) ? "" : ` title="该分类下的核心均不支持保存于 ${MAPC().ver} 的地图"`}>${cover(x.ico, 48)}<div class="t">${x.t}</div><div class="s">${x.s}</div></div>`).join("")}<i class="pframe"></i></div>`;
   const intro = `<div class="col intro" id="intro">${introInner()}</div>`;
   const cores = `<div class="col" id="corecol"><h3>核心</h3><div class="lwrap"><div class="list"><i class="hl"></i>${coreRows(play)}</div><i class="thumb"></i></div></div>`;
   const versions = `<div class="col" id="vercol">${versionsInner()}</div>`;
@@ -2570,8 +2578,8 @@ function step1() {
 function mapIssues() {
   if (FLOW !== "map") return [];
   const mv = MAPC().ver, out = [];
-  if (ver.includes("snapshot")) out.push({ s: `${ver} 是快照，第一次启动会把地图升级成快照的格式`, full: `服务器用的是快照（测试版）${ver}，快照的世界格式随时会变。第一次启动时游戏会把导入的这份副本升级成快照的格式，之后不能再给正式版用；原来的文件不受影响` });
-  else if (cmpVer(ver, mv) > 0) out.push({ s: `地图会升级到 ${ver}，之后不能再用旧版本打开`, full: `这张地图最后保存于 ${mv}，比服务器的 ${ver} 旧。第一次启动时游戏会把导入的这份副本升级成新格式，升级以后不能再给旧版本用；原来的文件不受影响。老地图的机关、命令、数据包在新版本里不一定还好用。想原汁原味地玩，请选 ${mv}` });
+  if (ver.includes("snapshot")) out.push({ s: `${ver} 为快照版本，首次启动将升级地图存档格式`, full: `当前所选为快照（测试版）${ver}，快照存档格式可能随时变更。首次启动时将升级导入副本的存档格式，升级后无法再用于正式版；原始文件不受影响` });
+  else if (cmpVer(ver, mv) > 0) out.push({ s: `地图存档将升级至 ${ver}，升级后无法以旧版本打开`, full: `该地图保存于 ${mv}，低于所选版本 ${ver}。首次启动时将升级导入副本的存档格式，升级后无法以旧版本打开；原始文件不受影响。旧地图的机关、命令与数据包在新版本中可能出现兼容问题，如需完整保留原版体验，请选择 ${mv}` });
   return out;
 }
 function mapChkHTML() {
@@ -2629,51 +2637,55 @@ function checkMap() {
 // ---------------- 第三步：照抄向导第三步，值换成识别出来的（见开头注释）----------------
 // 照 wizard.html 的 memCtl：只改悬停里推荐的那句（整合包照程序推荐 6 GB；交接包、接管说原来分了多少）
 function memCtl(proxy) {
-  const rec = FLOW === "modpack" ? "推荐分配 6 GB 以上" : FLOW === "transfer" ? `${gbTxt(TP.xmx)} 是原来那台的分配，可沿用或调整`
-    : FLOW === "adopt" ? `原来的启动脚本里分配的是 ${gbTxt(AD().xmx)}，已按它填好` : proxy ? "推荐 1 GB；代理端只做转发，占用很低" : "推荐：模组服 4 GB 以上；无模组的小型服务器 2~4 GB";
-  const tip = `本机 ${gbTxt(RAM.total)}${BLOCKS ? "" : ` · 1 格 = ${gbTxt(CELL)}`} · 最多能分 ${gbTxt(MEM_CAP)}（当前可用的）\n` + rec;
+  const rec = FLOW === "modpack" ? "建议分配 6 GB 及以上"
+    : FLOW === "transfer" ? `原服务器分配为 ${gbTxt(TP.xmx)}，可沿用或调整`
+    : FLOW === "adopt" ? `已按原启动脚本填充为 ${gbTxt(AD().xmx)}，可按需调整`
+    : proxy ? "建议 1 GB；代理端仅负责转发，内存占用低"
+    : ["neoforge", "fabric", "forge", "mohist", "banner"].includes(core) ? "建议 4 GB 及以上"
+    : "小型服务器建议 2～4 GB";
+  const tip = `本机 ${gbTxt(RAM.total)}${BLOCKS ? "" : ` · 1 格 = ${gbTxt(CELL)}`} · 最多可分配 ${gbTxt(MEM_CAP)}（当前可用内存）\n` + rec;
   const used = RAM.total - RAM.avail;
   const body = BLOCKS ? `<i class="bu" style="--w:${used}"></i><i class="ba" style="--w:${RAM.avail}"><b></b></i>` : "<i></i>".repeat(CELLS);
   return `<div class="fld g-mem"><span class="lb">内存分配<span class="mleg" id="smleg"></span></span>
       <div class="memx"><div class="mbar" id="smbar" tabindex="0" role="slider" aria-label="内存分配" aria-valuemin="512" aria-valuemax="${MEM_CAP}" title="${esc(tip)}">
           <div class="cells${BLOCKS ? " blk" : ""}">${body}<span class="knob"></span></div></div>
-        <div class="step" id="smemf"><button class="sb" data-mstep="-1" title="少 0.5 GB"><i data-ic="minus"></i></button><span class="sv" id="smemv"></span><button class="sb" data-mstep="1" title="多 0.5 GB"><i data-ic="plus"></i></button></div></div>
-      <div class="mpre">${(proxy ? PRESETS_PROXY : PRESETS).map(v => `<button class="mp" data-mp="${v}"${v > MEM_CAP ? " disabled" : ""}>${gs(v)}</button>`).join("")}${memLow(proxy)}</div></div>`;
+        <div class="step" id="smemf"><button class="sb" data-mstep="-1" title="减少 0.5 GB"><i data-ic="minus"></i></button><span class="sv" id="smemv"></span><button class="sb" data-mstep="1" title="增加 0.5 GB"><i data-ic="plus"></i></button></div></div>
+      <div class="mpre">${(proxy ? PRESETS_PROXY : PRESETS).map(v => `<button class="mp" data-mp="${v}"${v > MEM_CAP ? " disabled" : ""}>${gbTxt(v)}</button>`).join("")}${memLow(proxy)}</div></div>`;
 }
 const defMem = proxy => FLOW === "modpack" ? 6144 : FLOW === "transfer" ? TP.xmx : FLOW === "adopt" ? AD().xmx : proxy ? 1024 : 4096;
 function memLow(proxy) {
   const want = defMem(proxy), was = FLOW === "transfer" || FLOW === "adopt";
   if (MEM_CAP >= want) return "";
-  const tip = `本机现在只剩 ${gbTxt(RAM.avail)} 可用，最多能分 ${gbTxt(MEM_CAP)}，少于${was ? "原来分配" : "推荐"}的 ${gbTxt(want)}。\n关掉别的程序或服务器，再打开向导就能分得更多。`;
+  const tip = `当前可用内存 ${gbTxt(RAM.avail)}，可分配上限 ${gbTxt(MEM_CAP)}，低于${was ? "原分配" : "建议"}的 ${gbTxt(want)}。\n关闭其他程序或服务器后重新打开本页，可分配更多内存。`;
   return `<span class="mlow" title="${esc(tip)}"><i data-ic="warn"></i>可用内存不足</span>`;
 }
 // 端口：接管时改得和原来不一样，勾换成黄色的笔（会改 server.properties，改变结果，要看得见）
-portState = () => !portOk() ? `<span class="st bad" title="端口需为 1 ~ 65535 的整数">1~65535</span>`
-  : FLOW === "adopt" && +SET.port !== AD().port ? `<span class="st chg" title="接管时会把 server.properties 里的端口从 ${AD().port} 改成 ${esc(SET.port)}（别的设置不动），朋友要用新端口连"><i data-ic="pencil"></i></span>`
+portState = () => !portOk() ? `<span class="st bad" title="端口需为 1～65535 的整数">1～65535</span>`
+  : FLOW === "adopt" && +SET.port !== AD().port ? `<span class="st chg" title="接管时将把 server.properties 中的端口由 ${AD().port} 修改为 ${esc(SET.port)}（其余配置保持不变），联机时需使用新端口"><i data-ic="pencil"></i></span>`
   : `<span class="st" title="端口可用"><i data-ic="check"></i></span>`;
 function step3i() {
   if (FLOW === "map") return step3(); // 地图那条路就是向导，第三步一点不改（值在 applyMapPick 里填好了）
   const mp = FLOW === "modpack", ad = FLOW === "adopt";
   if (!SET.memTouched) SET.mem = Math.min(defMem(false), MEM_CAP); // 右上角换了本机内存：回到默认
   // 头像：整合包照向导（点了换图标，向导本来就要后端补这一项）；交接包、接管沿用包里、文件夹里自己的 server-icon.png，接口不收图标，不能点
-  const ava = mp ? avatarBtn() : `<div class="avbtn" style="cursor:default" title="沿用${FLOW === "transfer" ? "包里" : "文件夹里"}的服务器图标（server-icon.png），没有就用核心头像">${avatarTile()}</div>`;
+  const ava = mp ? avatarBtn() : `<div class="avbtn" style="cursor:default" title="沿用${FLOW === "transfer" ? "交接包" : "原文件夹"}内的服务器图标（server-icon.png），未提供时使用核心头像">${avatarTile()}</div>`;
   const id = `<div class="col idcol" style="--c:${MDPixel16.CORE_COLORS[core] || "#7a8aa0"}"><div class="idrow">${ava}<div class="idtext">
-      <input class="ie title" id="sname" maxlength="40" value="${esc(SET.name)}" aria-label="名称" placeholder="服务器名称">
-      ${mp ? `<input class="ie sub" id="smotd" maxlength="59" value="${esc(SET.motd)}" aria-label="服务器介绍" placeholder="服务器介绍" title="服务器介绍（MOTD），显示在多人游戏的服务器列表里">` : ""}
+      <input class="ie title" id="sname" maxlength="40" value="${esc(SET.name)}" aria-label="服务器名称" placeholder="服务器名称">
+      ${mp ? `<input class="ie sub" id="smotd" maxlength="59" value="${esc(SET.motd)}" aria-label="服务器简介" placeholder="服务器简介" title="服务器简介（MOTD），显示在多人游戏服务器列表中">` : ""}
     </div><span class="idhint" data-act="editname">${mp ? "单击以修改服务器名称/简介" : "单击以修改服务器名称"}</span></div></div>`;
-  const path = ad ? `<div class="pathf ro" id="apath" title="服务器就在这个文件夹里，接管不搬文件。MineDeck 只在这里写自己的 instance.json 和启动脚本 run.bat（原来的 run.bat 先另存为 run.before-minedeck.bat），别的文件都不动">`
+  const path = ad ? `<div class="pathf ro" id="apath" title="文件保留在原路径，接管不会移动文件。MineDeck 仅在此写入 instance.json 与启动脚本 run.bat（原 run.bat 会备份为 run.before-minedeck.bat；Forge / NeoForge 还会更新并备份 user_jvm_args.txt），其余文件保持不变">`
       + `<i data-ic="folder"></i><b><span class="hd">D:</span><span class="tl">\\MyServer</span></b></div>`
     : `<div class="pathf" id="spath" data-act="root" title="${esc(pathTip())}">${pathNote()}</div>`;
   const left = `<div class="col"><h3>服务器配置</h3><div class="lgrid">${memCtl(false)}
       <div class="fld g-path"><span class="lb">存储路径</span>${path}</div>
-      <div class="fld g-port"${ad ? ` title="原来 server.properties 里写的是 ${AD().port}"` : ""}><span class="lb">端口配置</span><div class="iwrap${portOk() ? "" : " bad"}" id="pwrap">`
+      <div class="fld g-port"${ad ? ` title="原 server.properties 中的端口为 ${AD().port}"` : ""}><span class="lb">端口配置</span><div class="iwrap${portOk() ? "" : " bad"}" id="pwrap">`
       + `<input class="inp${portOk() ? "" : " bad"}" id="sport" inputmode="numeric" value="${esc(SET.port)}"><span id="pst">${portState()}</span></div></div>
     </div></div>`;
-  const off = "导入整合包时不写难度和游戏模式：服务器第一次启动按自己的默认（简单、生存），整合包自带 server.properties 的照它。建好以后在「设置」里改";
+  const off = "导入整合包时不写入难度与默认游戏模式：首次启动将按服务端默认（简单、生存）或整合包自带的 server.properties 生效，创建后可在「设置」页修改";
   const right = mp ? `<div class="col"><h3>游戏规则</h3>
       <div class="fld off" title="${off}"><span class="lb">难度</span>${seg("diff", [["peaceful", "和平"], ["easy", "简单"], ["normal", "普通"], ["hard", "困难"]])}</div>
       <div class="fld off" title="${off}"><span class="lb">默认游戏模式</span>${seg("mode", [["survival", "生存"], ["creative", "创造"], ["adventure", "冒险"], ["spectator", "旁观"]])}</div>
-      <div class="fld g-fly" title="整合包建议开着：骑乘、模组的移动容易被误当成飞行踢出去"><span class="lb">允许飞行</span>${seg("flight", [["1", "开"], ["0", "关"]])}</div></div>`
+      <div class="fld g-fly" title="整合包建议开启，可避免骑乘或模组位移被服务端误判为飞行而断开连接"><span class="lb">允许飞行</span>${seg("flight", [["1", "开"], ["0", "关"]])}</div></div>`
     : javaCol();
   const needEula = mp || (FLOW === "transfer" && !TP.eula) || (ad && !AD().eula);
   const eula = needEula ? `<div class="eula" data-eula><div class="tg${SET.eula ? " on" : ""}" style="pointer-events:none"><span class="sw"></span></div>
@@ -2684,10 +2696,10 @@ function step3i() {
 // 这里照版本那一列画成列表，选中框滑过去；「本机已有 / 要下载」照接管页（/api/javas），本机有哪几个是假的（17、21）
 function javaCol() {
   const t = FLOW === "transfer", local = [17, 21];
-  const rows = [["0", t ? "跟原来一样" : "自动", t ? `Java ${TP.java}` : "按版本选"],
-    ...[8, 11, 16, 17, 21, 25].filter(x => !t || x !== TP.java).map(x => [String(x), `Java ${x}`, local.includes(x) ? "本机已有" : "要下载"])];
-  return `<div class="col jcol"><h3 title="${t ? "默认沿用原来那台的大版本" : "默认按 Minecraft 版本选"}，本机没有就下载；导入后也能在「设置 → 启动与内存」里换">Java</h3>`
-    + `<div class="lwrap jwrap"><div class="list" id="jlist"><i class="hl"></i>${rows.map(([v, n, tag]) => `<div class="row vrow jrow${SRC.java === v ? " on" : ""}" data-java="${v}"${tag === "要下载" ? ` title="本机没有，导入时下载，约 50 MB"` : ""}>${n}<span class="sp"></span><span class="tag">${tag}</span></div>`).join("")}</div><i class="thumb"></i></div></div>`;
+  const rows = [["0", t ? "跟原来一样" : "自动", t ? `Java ${TP.java}` : "按版本匹配"],
+    ...[8, 11, 16, 17, 21, 25].filter(x => !t || x !== TP.java).map(x => [String(x), `Java ${x}`, local.includes(x) ? "本机已有" : "需下载"])];
+  return `<div class="col jcol"><h3 title="${t ? "默认沿用原服务器的 Java 大版本" : "默认按 Minecraft 版本自动匹配"}，本机缺失时将自动下载；${t ? "导入" : "接管"}后可在「设置 → 启动与内存」中更换">Java</h3>`
+    + `<div class="lwrap jwrap"><div class="list" id="jlist"><i class="hl"></i>${rows.map(([v, n, tag]) => `<div class="row vrow jrow${SRC.java === v ? " on" : ""}" data-java="${v}"${tag === "需下载" ? ` title="本机未安装，${t ? "导入" : "接管"}时自动下载（约 50 MB）"` : ""}>${n}<span class="sp"></span><span class="tag">${tag}</span></div>`).join("")}</div><i class="thumb"></i></div></div>`;
 }
 
 // ---------------- 外壳：照 wizard.html 的 render、navLabel、goStep ----------------
@@ -2769,7 +2781,7 @@ function checkSrc() {
   shakeEl(dz);
   if (SRC.phase === "error") return false; // 出错时框里已经写着原因和该去哪
   dz?.classList.add("bad");
-  if (s) { s.classList.add("bad"); s.textContent = SRC.phase === "busy" ? (SRC.busy === "up" ? "还在上传，等一下" : "还在识别，等一下") : SRCF[FLOW].need; }
+  if (s) { s.classList.add("bad"); s.textContent = SRC.phase === "busy" ? (SRC.busy === "up" ? "正在上传，请稍候" : "正在识别，请稍候") : SRCF[FLOW].need; }
   return false;
 }
 document.getElementById("next").addEventListener("click", () => {
@@ -2827,7 +2839,7 @@ function srcAct(k, el) {
   if (k === "scan") {
     const i = document.getElementById("srcpath"), v = i.value.trim();
     if (!v) { const r = document.getElementById("prow"); r.classList.add("bad"); shakeEl(r); i.focus();
-      const s = document.getElementById("dzs"); if (s) { s.classList.add("bad"); s.textContent = "先选一个文件夹，或者把完整路径填进来"; } return; }
+      const s = document.getElementById("dzs"); if (s) { s.classList.add("bad"); s.textContent = "请先选择文件夹，或输入完整路径"; } return; }
     SRC.path = v; startSrc(true); return;
   }
   if (k === "lsrc") { SRC.lsrc = "D:\\MyServer\\mods"; repaintLsrc(); return; } // 草图里不真弹选文件夹的窗口
@@ -2843,7 +2855,7 @@ function repaintLsrc() {
 }
 function openReadme() {
   const col = document.getElementById("mcol"); if (!col || col.querySelector(".rdm")) return;
-  col.insertAdjacentHTML("beforeend", `<div class="rdm"><div class="rh"><span class="mono">${esc(MAPC().readme)}</span><span>地图作者写的，只当纯文字看</span><button class="ib" data-src="rdclose" title="收起"><i data-ic="x"></i></button></div>`
+  col.insertAdjacentHTML("beforeend", `<div class="rdm"><div class="rh"><span class="mono">${esc(MAPC().readme)}</span><span>地图作者附带说明，仅作纯文本展示</span><button class="ib" data-src="rdclose" title="关闭"><i data-ic="x"></i></button></div>`
     + `<div class="lwrap"><div class="list"><pre></pre></div><i class="thumb"></i></div></div>`);
   const r = col.querySelector(".rdm"); r.querySelector("pre").textContent = README; KIT.hydrate(r); scrollbar(r.querySelector(".lwrap"));
   r.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: "cubic-bezier(.2, .7, .2, 1)" });
@@ -2884,7 +2896,7 @@ function pickACore(k, dir = 1) {
   const ch = document.getElementById("achips"); ch.classList.remove("bad");
   placeChipHL(true);
   document.querySelector(`#achips [data-acore="${k}"]`)?.scrollIntoView({ inline: "nearest", block: "nearest", behavior: "smooth" });
-  const lb = document.getElementById("amclb"); if (lb) lb.textContent = k === "velocity" || k === "waterfall" ? "代理端版本" : "版本";
+  const lb = document.getElementById("amclb"); if (lb) lb.textContent = k === "velocity" || k === "waterfall" ? "版本" : "游戏版本";
   repaintCover(dir);
 }
 function pickJava(v) {

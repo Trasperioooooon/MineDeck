@@ -44,11 +44,11 @@
   };
   // 三份名单各自的字：栏名、＋ 和 × 的悬停（照 internal/ops/catalog/players.go 的动作名）、读屏名称（照程序提示的说法）、程序里的动作名
   const L = {
-    wl: { title: "白名单", add: "加入白名单", rm: "移出白名单", addAct: "whitelist-add", rmAct: "whitelist-remove", rmLabel: n => `把 ${n} 移出白名单` },
-    ops: { title: "管理员 OP", add: "设为管理员", rm: "取消管理员", addAct: "op", rmAct: "deop", rmLabel: n => `取消 ${n} 的管理员` },
+    wl: { title: "白名单", add: "加入白名单", rm: "移出白名单", addAct: "whitelist-add", rmAct: "whitelist-remove", rmLabel: n => `将 ${n} 移出白名单` },
+    ops: { title: "管理员 OP", add: "设为管理员", rm: "取消管理员", addAct: "op", rmAct: "deop", rmLabel: n => `取消 ${n} 的管理员权限` },
     ban: { title: "封禁名单", add: "封禁玩家", rm: "解除封禁", addAct: "ban", rmAct: "pardon", rmLabel: n => `解除 ${n} 的封禁` },
   };
-  const WL_TIP = "开着只有名单里的玩家能进（管理员不受限制）；关着时知道地址的人都能进";
+  const WL_TIP = "开启后仅白名单内的玩家可进入（管理员不受限制）；关闭后任何知道地址的玩家均可进入";
   const EASE_IN = "cubic-bezier(.4, 0, 1, 1)", EASE_OUT = "cubic-bezier(.2, .7, .2, 1)";
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   const same = (a, b) => a.toLowerCase() === b.toLowerCase(); // 名单按名字不分大小写比（同 players.go 的 EqualFold）
@@ -60,7 +60,7 @@
     const d = SAMPLE[ctx.kind] || SAMPLE.paper;
     P = { kind: ctx.kind, online: [...ctx.online].sort(), wl: [...d.wl], ops: [...d.ops], ban: [...d.ban], wlOn: d.wlOn, wlSet: d.wlSet }; // 在线按名字排，同 GetPlayers
   }
-  const wlTip = () => WL_TIP + (P.wlSet ? "" : "\nserver.properties 里还没写这一项，这是服务端的默认值");
+  const wlTip = () => WL_TIP + (P.wlSet ? "" : "\nserver.properties 尚未写入此项，当前显示服务端默认值");
   const running = () => C.st === "running";
 
   // ---- 画 ----
@@ -68,15 +68,15 @@
     const op = has(P.ops, n), run = running();
     return `<div class="pl-row" data-pl-name="${esc(n)}"><span class="pl-nm">${esc(n)}</span>`
       + `<button type="button" class="pl-ib pl-op${op ? " on" : ""}" title="${op ? "取消管理员" : "设为管理员"}" aria-pressed="${op}" aria-label="${esc(n)} 是管理员"><i data-ic="${op ? "crownOn" : "crown"}"></i></button>`
-      + `<button type="button" class="pl-ib pl-kick"${run ? "" : ' aria-disabled="true"'} title="${run ? "踢出玩家" : "踢出玩家需要服务器运行中"}" aria-label="踢出 ${esc(n)}"><i data-ic="kick"></i></button></div>`;
+      + `<button type="button" class="pl-ib pl-kick"${run ? "" : ' aria-disabled="true"'} title="${run ? "踢出玩家" : "仅服务器运行中可踢出玩家"}" aria-label="踢出 ${esc(n)}"><i data-ic="kick"></i></button></div>`;
   }
   const listRow = (k, n) => `<div class="pl-row" data-pl-name="${esc(n)}"><span class="pl-nm">${esc(n)}</span>`
     + `<button type="button" class="pl-ib pl-x" data-pl-rm="${k}" title="${L[k].rm}" aria-label="${esc(L[k].rmLabel(n))}"><i data-ic="x"></i></button></div>`;
   const rowOf = (k, n) => k === "online" ? onlineRow(n) : listRow(k, n);
   const listBox = (k, none) => `<div class="pl-lw${P[k].length ? "" : " is-none"}" data-pl-lw="${k}"><div class="list">${P[k].map(n => rowOf(k, n)).join("")}</div>`
     + `<span class="thumb"></span><div class="pl-none">${none}</div></div>`;
-  const addBox = k => `<label class="pl-add" data-pl-add="${k}"><input maxlength="16" placeholder="${PH}" autocomplete="off" spellcheck="false" aria-label="添加玩家到${L[k].title}">`
-    + `<span class="pl-msg" title="1~16 位字母、数字或下划线">玩家名不合法</span><button type="button" class="pl-ib pl-plus" title="${L[k].add}"><i data-ic="plus"></i></button></label>`;
+  const addBox = k => `<label class="pl-add" data-pl-add="${k}"><input maxlength="16" placeholder="${PH}" autocomplete="off" spellcheck="false" aria-label="${L[k].add}（输入玩家名）">`
+    + `<span class="pl-msg" title="1～16 位字母、数字或下划线">玩家名不合法</span><button type="button" class="pl-ib pl-plus" title="${L[k].add}"><i data-ic="plus"></i></button></label>`;
   function html(ctx) {
     seed(ctx); C = ctx;
     const online = `<section class="pl-col" data-pl-col="online"><div class="pl-hd"><span class="pl-t">在线玩家</span>`

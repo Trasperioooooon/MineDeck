@@ -63,13 +63,13 @@
   const PORT = 27333; // 程序默认的监听端口（被占用时会随机化，草图不管）
   const IPS = ["192.168.1.5", "172.24.160.1", "26.18.4.77"]; // 照程序 lanIPRank 排：家用局域网段在前，172.16/12（多为 WSL / Hyper-V 虚拟网卡）在后，其他再后
   const FW = `netsh advfirewall firewall add rule name="MineDeck" dir=in action=allow protocol=TCP localport=${PORT}`;
-  const TIP_ON = "用手机、平板或别的电脑的浏览器打开 MineDeck 的管理页，需要访问密码；开启后重启程序生效。\n"
-    + "手机和这台电脑连在同一个 Wi-Fi 或路由器下，就能打开管理页。\n让朋友进游戏的地址在服务器页上（每台服务器的页头和卡片上的「连接地址」），不在这里。";
-  const TIP_QR = "用手机相机或浏览器扫码，输入访问密码即可管理；手机要和这台电脑在同一个局域网（同一 Wi-Fi 或路由器）。";
-  const TIP_IPS = "本机有多个网络地址：扫码打不开就换一个（家用路由器下通常是 192.168.x.x）。";
-  const TIP_RESTART = "手机远程管理已开启。重启 MineDeck 后生效。重启之后，这里会显示手机扫码用的地址。";
-  const TIP_FW = "还是打不开的话，用管理员身份在 CMD 里运行这条命令，放行防火墙。";
-  const NEED_PW = "先设置访问密码：填好后点「保存」，手机远程管理会一起开启";
+  const TIP_ON = "通过局域网内手机、平板或其他电脑的浏览器打开 MineDeck 管理页，需设置访问密码；开启后重启程序生效。\n"
+    + "设备需与本机处于同一局域网（同一 Wi-Fi 或路由器）。\n玩家加入用的联机地址在各服务器的页头和卡片上，不在此处。";
+  const TIP_QR = "使用手机相机或浏览器扫码，输入访问密码即可管理；手机需与本机处于同一局域网（同一 Wi-Fi 或路由器）。";
+  const TIP_IPS = "切换局域网地址：若当前二维码无法访问，可切换其他网卡地址（家用路由器常见为 192.168.x.x）";
+  const TIP_RESTART = "手机远程管理已开启，重启 MineDeck 后生效；重启后此处将显示扫码地址与二维码。";
+  const TIP_FW = "若局域网设备仍无法访问，请以管理员身份在 CMD 中运行此命令，放行防火墙端口。";
+  const NEED_PW = "请先设置访问密码；输入并点击保存后，将同时开启手机远程管理";
   let S = null;
   function seed(ctx) {
     if (S) return;
@@ -83,20 +83,20 @@
   }
   const url = () => `http://${S.ips[S.ip]}:${PORT}`;
   const state = () => !S.on ? "off" : !S.live ? "restart" : S.ips.length ? "live" : "noip";
-  const pwTip = () => S.set ? "已设置；要修改就输入新密码后保存" : "开启手机远程管理前必须先设置";
+  const pwTip = () => S.set ? "已设置访问密码；如需修改，输入新密码并保存即可" : "开启手机远程管理前必须先设置访问密码";
   const pwPh = () => S.set ? "已设置（输入新密码可修改）" : "设置访问密码（必填）";
   const tooLong = v => new TextEncoder().encode(v).length > 72; // 后端 bcrypt 的上限
 
   // ================= 画 =================
   function underHTML(st) {
     if (st === "live") return `<div class="sr-url"><span class="sr-u">${esc(url())}</span><button type="button" class="sr-ib" data-sr-act="copy" title="复制"><i data-ic="copy"></i></button>`
-      + (S.ips.length > 1 ? `<button type="button" class="sr-ib" data-sr-act="ips" title="${esc(TIP_IPS)}" aria-label="换一个地址" aria-haspopup="menu" aria-expanded="false"><i data-ic="chevronDown" class="sr-chev"></i></button>` : "")
+      + (S.ips.length > 1 ? `<button type="button" class="sr-ib" data-sr-act="ips" title="${esc(TIP_IPS)}" aria-label="切换局域网地址" aria-haspopup="menu" aria-expanded="false"><i data-ic="chevronDown" class="sr-chev"></i></button>` : "")
       + `</div>`;
     if (st === "restart") return `<div class="sr-note"><i data-ic="info"></i><span title="${esc(TIP_RESTART)}">重启 MineDeck 后生效</span></div>`;
     if (st === "noip") return `<div class="sr-note"><i data-ic="warn"></i><span>未检测到本机局域网 IP，请确认已连接网络。</span></div>`;
     return "";
   }
-  const qrLabel = st => st === "live" ? "访问地址二维码：" + url() : "二维码（还没生效）";
+  const qrLabel = st => st === "live" ? "访问地址二维码：" + url() : st === "restart" ? "访问地址二维码（重启后生效）" : st === "noip" ? "访问地址二维码（未检测到局域网 IP）" : "访问地址二维码（未开启）";
   function html(ctx) {
     seed(ctx); C = ctx;
     const st = state(), live = st === "live", qu = live ? url() : DUMMY;
@@ -208,7 +208,7 @@
   }
   function savePw() {
     const r = root(), box = $(".sr-in", r), v = $("input", box).value;
-    if (!v) { bad(box, S.set ? "输入新密码再保存" : "请先输入访问密码"); return; }
+    if (!v) { bad(box, S.set ? "请输入新密码" : "请先输入访问密码"); return; }
     if (tooLong(v)) { bad(box, "最长 72 字节", "密码不可用（最长 72 字节）"); return; }
     takePw(box);
     if (S.want) { S.on = true; S.want = false; } // 只有刚才被拦下的那一下才连开关一起开；不拿页面上开关的样子一起发

@@ -40,9 +40,9 @@
   const RT = "D:\\MineDeck\\runtimes"; // 程序：exe 所在文件夹下的 runtimes\java-N（app.RuntimesDir）；草图里程序放在 D:\MineDeck（同详情页的服务器文件夹）
   const exeOf = m => `${RT}\\java-${m}\\bin\\java.exe`;
   const USES = { paper: 21, forge: 17, vanilla: 25, proxy: 21 }; // 每台服务器配的 Java，同 detail-settings.js
-  const TIP_P = "MineDeck 单独下载的运行时。新建服务器缺少合适的 Java 时会自动下载，不影响系统里已有的 Java。\n卸载只删这一套，不动系统里的 Java；有服务器正在用或还配着它时会拦下。";
-  const TIP_S = "新建服务器时优先用本机已装的 Java；没有合适的，则使用 MineDeck 下载过的或自动新下一份。";
-  const TIP_INC = "上次下载或卸载没走完留下的文件夹，不能直接用于开服，可点右侧清理。";
+  const TIP_P = "由 MineDeck 独立下载的 Java 运行时。新建服务器缺少合适版本时会自动下载，不影响系统已安装的 Java。\n卸载仅删除对应运行时；若有服务器正在运行或配置使用该版本，则无法卸载。";
+  const TIP_S = "新建服务器时优先使用本机已安装的 Java；若无合适版本，则使用 MineDeck 已下载的运行时或自动下载。";
+  const TIP_INC = "上次下载或卸载未完成而残留的文件夹，无法用于开服，可点击右侧按钮清理。";
   const TIP_ADD = "粘贴 java.exe 或 JDK 文件夹的路径，如 C:\\Program Files\\Java\\jdk-21\\bin\\java.exe";
   let D = null;
   function seed(ctx) {
@@ -63,8 +63,8 @@
   function blockOf(m) {
     const us = usersOf(m); if (!us.length) return "";
     const run = us.filter(s => s.running);
-    return run.length ? `服务器正在用 Java ${m} 运行（${run.map(s => s.name).join("、")}），请先停服再卸载`
-      : `服务器还在用 Java ${m}（${us.map(s => s.name).join("、")}），请先到「设置 → 启动与内存」更换后再卸载`;
+    return run.length ? `服务器正在使用 Java ${m} 运行（${run.map(s => s.name).join("、")}），请先停止服务器再卸载`
+      : `服务器正配置使用 Java ${m}（${us.map(s => s.name).join("、")}），请先在「设置 → 启动与内存」中更换后再卸载`;
   }
 
   // ================= 画 =================
@@ -80,7 +80,7 @@
     if (C.QS.get("theme")) q.set("theme", C.QS.get("theme"));
     return `detail.html?${q}`;
   };
-  const svHTML = (s, m) => `<a class="sj-sv" href="${detailURL(s)}" title="${esc(`「${s.name}」${s.running ? "正开着，" : ""}用的是这套 Java ${m}；点了去它的「设置 → 启动与内存」换`)}">`
+  const svHTML = (s, m) => `<a class="sj-sv" href="${detailURL(s)}" title="${esc(`「${s.name}」${s.running ? "（运行中）" : ""}正在使用 Java ${m}，点击前往「设置 → 启动与内存」更换`)}">`
     + `${s.running ? "<i></i>" : ""}<span>${esc(s.name)}</span></a>`;
   function pRow(m) {
     const us = usersOf(m), why = blockOf(m);
@@ -96,17 +96,17 @@
   const pRows = () => D.portable.map(pRow).join("") + D.incomplete.filter(m => !D.portable.includes(m)).map(iRow).join("");
   const sRows = () => D.scanned.map(sRow).join("");
   const pCount = () => D.portable.length + D.incomplete.filter(m => !D.portable.includes(m)).length;
-  const scanBtn = () => `<button type="button" class="sj-corner${D.scanning ? " busy" : ""}" data-sj-act="scan" title="${D.scanning ? "扫描中…（约数秒）" : "重新扫描本机 Java"}"`
+  const scanBtn = () => `<button type="button" class="sj-corner${D.scanning ? " busy" : ""}" data-sj-act="scan" title="${D.scanning ? "扫描中…（约数秒）" : "重新扫描本机 Java"}" aria-label="重新扫描本机 Java"`
     + `${D.scanning ? ' aria-disabled="true"' : ""}><i data-ic="refresh"></i></button>`;
 
   function html(ctx) {
     seed(ctx); C = ctx;
     const left = `<section class="sj-col" aria-label="MineDeck 下载的 Java"><div class="sj-hd"><span class="sj-t" title="${esc(TIP_P)}">MineDeck 下载的</span></div>`
-      + `<div class="sj-lw${pCount() ? "" : " is-none"}" data-sj-lw="p"><div class="list">${pRows()}</div><span class="thumb"></span><div class="sj-none">还没有 MineDeck 下载的 Java</div></div></section>`;
+      + `<div class="sj-lw${pCount() ? "" : " is-none"}" data-sj-lw="p"><div class="list">${pRows()}</div><span class="thumb"></span><div class="sj-none">暂无 MineDeck 下载的 Java</div></div></section>`;
     const right = `<section class="sj-col" aria-label="本机装的 Java"><div class="sj-hd fdpad"><span class="sj-t" title="${esc(TIP_S)}">本机装的</span></div>${scanBtn()}`
-      + `<div class="sj-lw${D.scanned.length ? "" : " is-none"}" data-sj-lw="s"><div class="list">${sRows()}</div><span class="thumb"></span><div class="sj-none">尚未发现</div></div>`
-      + `<label class="sj-add${D.draft.trim() ? " has" : ""}" title="${esc(TIP_ADD)}"><input value="${esc(D.draft)}" placeholder="粘贴 java.exe 或 JDK 文件夹的路径" spellcheck="false" autocomplete="off" aria-label="手动添加 Java 的路径">`
-      + `<span class="sj-msg"></span><button type="button" class="sj-ib sj-plus" data-sj-act="add" title="添加"><i data-ic="plus"></i></button></label></section>`;
+      + `<div class="sj-lw${D.scanned.length ? "" : " is-none"}" data-sj-lw="s"><div class="list">${sRows()}</div><span class="thumb"></span><div class="sj-none">未检测到</div></div>`
+      + `<label class="sj-add${D.draft.trim() ? " has" : ""}" title="${esc(TIP_ADD)}"><input value="${esc(D.draft)}" placeholder="粘贴 java.exe 或 JDK 文件夹的路径" spellcheck="false" autocomplete="off" aria-label="手动添加 Java 路径">`
+      + `<span class="sj-msg"></span><button type="button" class="sj-ib sj-plus" data-sj-act="add" title="添加" aria-label="添加 Java"><i data-ic="plus"></i></button></label></section>`;
     return `<div class="sj">${left}${right}</div>`;
   }
 
@@ -201,11 +201,11 @@
   function probe(v) {
     let p = v.replace(/\//g, "\\").replace(/\\+$/, "");
     const base = p.split("\\").pop();
-    if (/\.exe$/i.test(base) && !/^javaw?\.exe$/i.test(base)) return { short: "要选 java.exe", err: "请选择 java.exe（或 Java 的安装文件夹）" };
+    if (/\.exe$/i.test(base) && !/^javaw?\.exe$/i.test(base)) return { short: "请选择 java.exe", err: "请选择 java.exe（或 Java 的安装文件夹）" };
     if (!/\.exe$/i.test(base)) p = /\\bin$/i.test(p) ? p + "\\java.exe" : p + "\\bin\\java.exe";
     const m = p.match(/(?:jdk|jre|java|temurin|zulu|openjdk)[-_ ]?(1\.)?(\d{1,2})(?!\d)/i);
     const major = m ? +m[2] : 0;
-    if (!m || major < 8 || major > 30 || (m[1] && major !== 8)) return { short: "这个 Java 运行不了", err: "这个路径下的 Java 运行不了，请确认选的 Java 完整可用" };
+    if (!m || major < 8 || major > 30 || (m[1] && major !== 8)) return { short: "无法运行此 Java", err: "该路径下的 Java 无法运行，请确认所选 Java 完整可用" };
     return { major, version: major === 8 ? "1.8.0_" + (400 + (p.length % 60)) : PATCH[major] || `${major}.0.1`, path: p };
   }
   function bad(box, short, full) {
@@ -229,8 +229,8 @@
   function askRemove(m, inc) {
     ask({
       title: inc ? `清理便携 Java ${m} 残留？` : `卸载便携 Java ${m}？`,
-      body: inc ? `将删除没装完或没删干净的便携 Java ${m} 文件夹，系统里安装的 Java 不会受影响。`
-        : `只删除 MineDeck 自己下载的 <b>Java ${m}</b>，系统里安装的 Java 不会受影响。`,
+      body: inc ? `将删除未完整安装或卸载残留的便携 Java ${m} 文件夹，不影响系统已安装的 Java。`
+        : `仅删除 MineDeck 下载的 <b>Java ${m}</b>，不影响系统已安装的 Java。`,
       ok: inc ? "清理" : `卸载 Java ${m}`,
       onOk: () => {
         if (inc) D.incomplete = D.incomplete.filter(x => x !== m); else D.portable = D.portable.filter(x => x !== m);

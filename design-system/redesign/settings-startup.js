@@ -18,11 +18,11 @@
     { duration: 360, easing: SLIDE });
 
   const ROWS = [
-    { k: "tray", label: "点关闭按钮时缩到托盘（不退出）",
-      tip: "开启后，点关闭按钮不退出程序，窗口缩到托盘，服务器继续运行；点托盘图标恢复窗口。第一次缩到托盘时会弹一条系统通知提醒一次。"
-        + "要退出，右键托盘图标，或者在「更新与关于」最下面点「退出 MineDeck」。关闭后，点关闭按钮会退出程序并停掉服务器（有服务器在运行时先确认）。" },
+    { k: "tray", label: "关闭窗口时最小化到托盘（不退出）",
+      tip: "开启后，点击关闭按钮将最小化至系统托盘，程序与服务器继续运行；点击托盘图标可恢复窗口（首次最小化时将发送一次系统通知）。"
+        + "如需退出，可右键托盘图标，或在「更新与关于」底部点击「退出 MineDeck」。关闭后，点击关闭按钮将停止服务器并退出程序（有运行中的服务器时会先确认）。" },
     { k: "auto", label: "开机自动启动",
-      tip: "登录 Windows 后自动在托盘里启动，不需要管理员权限（若移动过本程序所在文件夹，需重新开关一次以更新路径）。" },
+      tip: "登录 Windows 后自动在系统托盘静默启动，无需管理员权限（若移动过程序文件夹，需重新切换此开关以更新启动路径）。" },
   ];
   let S = null; // 换分类回来不丢
   const seed = ctx => { if (!S) S = { tray: true, auto: false, fail: ctx.QS.get("fail") === "1" }; };
@@ -45,7 +45,7 @@
         S[k] = false;
         const cur = root()?.querySelector(`[data-k="${k}"]`); if (!cur) return;
         paint(cur);
-        const m = cur.querySelector(".su-msg"); m.textContent = "没能开启"; m.title = `无法开启「${label}」：设置开机自启失败`;
+        const m = cur.querySelector(".su-msg"); m.textContent = "开启失败"; m.title = `无法开启「${label}」：写入开机启动项失败`;
         cur.classList.add("bad"); shake(cur);
       }, 420); // 装作等了一下请求
     }

@@ -47,12 +47,12 @@
   const SUB = { servers: "servers", backups: "backups" };
   // 程序原话（setStorage 的各行说明、页头那句、手机远程那句）
   const DESC = {
-    servers: "新的服务器会建在这个文件夹里，一台一个子文件夹。中文名字不会直接用作文件夹名。\n改了马上生效，只对之后新建的服务器起作用，已经有的不会搬过去，照常能用。",
-    backups: "所有备份都放在这里，每台服务器一个子文件夹：开着、停着时做的，手动的、定时的都是。\n改了马上生效，只对之后新做的备份起作用，已经有的不会搬过去，照常能用。",
-    base: "程序、下载的 Java 和缓存都在这里。整个文件夹可以一起复制走。",
+    servers: "新建的服务器将保存在此文件夹中，每台对应一个子文件夹（中文名称不会直接用作文件夹名）。\n更改后立即生效，仅影响之后新建的服务器，已有服务器不会移动且可正常使用。",
+    backups: "全部备份（含运行中、已停止及手动、定时备份）均保存在此文件夹中，每台服务器对应一个子文件夹。\n更改后立即生效，仅影响之后创建的备份，已有备份不会移动且可正常使用。",
+    base: "存放程序本体、已下载的 Java 及缓存文件，可整个文件夹直接复制迁移。",
   };
-  const REMOTE = "更改存放文件夹只能在这台电脑上操作；用手机远程管理时，需要到主机上更改。";
-  const SAME_TIP = "这样也能用，但备份会和服务器文件夹混在一起，不好找；硬盘坏了，服务器和备份会一起没了。建议给备份另选一个文件夹，最好在另一块硬盘上。";
+  const REMOTE = "仅限本机操作；通过手机远程管理时需在主机上更改";
+  const SAME_TIP = "虽可正常使用，但备份会与服务器文件混杂而不易区分；若磁盘损坏，服务器与备份将同时丢失。建议为备份另选独立文件夹，最好位于其他磁盘。";
   // 草图里「选文件夹」假装选到的（不弹系统的窗口）
   const PICKS = { servers: ["E:\\MC-Servers", "F:\\游戏\\开服"], backups: ["E:\\MineDeck-备份", "F:\\备份\\MineDeck"] };
   // 保留份数的档位（草图定的，见开头）
@@ -63,13 +63,13 @@
     + `加入以后 Windows 安全中心不再扫描 ${base}，要管理员权限，会弹出 Windows PowerShell 的确认窗口。`
     + "放在别处的服务器和备份不在里面。装了别的杀毒软件的话，要在那个软件里另外设置。"
     + "MineDeck 只记得自己加过没有，在 Windows 安全中心里手动删掉的话，这里看不出来。";
-  const manual = verb => `可以在 Windows 安全中心里手动${verb}：病毒和威胁防护 → 管理设置 → 排除项`;
+  const manual = verb => `可在 Windows 安全中心手动${verb}：病毒和威胁防护 → 管理设置 → 排除项`;
   const RESULT = { // 点了以后没做成的几种：框里那句（短）、悬停（程序原话全文）
-    cancelled: { warn: false, line: add => `${add ? "没有加入" : "没有撤销"}：在系统的确认窗口里点了「否」`, tip: () => "" },
-    blocked: { warn: true, line: add => `${add ? "没能加入" : "没能撤销"}：组策略不让运行 PowerShell`, tip: add => `这台电脑的组策略不让运行 PowerShell，请在 Windows 安全中心里手动${add ? "添加" : "删除"}\n${manual(add ? "添加" : "删除")}` },
-    unavailable: { warn: true, line: add => `${add ? "没能加入" : "没能撤销"}：Windows 安全中心没在工作`, tip: () => "Windows 安全中心没在工作，可能装了别的杀毒软件。可以在那个软件里把这个文件夹设为信任" },
+    cancelled: { warn: false, line: add => `${add ? "未加入" : "未撤销"}：在系统确认窗口中选择了「否」`, tip: () => "" },
+    blocked: { warn: true, line: add => `${add ? "加入失败" : "撤销失败"}：组策略禁止运行 PowerShell`, tip: add => `本机组策略禁止运行 PowerShell，请在 Windows 安全中心手动${add ? "添加" : "删除"}。\n${manual(add ? "添加" : "删除")}` },
+    unavailable: { warn: true, line: add => `${add ? "加入失败" : "撤销失败"}：Windows 安全中心未运行`, tip: () => "Windows 安全中心当前未运行，可能已安装其他杀毒软件，可在对应软件中将此文件夹设为信任。" },
   };
-  const BROAD_TIP = "程序数据文件夹是磁盘根目录或「下载」这类系统文件夹，整个排除不安全。先把 MineDeck 放进单独的文件夹";
+  const BROAD_TIP = "程序数据文件夹位于磁盘根目录或「下载」等系统文件夹中，整体排除存在安全风险。请先将 MineDeck 移至独立文件夹。";
   const P2 = n => String(n).padStart(2, "0");
   const fmtAt = d => `${d.getFullYear()}-${P2(d.getMonth() + 1)}-${P2(d.getDate())} ${P2(d.getHours())}:${P2(d.getMinutes())}`;
 
@@ -97,14 +97,14 @@
     return i <= 0 ? ["", p] : [p.slice(0, i), p.slice(i)];
   }
   const pathInner = p => { const [hd, tl] = pathParts(p); return `<span class="hd">${esc(hd)}</span><span class="tl">${esc(tl)}</span>`; };
-  const pathTip = (s, w) => w === "base" ? s.base : `${rootOf(s, w)}\n点一下更改…（${REMOTE}）`;
-  const resetTip = (s, w) => (s[w] ? `恢复默认文件夹（${join(s.base, SUB[w])}）` : "已经是默认的文件夹");
+  const pathTip = (s, w) => w === "base" ? s.base : `${rootOf(s, w)}\n点击更改文件夹（${REMOTE}）`;
+  const resetTip = (s, w) => (s[w] ? `恢复默认文件夹（${join(s.base, SUB[w])}）` : "当前已是默认文件夹");
   function pathBox(s, w) {
     const pick = w !== "base", p = w === "base" ? s.base : rootOf(s, w);
     return `<div class="ss-pb${pick ? " pick" : ""}" data-w="${w}"${pick ? ` role="button" tabindex="0" data-ss="pick" aria-label="更改${NAME[w]}…"` : ""} title="${esc(pathTip(s, w))}">`
       + `<i data-ic="folder"></i><b class="ss-pt">${pathInner(p)}</b>`
       + `<button type="button" class="ss-ib" data-ss="open" data-w="${w}" title="打开文件夹" aria-label="打开${w === "base" ? "程序数据文件夹" : NAME[w]}"><i data-ic="share"></i></button>`
-      + (pick ? `<button type="button" class="ss-ib" data-ss="reset" data-w="${w}" aria-disabled="${!s[w]}" title="${esc(resetTip(s, w))}" aria-label="恢复默认的${NAME[w]}"><i data-ic="refresh"></i></button>` : "")
+      + (pick ? `<button type="button" class="ss-ib" data-ss="reset" data-w="${w}" aria-disabled="${!s[w]}" title="${esc(resetTip(s, w))}" aria-label="恢复默认${NAME[w]}"><i data-ic="refresh"></i></button>` : "")
       + `</div>`;
   }
 
@@ -118,11 +118,11 @@
   }
   function defView(s) {
     const here = s.rec && sameDir(s.rec.path, s.base);
-    const v = { line: "没加入", warn: false, tip: "", btn: s.rec ? "撤销…" : "加入…", act: s.rec ? "remove" : "add", off: false,
-      btip: s.rec ? "从排除项里删掉（会弹出系统的确认窗口）" : "以管理员身份加入（会弹出系统的确认窗口）" };
-    if (s.pending) return { ...v, line: "等系统确认…", btn: s.pending === "add" ? "加入…" : "撤销…", busy: true, btip: "" };
+    const v = { line: "未加入", warn: false, tip: "", btn: s.rec ? "撤销…" : "加入…", act: s.rec ? "remove" : "add", off: false,
+      btip: s.rec ? "从排除项中移除（将弹出系统确认窗口）" : "以管理员身份加入（将弹出系统确认窗口）" };
+    if (s.pending) return { ...v, line: "等待系统确认…", btn: s.pending === "add" ? "加入…" : "撤销…", busy: true, btip: "" };
     if (here) v.line = `已加入 · ${s.rec.at}`;
-    else if (s.rec) { v.line = "加入的是以前的位置"; v.tip = `以前加入的是 ${s.rec.path}，撤销的是它。`; }
+    else if (s.rec) { v.line = "当前排除项为旧位置"; v.tip = `此前加入的是 ${s.rec.path}，撤销的是它。`; }
     else if (s.broad) { v.line = "不能加入：程序数据文件夹是磁盘根目录"; v.warn = true; v.tip = BROAD_TIP; v.off = true; v.btip = BROAD_TIP; }
     if (s.result && !s.broad) { const R = RESULT[s.result.kind], add = s.result.action === "add"; v.line = R.line(add); v.warn = R.warn; v.tip = R.tip(add); }
     return v;
@@ -133,18 +133,18 @@
       + `<button type="button" class="ss-btn" data-ss="def" data-act="${v.act}" aria-disabled="${!!(v.off || v.busy)}"${v.btip ? ` title="${esc(v.btip)}"` : ""}>`
       + `${v.busy ? `<i data-ic="spinner" class="ss-spin"></i>` : ""}<span>${v.btn}</span></button></div>`;
   }
-  const outTip = list => `这些不在排除项里：\n${list.join("\n")}`;
+  const outTip = list => `以下文件夹不在排除项范围内：\n${list.join("\n")}`;
 
   // ---- 保留份数 ----
   const kTxt = n => `${n} 份`;
   const stepTo = (v, d) => (d > 0 ? LAD.find(x => x > v) : [...LAD].reverse().find(x => x < v));
-  const keepTip = n => "再做一份新的备份时，超出这个数的最旧那几份会删掉（「还原前自动」留的那份也算在里面）。所有服务器共用这一个数，改了下次备份时生效。\n"
-    + `定时任务设成每隔 1 小时备份一次时，保留 ${n} 份只够留最近 ${n} 个小时（手动做的备份也算在这 ${n} 份里）。`;
+  const keepTip = n => "创建新备份时，超出上限的最旧备份将自动删除（「还原前自动」备份计入上限）。此上限对所有服务器生效，修改后于下次备份时起效。\n"
+    + `若定时任务设为每隔 1 小时备份一次，保留 ${n} 份约覆盖最近 ${n} 小时（手动备份同样计入其中）。`;
   function keepHTML(s) {
     const dn = stepTo(s.keep, -1) !== undefined, up = stepTo(s.keep, 1) !== undefined, dirty = s.keep !== s.keepBase;
-    return `<div class="ss-f ss-keep${dirty ? " mod" : ""}"><div class="ss-lb"><span title="${esc(keepTip(s.keep))}">每台服务器保留几份备份</span><i class="ss-dot"></i></div><div class="ss-kr">`
+    return `<div class="ss-f ss-keep${dirty ? " mod" : ""}"><div class="ss-lb"><span title="${esc(keepTip(s.keep))}">每台服务器备份保留份数</span><i class="ss-dot"></i></div><div class="ss-kr">`
       + `<div class="ss-stp"><button type="button" data-ss="dec" aria-label="少一档" aria-disabled="${!dn}" title="${dn ? "少一档" : "最少 1 份"}"><i data-ic="minus"></i></button>`
-      + `<b class="ss-sv" aria-live="polite">${kTxt(s.keep)}</b><button type="button" data-ss="inc" aria-label="多一档" aria-disabled="${!up}" title="${up ? "多一档" : "最多 1000 份"}"><i data-ic="plus"></i></button></div>`      + `<button type="button" class="ss-save${dirty ? " on" : ""}" data-ss="ksave" aria-disabled="${!dirty}"${dirty ? "" : ' title="没有要保存的修改"'}>保存</button></div></div>`;
+      + `<b class="ss-sv" aria-live="polite">${kTxt(s.keep)}</b><button type="button" data-ss="inc" aria-label="多一档" aria-disabled="${!up}" title="${up ? "多一档" : "最多 1000 份"}"><i data-ic="plus"></i></button></div>`      + `<button type="button" class="ss-save${dirty ? " on" : ""}" data-ss="ksave" aria-disabled="${!dirty}"${dirty ? "" : ' title="暂无未保存的修改"'}>保存</button></div></div>`;
   }
 
   function html(ctx) {
@@ -152,10 +152,10 @@
     return `<div class="ss"><section class="ss-col" aria-label="存储位置"><div class="ss-grid">`
       + `<div class="ss-f"><div class="ss-lb"><span title="${esc(DESC.servers)}">服务器存放文件夹</span></div>${pathBox(s, "servers")}</div>`
       + `<div class="ss-f"><div class="ss-lb"><span title="${esc(DESC.backups)}">备份存放文件夹</span><span class="ss-sp"></span>`
-      + `<span class="ss-same"${same ? "" : " hidden"} title="${esc(SAME_TIP)}"><i data-ic="warn"></i>服务器和备份放在了同一个文件夹</span></div>${pathBox(s, "backups")}</div>`
+      + `<span class="ss-same"${same ? "" : " hidden"} title="${esc(SAME_TIP)}"><i data-ic="warn"></i>服务器与备份共用同一文件夹</span></div>${pathBox(s, "backups")}</div>`
       + `<div class="ss-f"><div class="ss-lb"><span title="${esc(DESC.base)}">程序数据文件夹</span></div>${pathBox(s, "base")}</div>`
       + `<div class="ss-f ss-def"><div class="ss-lb"><span title="${esc(DEF_TIP(s.base))}">Windows 安全中心排除项</span><span class="ss-sp"></span>`
-      + `<span class="ss-out"${out.length ? "" : " hidden"} title="${esc(outTip(out))}">放在别处的服务器不在里面</span></div>${defBox(s)}</div>`
+      + `<span class="ss-out"${out.length ? "" : " hidden"} title="${esc(outTip(out))}">别处的服务器不在排除项内</span></div>${defBox(s)}</div>`
       + `<i class="ss-hr"></i>${keepHTML(s)}</div></section></div>`;
   }
 
@@ -206,7 +206,7 @@
     f.classList.toggle("mod", dirty);
     setTip(f.querySelector(".ss-lb > span"), keepTip(s.keep));
     const sv = f.querySelector(".ss-save");
-    if (!s.keepSaving) { sv.classList.toggle("on", dirty); setAttr(sv, "aria-disabled", !dirty); setTip(sv, dirty ? "" : "没有要保存的修改"); }
+    if (!s.keepSaving) { sv.classList.toggle("on", dirty); setAttr(sv, "aria-disabled", !dirty); setTip(sv, dirty ? "" : "暂无未保存的修改"); }
   }
 
   // =====================================================================================================
@@ -215,13 +215,13 @@
   function change(w, value, msg) {
     const s = data(), prev = s[w];
     s[w] = value; paintPath(w); paintSame(); paintOut();
-    toast(msg, { label: "撤销", aria: `撤销：换回原来的${NAME[w]}`, run: () => { s[w] = prev; paintPath(w); paintSame(); paintOut(); } });
+    toast(msg, { label: "撤销", aria: `撤销更改，恢复原${NAME[w]}`, run: () => { s[w] = prev; paintPath(w); paintSame(); paintOut(); } });
   }
   let tbox = null;
   function toast(msg, act) {
     if (!tbox || !tbox.isConnected) { tbox = Object.assign(document.createElement("div"), { id: "ss-toasts" }); tbox.setAttribute("aria-live", "polite"); document.body.appendChild(tbox); }
     const d = document.createElement("div"); d.className = "ss-tst enter";
-    d.innerHTML = `<span class="ss-ti"><i data-ic="check"></i></span><span class="ss-tm">${esc(msg)}</span><button type="button" class="ss-tx" data-tx aria-label="关闭这条提示"><i data-ic="x"></i></button>`
+    d.innerHTML = `<span class="ss-ti"><i data-ic="check"></i></span><span class="ss-tm">${esc(msg)}</span><button type="button" class="ss-tx" data-tx aria-label="关闭提示"><i data-ic="x"></i></button>`
       + `<span class="ss-ta"><button type="button" class="ss-tb" data-ta aria-label="${esc(act.aria)}">${esc(act.label)}</button></span>`;
     C.KIT.hydrate(d); tbox.appendChild(d);
     // 带按钮的停 20 秒（同程序 TOAST_LINGER_MS）；鼠标停在上面时不走，移开以后至少再留 4 秒
@@ -273,10 +273,10 @@
     const w = b.dataset.w;
     switch (b.dataset.ss) {
       case "open": break; // 草图里不打开资源管理器
-      case "reset": change(w, "", `已恢复默认的${NAME[w]}`); break;
+      case "reset": change(w, "", `已恢复默认${NAME[w]}`); break;
       case "pick": { // 草图里不弹选文件夹的窗口：假装选了下一个
         const cur = rootOf(s, w), next = PICKS[w].find(p => !sameDir(p, cur)) || PICKS[w][0];
-        change(w, next, `已更改${NAME[w]}，马上生效`); break;
+        change(w, next, `已更改${NAME[w]}，立即生效`); break;
       }
       case "def": runDef(b.dataset.act); break;
       case "dec": case "inc": { const v = stepTo(s.keep, b.dataset.ss === "inc" ? 1 : -1); if (v !== undefined) { s.keep = v; paintKeep(); } break; }
