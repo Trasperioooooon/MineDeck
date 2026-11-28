@@ -360,6 +360,9 @@ window.EXTRA_ICONS = {
 
   /* 草图专用：控制台横幅的几种样子（左下角，定了就删） */
   .sk2 { position: fixed; left: 16px; bottom: 30px; z-index: 6; }
+  /* 草图专用：当前这一页自己的几种状态（页面在 DETAIL_TABS 上登记 sk 才出），在控制台横幅那一条上面 */
+  .sk3 { position: fixed; left: 16px; bottom: 62px; z-index: 6; }
+  .sk3:empty { display: none; }
   .empty { position: relative; }
   /* 各页右上角的「打开 X 文件夹」（原来在「···」里）：28 见方，贴栏的右上角 8，圆角 10（18 − 8，同心）；控制台的放进了它的工具栏 */
   .fd { position: absolute; top: 8px; right: 8px; z-index: 2; display: flex; gap: 4px; }
@@ -413,6 +416,7 @@ window.EXTRA_ICONS = {
   <div class="body" id="body"></div>
 </main>
 <div class="sk sk2" id="sk2"></div>
+<div class="sk sk3" id="sk3"></div>
 <nav class="cap" aria-label="导航">
   <a class="home on" href="home.html" aria-label="服务器（主页）" data-tip="服务器"><img src="../../internal/web/ui/img/logo-20.png" alt=""></a>
   <a href="toolbox.html" aria-label="工具箱" data-tip="工具箱"><i data-ic="toolbox"></i></a>
@@ -901,7 +905,16 @@ function content() {
 }
 // 有子页的标签可以每个子页一份（登记成「标签/子页」，如 settings/common），没有就用整个标签的那份
 const tabView = () => DETAIL_TABS[tab + "/" + subPick[tab]] || DETAIL_TABS[tab];
-function mountTab() { mountConsole(); if (tab !== "console") tabView()?.mount?.(tabCtx()); }
+function mountTab() { mountConsole(); if (tab !== "console") tabView()?.mount?.(tabCtx()); skPage(); }
+// 草图切换条（左下角第二条）：这一页自己的几种状态。页面在登记的那一份上带 sk: [{ t: 组名, k: 地址参数, opts: [[值或 null, 字, 悬停]], set: { 选了以后顺带设的参数 } }]
+function skPage() {
+  const sk = tab === "console" ? null : tabView()?.sk, box = $("#sk3"); if (!box) return;
+  box.innerHTML = !sk ? "" : sk.map(g => `<b>${g.t}</b>` + g.opts.map(([v, label, title]) => {
+    const q = new URLSearchParams(location.search);
+    if (v == null) q.delete(g.k); else { q.set(g.k, v); Object.entries(g.set || {}).forEach(([a, b]) => q.set(a, b)); }
+    return `<a href="?${q}" class="${(QS.get(g.k) ?? null) === v ? "on" : ""}"${title ? ` title="${title}"` : ""}>${label}</a>`;
+  }).join("")).join("<i></i>");
+}
 function body() {
   $("#body").innerHTML = `<aside class="snav" id="snav"><span class="hl"></span>${sideItems()}</aside><div class="cp" id="cp">${content()}</div>`;
   placeSide(true);

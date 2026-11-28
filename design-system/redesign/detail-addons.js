@@ -698,5 +698,10 @@
   }
   addEventListener("resize", () => { placeSeg(false); placeChip(false); chipFade(); const r = root(); if (r) fitTitles(r); });
 
-  window.DETAIL_TABS.addons = { html, mount };
+  // 草图切换条（外壳左下角第二条）：11-28 补画的几种状态
+  const sk = [
+    { t: "新建时选择的", k: "draft", opts: [[null, "无"], ["1", "正常", "三项都能装"], ["2", "有问题", "核心不符、无法安装、本地文件与服务器不符"]] },
+    { t: "前置检查", k: "dep", opts: [[null, "无"], ["opt", "可选前置"], ["clash", "冲突"], ["lost", "未找到"]] },
+  ];
+  window.DETAIL_TABS.addons = { html, mount, sk };
 })();

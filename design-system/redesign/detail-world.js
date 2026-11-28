@@ -444,6 +444,9 @@
     else if (act === "old") a.animate([{ opacity: 1 }, { opacity: .5 }, { opacity: 1 }], { duration: 300 }); // 草图里不真打开文件夹
   }
   window.DETAIL_TABS["world/backups"] = {
+    // 草图切换条（外壳左下角第二条）：11-28 补画的几种状态
+    sk: [{ t: "当前存档", k: "from", opts: [[null, "照常"], ["carried", "随交接包带入"]] },
+      { t: "定时备份", k: "sched", opts: [[null, "一条"], ["multi", "两条"]] }],
     html(ctx) { C = ctx; closeAsk(true); dat(); return bkHTML(); },
     mount(ctx) {
       C = ctx; const r = bkRoot(); if (!r) return;
@@ -903,6 +906,9 @@
     if (act === "done") { finishTask(); return; }
   }
   window.DETAIL_TABS["world/map"] = {
+    sk: [{ t: "换地图", k: "map", opts: [[null, "照常"], ["unreadable", "读取失败"], ["fail", "任务出错", "导入走到第四步时出错、自动退回"], ["busy", "正在更换"],
+        ["stuck", "需手动处理", "要停着才点得了「重试恢复」"]] },
+      { t: "从别的设备打开", k: "remote", opts: [[null, "否"], ["1", "是", "只能传 ZIP"]] }],
     html(ctx) { C = ctx; closeAsk(true); stepping = false; dat(); return `<div class="wd-map">${mapInner()}</div>`; },
     mount(ctx) {
       C = ctx; const r = mapRoot(); if (!r) return;
