@@ -96,28 +96,11 @@
     setTimeout(() => { A.st = A.has ? "found" : "latest"; paintUp(); }, 800); // 装作等了一下请求
   }
 
-  // ---- 确认框（同共用件页的危险确认框）、整窗口一层（同共用件页的整页状态）：挂在 body 上 ----
-  let mask = null;
-  function ask({ ic, title, body, ok, onOk }) {
-    closeAsk(true);
-    const mk = mask = Object.assign(document.createElement("div"), { className: "sab-mask enter" });
-    mk.innerHTML = `<div class="sab-md" role="dialog" aria-modal="true"><div class="sab-mc"><div class="sab-mh"><span class="sab-mi"><i data-ic="${ic}"></i></span><h3>${title}</h3></div>`
-      + `<div class="sab-mbd">${body}</div></div><div class="sab-ma"><button type="button" class="sab-b fk" data-x="no">取消</button><button type="button" class="sab-b dgr" data-x="ok">${ok}</button></div></div>`;
-    document.body.appendChild(mk); C.KIT.hydrate(mk);
-    const no = mk.querySelector("[data-x=no]"); no.focus({ focusVisible: false });
-    mk.addEventListener("pointerdown", e => { if (!e.target.closest(".fk")) no.classList.remove("fk"); });
-    mk.addEventListener("click", e => {
-      if (mask !== mk) return;
-      if (e.target.closest("[data-x=ok]")) { closeAsk(); onOk(); return; }
-      if (e.target.closest("[data-x=no]") || e.target === mk) closeAsk();
-    });
-  }
-  function closeAsk(now) {
-    if (!mask) return; const mk = mask; mask = null;
-    if (now) { mk.remove(); return; }
-    mk.classList.remove("enter"); mk.classList.add("leave"); setTimeout(() => mk.remove(), 140);
-  }
-  document.addEventListener("keydown", e => { if (e.key === "Escape" && mask) closeAsk(); });
+  // ---- 确认框用共用的 KIT.confirm（规范第九节，11-28 换掉了这页自己那一套）；整窗口一层（同共用件页的整页状态）挂在 body 上 ----
+  const ask = async ({ ic, title, body, ok, onOk }) => {
+    const k = await C.KIT.confirm({ ic, tone: "dgr", title, body, btns: [{ k: "cancel", label: "取消" }, { k: "ok", label: ok, tone: "dgr" }] });
+    if (k === "ok") onOk();
+  };
   // 草图里装作等了一会儿就回来（真程序这时已经退出或重启了）
   function cover(t1, t2, spin, then) {
     const ov = Object.assign(document.createElement("div"), { className: "sab-ov enter" });

@@ -95,37 +95,10 @@
 .sab-dis p { padding: 0; color: var(--faint); font-size: 12px; }
 .sab-dis p.en { margin-top: 6px; font-size: 11px; line-height: 17px; letter-spacing: .02em; }
 
-/* 确认框：同共用件页的危险确认框（外 26 / 内边距 8，里面一栏 18；标题前危险色图标块 40 见方、圆角 10；底下一排 36 高胶囊等宽铺满；默认聚焦「取消」）。
-   遮罩从标题栏下面开始；--scrim、--elev-4 外壳里没有，照共用件页的深浅两套定在这里 */
-.sab-mask { --sab-scrim: rgb(var(--shadow-rgb) / .32); --sab-elev4: 0 28px 64px -16px rgb(var(--shadow-rgb) / .32), 0 8px 20px -4px rgb(var(--shadow-rgb) / .10);
-            position: fixed; left: 0; right: 0; top: 40px; bottom: 0; z-index: 40; display: grid; place-items: center; background: var(--sab-scrim); backdrop-filter: blur(2px); }
-[data-theme="dark"] .sab-mask { --sab-scrim: rgb(0 0 0 / .56); --sab-elev4: 0 32px 72px -16px rgb(0 0 0 / .72), 0 8px 24px -4px rgb(0 0 0 / .40); }
-.sab-mask.enter { animation: sab-mk-in .22s cubic-bezier(.2, .7, .2, 1) both; }
-.sab-mask.enter > .sab-md { animation: sab-md-in .26s cubic-bezier(.2, .7, .2, 1) both; }
-.sab-mask.leave { animation: sab-mk-out .14s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
-.sab-mask.leave > .sab-md { animation: sab-md-out .14s cubic-bezier(.4, 0, 1, 1) both; }
-@keyframes sab-mk-in { from { opacity: 0; } } @keyframes sab-mk-out { to { opacity: 0; } }
-@keyframes sab-md-in { from { opacity: 0; transform: translateY(10px); } } @keyframes sab-md-out { to { opacity: 0; transform: translateY(6px); } }
-.sab-md { width: 400px; box-sizing: border-box; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--sab-elev4); display: flex; flex-direction: column; gap: 8px; }
-.sab-mc { border-radius: 18px; padding: 18px 20px 20px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); display: flex; flex-direction: column; gap: 12px; }
-.sab-mh { display: flex; align-items: center; gap: 12px; margin: -10px 0 0 -12px; }
-.sab-mi { width: 40px; height: 40px; border-radius: 10px; flex: none; display: grid; place-items: center; background: var(--danger-subtle); color: var(--danger-text); }
-.sab-mi .ico { width: 20px; height: 20px; }
-.sab-md h3 { flex: 1; min-width: 0; margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; }
-.sab-mbd { font-size: 13px; line-height: 21px; color: var(--muted); }
-.sab-mbd b { color: var(--text); font-weight: 600; }
-.sab-ma { display: flex; gap: 8px; }
-.sab-b { flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center; height: 36px; padding: 0 14px; border-radius: 18px; box-sizing: border-box;
-         border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer;
-         transition: background-color .2s; outline: none; }
-.sab-b:hover { background: var(--control-hov); }
-.sab-b.dgr { background: var(--danger-solid); color: var(--on-danger); border-color: transparent; font-weight: 600; }
-.sab-b.dgr:hover { background: var(--danger-solid-hov); }
-.sab-b.fk { outline: 2px solid var(--accent); outline-offset: 2px; }
-
 /* 整窗口一层：正在更新 / 正在退出（同共用件页的整页状态：标题栏留着，字摆在正中） */
 .sab-ov { position: fixed; left: 0; right: 0; top: 40px; bottom: 0; z-index: 45; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center;
           gap: 14px; padding-bottom: 72px; box-sizing: border-box; }
+@keyframes sab-mk-in { from { opacity: 0; } } @keyframes sab-mk-out { to { opacity: 0; } } /* 整窗口一层淡入淡出（原来和确认框共用，确认框换成 KIT.confirm 以后留在这里） */
 .sab-ov.enter { animation: sab-mk-in .22s cubic-bezier(.2, .7, .2, 1) both; }
 .sab-ov.leave { animation: sab-mk-out .2s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
 .sab-ov img { width: 64px; height: 64px; image-rendering: pixelated; margin-bottom: 6px; }

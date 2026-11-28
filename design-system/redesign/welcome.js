@@ -27,7 +27,7 @@
   // 下载源：三段的字和说明同「设置 → 下载与网络」（settings-download.js，照程序 setDownload）；程序引导卡里那三句说明是另一种写法，见返回的清单
   const OPTS = [
     { v: "auto", t: "自动（推荐）", d: "国内镜像（BMCLAPI / 清华）优先，失败自动切换官方源" },
-    { v: "mirror", t: "仅国内镜像", d: "仅使用 BMCLAPI 与清华镜像（Paper、Purpur 无国内镜像，仍从官方下载）" },
+    { v: "mirror", t: "仅国内镜像", d: "仅使用 BMCLAPI 与清华镜像（Paper、Purpur、Leaves、Mohist 无国内镜像，仍从官方下载）" },
     { v: "official", t: "仅官方源", d: "仅使用 Mojang / Forge / Adoptium 等官方源（海外网络适用）" },
   ];
   const SRC_TIP = "下载 Java 与服务端核心时的线路选择\n之后可在「设置 → 下载与网络」中随时更改";

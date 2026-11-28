@@ -52,7 +52,7 @@
       tip: "下载服务端核心与 Java 时使用的线路。\nMojang 原版、Forge、NeoForge、Fabric 经 BMCLAPI 等国内镜像下载，Java 经清华镜像下载；Paper、Purpur、Leaves、Mohist 无国内镜像，始终从官方下载。",
       opts: [
         { v: "auto", t: "自动（推荐）", d: "国内镜像（BMCLAPI / 清华）优先，失败自动切换官方源" },
-        { v: "mirror", t: "仅国内镜像", d: "仅使用 BMCLAPI 与清华镜像（Paper、Purpur 无国内镜像，仍从官方下载）" },
+        { v: "mirror", t: "仅国内镜像", d: "仅使用 BMCLAPI 与清华镜像（Paper、Purpur、Leaves、Mohist 无国内镜像，仍从官方下载）" },
         { v: "official", t: "仅官方源", d: "仅使用 Mojang / Forge / Adoptium 等官方源（海外网络适用）" },
       ] },
     mod: { name: "模组与插件",
