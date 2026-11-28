@@ -179,6 +179,7 @@
   const TXT_EXT = ["txt", "log", "json", "json5", "toml", "yml", "yaml", "properties", "cfg", "conf", "ini", "md", "csv", "xml"];
   const TAIL_EXT = ["log", "txt"]; // 日志要紧的在末尾：太长时留最后 2 万字；配置一类留开头
   const NOIMG = `当前模型 ${MODEL} 不支持图片输入，可在「设置 → AI」更换支持图片的模型`;
+  const CLIP_TIP = "上传图片或文件\n也可将文件拖入面板，或在输入框中粘贴截图";
   const IMG_TIP = "PNG、JPG、WebP、GIF，单张不超过 10 MB";
   const TXT_TIP = "日志、配置等文本文件（txt、log、json、toml、yml、properties 等），单个不超过 5 MB";
   const TXT_PRIV = "发送前将自动替换其中的 Windows 用户名、局域网 IP、API Key 与令牌";
@@ -217,8 +218,10 @@
     return f;
   }
   const cutOf = f => f.chars > LIM.chars; // 文本太长、只发一部分
-  const fileTip = f => f.bad ? `${f.name}\n${f.why}`
-    : f.kind === "img" ? `${f.name}\n${fmtSize(f.size)}\n${IMG_PRIV}`
+  // 卡片的悬停：没发的说「将…」，发出去的（sent）说「已…」，点了看原文
+  const fileTip = (f, sent) => f.bad ? `${f.name}\n${f.why}`
+    : f.kind === "img" ? `${f.name}\n${fmtSize(f.size)}\n${sent ? "图片已原样发送，图中的文字未被替换" : IMG_PRIV}`
+    : sent ? `${f.name}\n${fmtSize(f.size)}${cutOf(f) ? ` · 仅发送了${f.tail ? "最后" : "前"} ${LIM.chars.toLocaleString("en-US")} 字` : ""}\n点击查看实际发给 AI 的内容`
     : `${f.name}\n${fmtSize(f.size)}${cutOf(f) ? ` · 内容较长，仅发送${f.tail ? "最后" : "前"} ${LIM.chars.toLocaleString("en-US")} 字` : ""}（约 ${fmtTokens(Math.round(Math.min(f.chars, LIM.chars) / 1.6))} token）\n${TXT_PRIV}`;
   // 示例附件（st=files）：截图是草图画的假截图（img/as-shot-timeout.svg），日志是编的
   const LOG_TXT = L(
@@ -452,7 +455,7 @@
       + `<div class="as-att" id="as-att" hidden>${ic("doc")}<span></span><button type="button" class="as-ib" data-a="noattach" title="移除排错资料" aria-label="移除排错资料">${ic("x")}</button></div>`
       // 11-29 加：附件卡片一排（多了横着滚，两头淡出）；输入框左边一颗回形针（点开「上传图片」「上传文件」）；两个藏着的选文件框
       + `<div class="as-fl" id="as-fl" hidden role="list" aria-label="待发送的附件"></div>`
-      + `<div class="as-cb" id="as-cb"><button type="button" class="as-clip" id="as-clip" data-a="clip" aria-haspopup="menu" aria-label="上传附件" title="上传图片或文件\n也可将文件拖入面板，或在输入框中粘贴截图">${ic("clip")}</button>`
+      + `<div class="as-cb" id="as-cb"><button type="button" class="as-clip" id="as-clip" data-a="clip" aria-haspopup="menu" aria-label="上传附件" title="${CLIP_TIP}">${ic("clip")}</button>`
       + `<textarea class="as-ta" id="as-ta" rows="1" placeholder="向 AI 助手提问…" aria-label="发给 AI 的消息"></textarea><button type="button" class="as-snd" id="as-snd"></button></div>`
       + `<input type="file" id="as-fi-img" hidden multiple accept="image/png,image/jpeg,image/webp,image/gif"><input type="file" id="as-fi-txt" hidden multiple accept="${TXT_EXT.map(e => "." + e).join(",")}">`
       + `<div class="as-meta" id="as-meta"></div></div>`
@@ -548,7 +551,7 @@
   // 附件卡片（11-29 加）。输入框上面那排：图片是 48 见方的缩略图，文件是 48 高的一张（图标、名字、大小），被拦下的是危险色、写短句；右上角一颗 ×。
   // 发出去的（sent）小一号（40），没有 ×，点了看实际发给 AI 的内容。悬停：全名、大小、图片原样发送 / 文本会替换隐私信息 / 拦下的原因
   function fileCardHTML(f, sent) {
-    const tip = esc(fileTip(f)), x = sent ? "" : `<button type="button" class="as-fcx" data-a="rmfile" aria-label="移除 ${esc(f.name)}">${ic("x")}</button>`;
+    const tip = esc(fileTip(f, sent)), x = sent ? "" : `<button type="button" class="as-fcx" data-a="rmfile" aria-label="移除 ${esc(f.name)}">${ic("x")}</button>`;
     const tag = sent ? `button type="button" data-a="sent"` : `div role="listitem"`, end = sent ? "button" : "div", cls = `as-fc${sent ? " sm" : ""}`;
     if (f.kind === "img" && !f.bad) return `<${tag} class="${cls} img" data-f="${f.id}" title="${tip}"><img src="${esc(f.url)}" alt="${esc(f.name)}" draggable="false">${x}</${end}>`;
     const sub = f.bad || (fmtSize(f.size) + (cutOf(f) ? " · 已截取" : ""));
@@ -845,6 +848,7 @@
     paintFiles();
     const offWhy = s.stale ? "当前会话已失效" : "今日额度已用完";
     if (off) { P.clip.setAttribute("aria-disabled", "true"); P.clip.dataset.hold = offWhy; } else { P.clip.removeAttribute("aria-disabled"); delete P.clip.dataset.hold; }
+    setTip(P.clip, off ? offWhy : CLIP_TIP); // 灰着时悬停就是原因（同发送键）
     const busy = !!s.busy, mode = busy ? "stop" : "send";
     if (P.snd._mode !== mode) { P.snd._mode = mode; P.snd.innerHTML = ic(busy ? "stop" : "arrowUp"); P.snd.classList.toggle("stop", busy); }
     const empty = !P.ta.value.trim() && !att && !goodFiles(s).length;
@@ -1321,9 +1325,16 @@
     P.pn.addEventListener("dragover", e => { if (!has(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = canAttach() ? "copy" : "none"; });
     P.pn.addEventListener("dragleave", e => { if (!has(e) || !n) return; if (--n <= 0) { n = 0; show(false); } });
     P.pn.addEventListener("drop", e => { if (!has(e)) return; e.preventDefault(); e.stopPropagation(); n = 0; show(false); addFiles([...e.dataTransfer.files], "drop"); });
-    // 面板以外：拦下浏览器自己打开文件（程序里 WebView2 拖文件进窗口也会跳走，要在整页拦）
-    addEventListener("dragover", e => { if (has(e) && !P.pn.contains(e.target)) { e.preventDefault(); e.dataTransfer.dropEffect = "none"; } });
-    addEventListener("drop", e => { if (has(e)) e.preventDefault(); });
+    // 面板以外：拦下浏览器自己打开文件（程序里 WebView2 拖文件进窗口也会跳走，要在整页拦）。
+    // 抽屉形态底下的首页是个 iframe（同源），拖到它上面的事件到不了这一页，给它的窗口也挂一份
+    const guard = w => {
+      w.addEventListener("dragover", e => { if (has(e) && !(w === window && P.pn.contains(e.target))) { e.preventDefault(); e.dataTransfer.dropEffect = "none"; } });
+      w.addEventListener("drop", e => { if (has(e)) e.preventDefault(); });
+    };
+    guard(window);
+    const fr = $("#as-under");
+    if (fr) { const hook = () => { try { if (fr.contentWindow && !fr.contentWindow._asGuard) { fr.contentWindow._asGuard = true; guard(fr.contentWindow); } } catch {} };
+      fr.addEventListener("load", hook); if (fr.contentDocument?.readyState === "complete") hook(); }
     // 在输入框里粘贴截图：剪贴板里有文件就加成附件；同时有字的照常贴字
     P.ta.addEventListener("paste", e => {
       const fs = [...(e.clipboardData?.files || [])]; if (!fs.length) return;
