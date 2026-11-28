@@ -17,11 +17,14 @@
   // 背景图（11-28 作者问选了以后程序变成什么样）：?bg=1 整页底下铺一张示例壁纸（img/bg-sample.svg），样子在 kit.css 末尾。
   // 外观页选图、移除时调 KIT.setBg，马上生效；铺着时点去同一文件夹里别的草图页，地址自动带上 bg=1，各页看得到同一个效果。
   if (q.get("bg") === "1") r.classList.add("kit-bg");
+  const setCard = n => { if (+n > 0) r.style.setProperty("--kit-card", +n + "%"); else r.style.removeProperty("--kit-card"); }; // 卡片透明度，同 kit.css
+  setCard(q.get("card"));
   document.addEventListener("click", e => {
     const a = r.classList.contains("kit-bg") && e.target.closest?.("a[href]"); if (!a) return;
     const h = a.getAttribute("href"); if (!/^[\w-]+\.html(\?|#|$)/.test(h)) return;
-    const u = new URL(a.href); if (u.searchParams.get("bg") === "1") return;
-    u.searchParams.set("bg", "1"); a.href = u.href;
+    const u = new URL(a.href), card = new URLSearchParams(location.search).get("card");
+    u.searchParams.set("bg", "1"); if (card) u.searchParams.set("card", card); else u.searchParams.delete("card");
+    if (u.href !== a.href) a.href = u.href;
   }, true);
   const ICON = {};
   const icon = (name, cls = "") => `<svg class="ico ${cls}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[name] || ""}</svg>`;
@@ -31,7 +34,7 @@
       el.outerHTML = icon(el.dataset.ic, el.className);
     }
   };
-  window.KIT = { icon, hydrate, setBg: on => r.classList.toggle("kit-bg", !!on) };
+  window.KIT = { icon, hydrate, setBg: on => r.classList.toggle("kit-bg", !!on), setCard };
   // 4. 悬停提示
   let tip = null, cur = null, timer = 0, lastHide = 0, raf = 0;
   const tipEl = () => tip || (tip = Object.assign(document.createElement("div"), { className: "kit-tip" }), tip.setAttribute("role", "tooltip"), document.body.appendChild(tip), tip);

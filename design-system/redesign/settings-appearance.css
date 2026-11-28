@@ -27,6 +27,10 @@ html.sa-swap *:not(.sa-glide), html.sa-swap *::before, html.sa-swap *::after { t
 .sa-seg button .ico { width: 15px; height: 15px; }
 .sa-seg button:hover { color: var(--text); }
 .sa-seg button.on { color: var(--accent-text); font-weight: 500; }
+/* 卡片透明度：没选背景图时整块淡掉、点不动（悬停在整块上说「选择背景图后可调整」） */
+.sa-cardf .sa-seg { transition: opacity .2s; }
+.sa-cardf.off .sa-seg { opacity: .45; }
+.sa-cardf.off .sa-seg button { cursor: default; pointer-events: none; }
 
 /* ---- 配色方案：一排四张，选中框单独一块、横竖都能滑 ---- */
 .sa-schemes { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }

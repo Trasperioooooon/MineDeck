@@ -34,6 +34,13 @@ html, body { margin: 0; height: 100%; }
 html.kit-bg { --kit-bg-scrim: color-mix(in srgb, var(--bg) 72%, transparent); }
 html.kit-bg[data-theme="light"] { --kit-bg-scrim: color-mix(in srgb, var(--bg) 64%, transparent); }
 html.kit-bg body { background: linear-gradient(var(--kit-bg-scrim), var(--kit-bg-scrim)) fixed, url("img/bg-sample.svg") center / cover no-repeat fixed, var(--bg); }
+/* 卡片透明度（11-28 作者要的：背景图能从卡片后面隐约透出来；外观页「卡片透明度」，草图里 ?card=15|30|45）：铺着背景图时，面板和卡片的底色
+   （--surface、--surface-2）按这个比例变透明。html 上先记下主题里的不透明值，body 上再改成半透明的，底下各元素照常用 var(--surface)。
+   弹窗、悬停提示、下拉菜单照旧是实底（盖在别的东西上面，透了就看不清）。没铺背景图时这条不起作用 */
+html.kit-bg { --kit-o-surface: var(--surface); --kit-o-surface-2: var(--surface-2); }
+html.kit-bg body { --surface: color-mix(in srgb, var(--kit-o-surface) calc(100% - var(--kit-card, 0%)), transparent);
+                   --surface-2: color-mix(in srgb, var(--kit-o-surface-2) calc(100% - var(--kit-card, 0%)), transparent); }
+html.kit-bg :is(.kit-mask, .kit-tip, [role="menu"], [role="listbox"], [role="dialog"]) { --surface: var(--kit-o-surface); --surface-2: var(--kit-o-surface-2); }
 body { background: var(--chrome); color: var(--text); font: 400 14px/22px var(--font); font-synthesis-weight: none; -webkit-font-smoothing: antialiased; }
 button { font: inherit; color: inherit; }
 .ico { width: 16px; height: 16px; flex: none; }

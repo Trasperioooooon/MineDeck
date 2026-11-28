@@ -23,7 +23,10 @@
 // 都是点了马上生效，同程序，没有保存条，也不弹提示（变的就是整页的样子）。换外观的那一下整页先停掉过渡、两帧后恢复（同程序 Appearance.set 的 no-transition），
 // 免得各处按自己的过渡时长慢慢变色；滑动的选中块不停。
 // 换分类回来，选的都还在（数据在这个文件里）；主题、方案、强调色、胶囊里的 AI 助手本来就挂在外壳上。
-// 草图专用：&bg=1 一打开就是选过背景图的样子。
+// 11-28 作者：背景图选完马上生效（整页铺上，见 kit.css）；再加一项「卡片透明度」，让背景图能从卡片后面隐约透出来。
+//   卡片透明度在背景图下面：40 高四段「不透明 / 15% / 30% / 45%」（同主题模式那种分段，选中块滑过去），点了马上生效；没选背景图时整块淡掉、点不动，
+//   悬停说「选择背景图后可调整」。默认「不透明」（同程序现在）。透的只是面板和卡片的底色，字不透；弹窗、悬停提示、下拉菜单照旧实底（kit.css）。
+// 草图专用：&bg=1 一打开就是选过背景图的样子；&card=15|30|45 卡片透明度（铺着背景图时才看得出来）。
 (() => {
   // 程序图标里没有「图片」：照 16 格、1.3 粗画的一张（框、太阳、山）
   Object.assign(window.EXTRA_ICONS = window.EXTRA_ICONS || {}, {
@@ -72,10 +75,15 @@
   function data() {
     if (A) return A;
     const d = html0.dataset;
-    A = { mode: d.theme === "light" ? "light" : "dark", scheme: d.scheme || "nord", accent: d.accent || "auto", bg: C.QS.get("bg") === "1", heart: true, label: true, ai: true };
+    const cd = +C.QS.get("card");
+    A = { mode: d.theme === "light" ? "light" : "dark", scheme: d.scheme || "nord", accent: d.accent || "auto", bg: C.QS.get("bg") === "1", card: CARDS.some(c => c.v === cd) ? cd : 0, heart: true, label: true, ai: true };
     return A;
   }
   const root = () => document.querySelector(".cp > .sa:not(.fade-out)");
+  // 卡片透明度的四档（百分比是透掉多少）
+  const CARDS = [{ v: 0, t: "不透明" }, { v: 15, t: "15%" }, { v: 30, t: "30%" }, { v: 45, t: "45%" }];
+  const CARD_TIP = "铺着背景图时，面板与卡片的底色按此比例变透明，背景图可从卡片后面隐约透出；文字不透明，弹窗、提示与下拉菜单保持不透明。\n比例越高，图越明显，文字与底色的对比也越低。";
+  const CARD_OFF = "选择背景图后可调整";
 
   // ---- 改外壳：主题、方案、强调色挂在 <html> 上 ----
   // 整页一次换色：先停掉过渡，两帧后恢复（同程序 Appearance.set）；滑动的选中块（.sa-glide）不停
@@ -111,6 +119,9 @@
     ? `<span class="sa-bgi"></span><button type="button" class="sa-bgx" data-sa="bgx" title="移除背景图" aria-label="移除背景图"><i data-ic="x"></i></button>`
     : `<span class="sa-bge"><i data-ic="saImage"></i><span class="sa-bgb">选择背景图…</span></span>`);
   const bgTip = D => (D.bg ? `${BG_NAME}\n点击更换背景图` : "");
+  const cardHTML = D => `<div class="sa-f sa-cardf${D.bg ? "" : " off"}"${D.bg ? "" : ` title="${CARD_OFF}"`}><div class="sa-lb"><span title="${esc(CARD_TIP)}">卡片透明度</span></div>`
+    + `<div class="sa-seg" role="radiogroup" aria-label="卡片透明度"${D.bg ? "" : ' aria-disabled="true"'}><i class="sa-sgl sa-glide"></i>${CARDS.map(c =>
+      `<button type="button" role="radio" data-card="${c.v}" aria-checked="${D.card === c.v}" class="${D.card === c.v ? "on" : ""}"${D.bg ? "" : ' tabindex="-1"'}>${c.t}</button>`).join("")}</div></div>`;
   const tgHTML = D => `<div class="sa-tgs">${TOGGLES.map((g, i) => (i === 2 ? `<i class="sa-hr"></i>` : "")
     + `<button type="button" class="sa-tg${D[g.k] ? " on" : ""}" data-tg="${g.k}" role="switch" aria-checked="${D[g.k]}" title="${esc(g.tip)}"><span class="sa-swc"></span><span class="sa-tl">${esc(g.t)}</span></button>`).join("")}</div>`;
 
@@ -123,7 +134,7 @@
       + `<section class="sa-col sa-side" aria-label="背景图与界面显示">`
       + `<div class="sa-f"><div class="sa-lb"><span>背景图</span></div><div class="sa-bg${D.bg ? "" : " none"}" role="button" tabindex="0" data-sa="bg"`
       + ` aria-label="${D.bg ? "更换背景图…" : "选择背景图…"}"${D.bg ? ` title="${esc(bgTip(D))}"` : ""}>${bgInner(D)}</div></div>`
-      + `${tgHTML(D)}</section></div>`;
+      + `${cardHTML(D)}${tgHTML(D)}</section></div>`;
   }
 
   // ---- 选中框滑过去：位置和宽（高）一起变，0.32 秒（规范第七节）；不动画时直接放好 ----
@@ -135,7 +146,7 @@
     if (h != null) hl.style.height = h + "px";
     if (!animate) { void hl.offsetWidth; hl.style.transition = ""; }
   }
-  const placeSeg = (r, a) => { const b = r.querySelector(".sa-seg button.on"); if (b) glide(r.querySelector(".sa-sgl"), b.offsetLeft, 0, b.offsetWidth, null, a); };
+  const placeSeg = (r, a) => r.querySelectorAll(".sa-seg").forEach(box => { const b = box.querySelector("button.on"); if (b) glide(box.querySelector(".sa-sgl"), b.offsetLeft, 0, b.offsetWidth, null, a); });
   const placeCard = (r, a) => { const b = r.querySelector(".sa-sc.on"); if (b) glide(r.querySelector(".sa-shl"), b.offsetLeft, b.offsetTop, b.offsetWidth, b.offsetHeight, a); };
   const placeRing = (r, a) => { const b = r.querySelector(".sa-acc .on"); if (b) glide(r.querySelector(".sa-ring"), b.offsetLeft - 4, 0, b.offsetWidth + 8, null, a); };
   const placeAll = (r, a) => { placeSeg(r, a); placeCard(r, a); placeRing(r, a); };
@@ -165,6 +176,12 @@
       if (m.dataset.mode === D.mode) return;
       D.mode = m.dataset.mode; pick(r.querySelectorAll("[data-mode]"), x => x.dataset.mode === D.mode); placeSeg(r, true); applyTheme(); return;
     }
+    const cb = e.target.closest("[data-card]");
+    if (cb) {
+      if (!D.bg || +cb.dataset.card === D.card) return; // 没选背景图时这一块点不动
+      D.card = +cb.dataset.card; pick(r.querySelectorAll("[data-card]"), x => +x.dataset.card === D.card); placeSeg(r, true);
+      C.KIT.setCard(D.card); setQ("card", String(D.card), "0"); return;
+    }
     const s = e.target.closest("[data-pick]");
     if (s) {
       if (s.dataset.pick === D.scheme) return;
@@ -183,8 +200,15 @@
       return;
     }
     // 选完、移除都马上生效（11-28 作者定）：框里换图的同时整页底下的壁纸跟着铺上 / 撤掉，地址里的 bg 跟着改，刷新也还是它
-    if (e.target.closest("[data-sa=bgx]")) { D.bg = false; swapBg(r); C.KIT.setBg(false); setQ("bg", "0", "0"); return; }
-    if (e.target.closest("[data-sa=bg]")) { D.bg = true; swapBg(r); C.KIT.setBg(true); setQ("bg", "1", "0"); } // 草图里不弹选文件的窗口：假装选了一张（已经有图时就是换一张，样子不变）
+    if (e.target.closest("[data-sa=bgx]")) { D.bg = false; swapBg(r); C.KIT.setBg(false); setQ("bg", "0", "0"); paintCard(r); return; }
+    if (e.target.closest("[data-sa=bg]")) { D.bg = true; swapBg(r); C.KIT.setBg(true); setQ("bg", "1", "0"); paintCard(r); } // 草图里不弹选文件的窗口：假装选了一张（已经有图时就是换一张，样子不变）
+  }
+  // 背景图选上 / 移除时，卡片透明度那一块跟着能点 / 淡掉（选过的档位留着，下次选了图照旧用它）
+  function paintCard(r) {
+    const D = data(), f = r.querySelector(".sa-cardf"), seg = f?.querySelector(".sa-seg"); if (!f) return;
+    f.classList.toggle("off", !D.bg); setTip(f, D.bg ? "" : CARD_OFF);
+    if (D.bg) seg.removeAttribute("aria-disabled"); else seg.setAttribute("aria-disabled", "true");
+    seg.querySelectorAll("button").forEach(b => { if (D.bg) b.removeAttribute("tabindex"); else b.tabIndex = -1; });
   }
   function onKey(e) {
     if ((e.key === "Enter" || e.key === " ") && e.target.matches?.(".sa-bg")) { e.preventDefault(); e.target.click(); }
