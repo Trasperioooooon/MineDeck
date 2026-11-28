@@ -26,9 +26,13 @@
 .ex-pane.stack { flex-direction: column; }
 .ex-pane.stack > .ex-testc { flex: 1; }
 .ex-pane.stack > .ex-advc { flex: none; }
-/* 总开关关着：这一段设置整块 0.7、点不动（规范第六节；按钮、输入框在 JS 里设 inert），面板自己接悬停提示 */
-.ex-pane { transition: opacity .2s, filter .2s; }
-.ex-pane.off { opacity: .7; filter: grayscale(1); }
+/* 总开关关着：这一段设置整块蒙一层暗色（作者 11-28 要「蒙上一层、变暗」，不要去色变灰），点不动（规范第六节；按钮、输入框在 JS 里设 inert），面板自己接悬停提示。
+   蒙层是面板的 ::after，盖住三栏和栏间的缝，圆角同栏（18）；不接鼠标，列表照样能滚、标题照样能悬停 */
+.ex-pane { position: relative; --ex-dim: rgb(var(--shadow-rgb) / .2); }
+[data-theme="dark"] .ex-pane { --ex-dim: rgb(0 0 0 / .42); }
+.ex-pane::after { content: ""; position: absolute; inset: 0; z-index: 5; border-radius: 18px; background: var(--ex-dim); opacity: 0; pointer-events: none; transition: opacity .2s; }
+.ex-pane.off { isolation: isolate; }
+.ex-pane.off::after { opacity: 1; }
 .ex-pane.off, .ex-pane.off :not(.thumb) { cursor: default; }
 .ex-pane.off :is(.ex-pr, .ex-tr, .ex-zr, .ex-cr):hover { background: none; }
 .ex-pane.off :is(.ex-cx, .ex-rx) { opacity: 0 !important; }
