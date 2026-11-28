@@ -3,7 +3,8 @@
    .list、.thumb 只在自己的 .ex-lw 里用（外壳的细滚动条 thinBar 认这两个名字）。
 
    内容面板（.cp，868 × 526、内边距 8、圆角 26）里：
-     游戏内 AI、AI 伙伴：最上面一排 32 高（左边开关和状态，右边 32 高胶囊分段），下面并排两三栏（圆角 18 = 26 − 8，内边距 8，栏间 8），各栏自己滚；
+     游戏内 AI、AI 伙伴：最上面一排 32 高（左边开关和状态，右边 32 高胶囊分段），中间并排两三栏（圆角 18 = 26 − 8，内边距 8，栏间 8），各栏自己滚，
+       最下面一条 52 高的保存条（11-28 加的：设置先进草稿、点保存才生效）；
      音乐共享：左一栏「广播」，右边上「检查清单」、下「听众」。
    栏里贴边 8 的块、行、输入框、步进、40 高的按钮圆角 10（18 − 8）；行里的图标按钮 28 见方、圆角 6；框里的按钮离框外沿 6、圆角 4（10 − 6）；
    栏右上角的图标按钮贴着栏角 8、圆角 10（同外壳各页右上角的文件夹按钮）。胶囊（分段、开关、小按钮、标签、状态）不按同心算。 */
@@ -16,7 +17,7 @@
 
 /* ---- 最上面一排：32 高，左边离面板内沿 14（开关的左边和下面栏里的标题对齐，离面板外沿都是 22） ---- */
 .ex-top { flex: none; height: 32px; display: flex; align-items: center; gap: 10px; padding-left: 14px; min-width: 0; }
-.ex-pslot, .ex-gslot, .ex-hslot { display: flex; align-items: center; min-width: 0; }
+.ex-pslot, .ex-gslot { display: flex; align-items: center; min-width: 0; }
 .ex-pane { flex: 1; min-height: 0; display: flex; gap: 8px; }
 .ex-pane > * { min-width: 0; min-height: 0; }
 .ex-pane.g3 { display: grid; grid-template-columns: minmax(0, 32fr) minmax(0, 34fr) minmax(0, 34fr); }
@@ -36,6 +37,31 @@
 .ex-pane.off, .ex-pane.off :not(.thumb) { cursor: default; }
 .ex-pane.off :is(.ex-pr, .ex-tr, .ex-zr, .ex-cr):hover { background: none; }
 .ex-pane.off :is(.ex-cx, .ex-rx) { opacity: 0 !important; }
+
+/* ---- 保存条（游戏内 AI、AI 伙伴；作者 11-28 定「设置」先进草稿、点保存才生效）：内容面板最下面一条，52 高、圆角 18，数值同「定时任务」「设置」的保存条。
+   它在 .ex-pane 外面，总开关关着时不蒙、照样能点。按钮 36 高胶囊，离条的上下边 8（胶囊不按同心算）；条的大小干净和有改动时一样 ---- */
+.ex-bar { flex: none; height: 52px; display: flex; align-items: center; gap: 8px; padding: 0 8px 0 20px; box-sizing: border-box; border-radius: 18px;
+          background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+.ex-bn { display: inline-flex; align-items: center; gap: 7px; margin-right: 4px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.ex-bn > i { width: 7px; height: 7px; border-radius: 2px; background: var(--accent); }
+/* 有改动时：「N 项修改未保存」和「放弃修改」淡进来（0.22 秒、从下 5 像素），没了淡掉（0.09 秒）；位置一直占着，「保存」不挪 */
+.ex-bn, .ex-bdis { opacity: 0; visibility: hidden; transform: translateY(5px);
+                   transition: opacity .09s cubic-bezier(.4, 0, 1, 1), transform .09s cubic-bezier(.4, 0, 1, 1), visibility 0s .09s, background .15s, color .15s; }
+.ex-bn.on, .ex-bdis.on { opacity: 1; visibility: visible; transform: none;
+                         transition: opacity .22s cubic-bezier(.2, .7, .2, 1), transform .22s cubic-bezier(.2, .7, .2, 1), background .15s, color .15s; }
+.ex-bdis { height: 36px; padding: 0 14px; border-radius: 18px; border: 0; background: none; flex: none; font: inherit; font-size: 13px; font-weight: 500; color: var(--muted); cursor: pointer; }
+.ex-bdis:hover { background: var(--hover); color: var(--text); }
+.ex-bsave { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; min-width: 84px; padding: 0 18px; border-radius: 18px; box-sizing: border-box; flex: none;
+            border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+            transition: background .2s, color .2s, border-color .2s, opacity .2s; }
+.ex-bsave[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.ex-bsave.on { background: var(--accent-solid); color: var(--on-accent); border-color: transparent; }
+.ex-bsave.on:hover { background: var(--accent-solid-hov); }
+.ex-bsave .ico { width: 15px; height: 15px; animation: ex-spin .9s linear infinite; }
+/* 改过、还没保存的那一项旁边的小点（同「定时任务」行上的、「设置」格子上的）：位置一直占着，那一项（data-dk / data-dkp）标上 .mod 才亮 */
+.ex-dot { display: inline-block; width: 6px; height: 6px; border-radius: 2px; flex: none; background: var(--accent); opacity: 0; pointer-events: none; transition: opacity .2s; }
+.mod .ex-dot { opacity: 1; pointer-events: auto; }
+.ex-ll b > .ex-dot, .ex-tx b > .ex-dot, .ex-tl > .ex-dot, .ex-t > .ex-dot, .ex-lb > span > .ex-dot { margin-left: 6px; vertical-align: 1.5px; }
 
 /* ---- 栏：圆角 18、内边距 8，底色同「玩家」「插件」各栏 ---- */
 .ex-col { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 8px; box-sizing: border-box; border-radius: 18px;
@@ -180,15 +206,18 @@
 .ex-ll b { font-size: 13px; font-weight: 500; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; align-self: flex-start; max-width: 100%; }
 .ex-ll small { font-size: 11.5px; line-height: 15px; color: var(--faint); white-space: nowrap; align-self: flex-start; }
 .ex-val { font-family: var(--mono); font-size: 12.5px; color: var(--muted); white-space: nowrap; }
-/* 步进：40 高、圆角 10，两颗 28 见方、圆角 4 的按钮离框外沿 6（同向导第三步、控制台「Aa」） */
-.ex-stp { width: 120px; height: 40px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 5px; border-radius: 10px; box-sizing: border-box;
+/* 步进：40 高、圆角 10，两颗 28 见方、圆角 4 的按钮离框外沿 6（同向导第三步、控制台「Aa」）。
+   中间的数字点进去就地打字（kit.js 第 7 条）：<b> 占满两颗按钮中间、28 高，悬停的淡底和打字的框都是这一块；平时 120 宽，
+   打进来的数太长（如 1000000 次）时这一颗步进自己变宽，不截断数字 */
+.ex-stp { min-width: 120px; height: 40px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 5px; border-radius: 10px; box-sizing: border-box;
           background: var(--field); border: 1px solid var(--border); }
 .ex-stp button { width: 28px; height: 28px; border-radius: 4px; border: 0; padding: 0; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer;
                  transition: background .15s, color .15s; }
 .ex-stp button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
 .ex-stp button:disabled { opacity: .3; cursor: default; }
 .ex-stp button .ico { width: 14px; height: 14px; }
-.ex-stp b { display: block; font-size: 13.5px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ex-stp b { display: block; flex: 1 0 auto; height: 28px; line-height: 28px; text-align: center; font-size: 13.5px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ex-stp .kit-num { width: 0; min-width: 100%; } /* 打字的框跟着 <b> 的宽，自己不把步进撑宽 */
 
 /* ---- 列表：细滚动条（同「玩家」、向导那套）——系统滚动条藏掉，右边 4 像素的细条，移上去或在滚时才出来、能拖；上下还有没露出来的，那一头淡出 28 ---- */
 .ex-lw { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }

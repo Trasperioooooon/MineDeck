@@ -10,18 +10,29 @@
 //     下面一块按分段换内容，里面并排两三栏（圆角 18 = 26 − 8），每栏自己滚。换分段时旧的几栏往反方向挪 5 像素淡掉、新的一栏一栏淡进来（规范第七节）。
 //   · 音乐共享没有总开关，不分段：左边一栏「广播」（音源、采集方式、音量、开始广播），右边上「检查清单」、下「听众」。
 //
+// 保存（作者 11-28 定，替换第一稿的「点了就生效」）：游戏内 AI、AI 伙伴里改设置的操作先进草稿、点保存才生效，同「定时任务」「设置」——
+//   · 内容面板最下面一条 52 高的保存条（换分段时不动，草稿跨分段留着）；改过的那一项旁边一个强调色小点；改了没存就换标签、换子页、刷新、跳页，外壳先问（kit.js 第 6 条，
+//     这里往 DETAIL_TABS 上登记 dirty / save / discard）。两页共用一套，见「草稿和保存条」。
+//   · 进草稿的：游戏内 AI 的触发前缀、别名、四项限流、命令模板开关、能执行命令的玩家，「识别测试」里的两个高级识别开关和自定义正则（识别测试照程序用没保存的值来测）；
+//     AI 伙伴的伙伴上限、禁止攻击的生物、禁挖区域。
+//   · 不进草稿、照旧点了就生效的（主会话定）：两个总开关（程序就是即时的，像开关机；总开关关着时「设置」那一段蒙暗色、点不动，保存条在外面照样能存、能放弃）；
+//     开启白名单、刷出 / 停止 / 移除伙伴、安装模组这些动作；音乐共享整页（音量程序是边广播边立刻生效、要边听边调；我在游戏里的名字、voice_host 照程序单字段保存）。
+//   · 步进中间的数字点进去能就地打字（kit.js 第 7 条，作者 11-28 定凡是步进都这样）。
+//
 // ---- 游戏内 AI ----
 // 程序（gamechat.js）从上到下：AI 没配置 / 局域网只能看的提示；打开开关、触发前缀、别名、「提问会发给 X（模型）」和今天的用量；能让 AI 执行命令的玩家（没开白名单时的提醒，
 // 一键开启白名单）、按名字授权；命令模板十个开关；限流和额度四个数字框、今天谁问了几次、所有服务器的每日总额度；最近的问答和执行记录；识别测试；高级识别（折叠）。
 // 这里：顶上一排「游戏内 AI」开关 +（没配 AI 时）一颗警告胶囊「AI 还没配置 · 去设置」，右边分段「设置 · 问答记录 · 识别测试」。
-//   · 设置：三栏。左「提问」：触发前缀、别名（并排两格，40 高、圆角 10，框里右边一颗保存，没改时灰着、回车也能存）、「提问会发给」（点了去「设置 → AI」，草图里不跳）；
-//     下面「限流和额度」：四项用步进（一下一档，档位见「替作者定的」），「全服每天」「全服每天的 token」下面一行淡字是今天用了多少（谁问了几次在悬停里），
-//     最后一行是所有服务器合计的每日总额度。中「能执行命令的玩家」：一行一人，开关在名字左边，在线的名字后面一个成功色小方点，管理员一个王冠，
-//     「白名单」「最近来过」是小标签；没开白名单又授了权时，栏顶一条警告「没有开启白名单」带「开启白名单」（确认框里勾要加进白名单的人）；底下按名字授权的框。
+//   · 设置：三栏。左「提问」：触发前缀、别名（并排两格，40 高、圆角 10，边打边进草稿，填错了保存时拦下）、「提问会发给」（点了去「设置 → AI」，草图里不跳）；
+//     下面「限流和额度」：四项用步进（一下一档，档位见「替作者定的」；数字点进去能打字，次数和 token 能打「不限」，token 按万打），
+//     「全服每天」「全服每天的 token」下面一行淡字是今天用了多少（谁问了几次在悬停里），
+//     最后一行是所有服务器合计的每日总额度。加了保存条以后这一栏矮了 60，放不下，在栏里滚（最后两行在折叠线下面）。
+//     中「能执行命令的玩家」：一行一人，开关在名字左边，在线的名字后面一个成功色小方点，管理员一个王冠，
+//     「不在白名单」「最近来过」是小标签（白名单只标没在名单里的，作者 11-28 定）；没开白名单又授了权时，栏顶一条警告「未开启白名单」带「开启白名单」（确认框里勾要加进白名单的人）；底下按名字授权的框。
 //     右「命令模板」：一行一个，整行是开关，第二行等宽字是命令的写法，限制和「默认关着」进悬停。
 //   · 问答记录：一栏，记录之间用分隔线：谁、类型、选项、「可执行命令」、用量和时间一行；问、答、执行的命令（✓ / ✗ 加原因）、命令输出、报错往下排，全文不截。
 //   · 识别测试：上一栏贴一行日志、「填入示例」、「识别」，下面认出的几项和一句结论（照 internal/chatai 的 describe 原话，草图里用 JS 照着认）；
-//     下一栏「高级识别」：放宽名字规则、不看线程名两个开关，自定义正则（框里保存）。改了这几项，上面有结果时马上按新规则重认。
+//     下一栏「高级识别」：放宽名字规则、不看线程名两个开关，自定义正则。这三项也是存下来的设置，一样进草稿；改了这几项，上面有结果时马上按新规则（没保存的也算）重认。
 //   · 程序的「局域网打开时只能看」草图没画（草图是本机窗口）。
 //
 // ---- AI 伙伴 ----
@@ -30,8 +41,8 @@
 // 这里：顶上一排「AI 伙伴」开关、连接状态胶囊（连上时悬停是模组版本和心跳）、需要时一颗提示胶囊（AI 没配置 / 游戏内 AI 没开 · 去打开），右边分段「伙伴 · 设置 · 安装」，
 // 要装、要换模组时「安装」后面一个警告色小点，打开这页先停在「安装」。
 //   · 伙伴：左「伙伴」一行一个（名字、状态、主人；血量、维度和坐标；正在做的或上次的结果；「停下」和移除），底下「刷出伙伴」「全部停下」（40 高、圆角 10）；右「最近的事件」。
-//   · 设置：左「设置」：伙伴上限（步进 1–16）、攻击时不许打的生物（小胶囊一个一个列，× 拿掉，下面框里加，标题旁「恢复默认」）、AI 伙伴的每日额度；
-//     改了以后栏标题旁转 2 秒的小圈（伙伴模组每 2 秒读一次设置）。右「禁挖区域」：一行一个，点行编辑，× 删除（危险确认框），右上角 ＋ 添加（表单弹窗）。
+//   · 设置：左「设置」：伙伴上限（步进 1–16，数字点进去能打字）、攻击时不许打的生物（小胶囊一个一个列，× 拿掉，下面框里加，标题旁「恢复默认」）、AI 伙伴的每日额度；
+//     保存以后栏标题旁转 2 秒的小圈（伙伴模组每 2 秒读一次设置）。右「禁挖区域」：一行一个，点行编辑，× 删除（危险确认框），右上角 ＋ 添加（表单弹窗）；加、改、删都只进草稿。
 //   · 安装：左「安装」三个模组（状态标签、装的或要装的版本，依赖带去 Modrinth 的外链图标），底下一条说现在该做什么（安装 / 先停服再安装 / 装好了要重启 / 都装好了）；
 //     右「好友的客户端」：要装、不用装，伙伴模组旁边「打开 mods 文件夹」，依赖旁边去下载页；右上角复制给好友的说明；最底下一句「整合包要装同一个版本」（会改变结果，留在页上）。
 //   · 刷出伙伴、编辑禁挖区域照共用件页的表单弹窗画；维度、出生在用自己画的菜单（程序是 select），「主人」底下列在线的人点一下填进去（程序是 datalist）。
@@ -42,6 +53,7 @@
 // 这里：左「广播」：标题行后面淡字是上次广播为什么停的；中间一行一个正在出声的程序（电平原地跳，选中框滑过去）、整机录音时换成提醒和「播放设备」菜单、正在广播时换成广播的样子；
 // 下面「采集方式」（40 高分段，程序在高级选项里）、「音量」（自己画的条，把手是竖着的小胶囊，0–200%），最底下一行左边是为什么点不了（会拦住下一步，留在页上）、右边「开始广播」。
 // 右上「检查清单」五行：✓ / ! / 图标、名字、值、要做的事（安装、去联机）；桥接模组和远程语音的「···」里是「换成备用加载方式」「手动填写 voice_host」（后者弹一块小浮层）。
+// 服务器运行中装上的，那一行的值后面一个「重启生效」小标签（「重启服务器后生效」只留这一处，栏头原来那颗 11-28 去掉了）。
 // 右下「听众」：会听到音乐 / 没连上语音 / 不再发给，一人一颗小胶囊；右上角复制发给好友的说明（悬停看全文）；底下「我在游戏里的名字」。
 // 语音隧道不在这里管（作者 11-26 定：一台最多游戏、语音各一条，在「联机」里建）；这里没有语音隧道时给一颗「去联机」（ctx.goTab("net")）。
 //
@@ -86,7 +98,10 @@
     { duration: 360, easing: E_SLIDE });
   const tag = (t, tone = "") => `<span class="ex-tag${tone ? " " + tone : ""}">${esc(t)}</span>`;
   const pill = (tone, t, tip = "") => `<span class="ex-pill ${tone}"${tip ? ` title="${esc(tip)}"` : ""}><i></i>${esc(t)}</span>`;
-  const fld = (label, tip, inner, cls = "") => `<div class="ex-fld${cls ? " " + cls : ""}"><span class="ex-lb"${tip ? ` title="${esc(tip)}"` : ""}>${label}</span>${inner}</div>`;
+  // 改过、还没保存的那一项旁边的强调色小点（同「定时任务」的行、「设置」的格子）；平时看不见，带 data-dk 的那一项标上 .mod 才出来，见 paintDraft
+  const DOT = `<i class="ex-dot" title="未保存"></i>`;
+  // dk：这一格进草稿时的项名（见「草稿和保存条」），字后面跟一个未保存的小点
+  const fld = (label, tip, inner, cls = "", dk = "") => `<div class="ex-fld${cls ? " " + cls : ""}"${dk ? ` data-dk="${dk}"` : ""}><span class="ex-lb"${tip ? ` title="${esc(tip)}"` : ""}>${label}${dk ? DOT : ""}</span>${inner}</div>`;
 
   // 逐项换（规范第七节）：一样东西的内容变了，旧的 0.09 秒往反方向挪 5 像素淡掉，新的 0.22 秒从另一边挪 5 像素进来；连着点时上一次没换完的作废
   function swapIn(el, html, dir = 1, axis = "Y", after) {
@@ -146,7 +161,8 @@
   }
   function pickSeg(s, v) { $$("span[data-v]", s).forEach(x => { const on = x.dataset.v === v; x.classList.toggle("on", on); x.setAttribute(s.classList.contains("big") ? "aria-checked" : "aria-selected", on); }); placeSeg(s); }
 
-  // 步进：40 高、圆角 10，两颗 28 见方、圆角 4 的按钮离框外沿 6；一下一档，到头那边灰掉（规范第九节）
+  // 步进：40 高、圆角 10，两颗 28 见方、圆角 4 的按钮离框外沿 6；一下一档，到头那边灰掉（规范第九节）。
+  // 中间的数字点进去能就地打字（作者 11-28 定凡是步进都这样）：每次画出新的步进以后，各页在自己的 xxNums 里给 <b> 接 KIT.numEdit；paintStp 只换 <b> 里的字，接好的不丢
   const stpHTML = (key, text, lo, hi) => `<div class="ex-stp" data-ex-stp="${key}"><button type="button" data-d="-1" aria-label="减少一档"${lo ? " disabled" : ""}><i data-ic="minus"></i></button>`
     + `<b>${esc(text)}</b><button type="button" data-d="1" aria-label="增加一档"${hi ? " disabled" : ""}><i data-ic="plus"></i></button></div>`;
   function paintStp(el, text, lo, hi, dir) {
@@ -157,10 +173,14 @@
   // 一下一档；不在档上的值（以前在程序里手填的）往那个方向找最近的一档
   const ladder = (L, v, d) => d > 0 ? (L.find(x => x > v) ?? v) : ([...L].reverse().find(x => x < v) ?? v);
 
-  // 单字段的框：40 高、圆角 10，框里右边一颗保存（28 见方、离框外沿 6、圆角 4），没改时灰着，回车也能存（程序 bindSaveInput 的保存语义）
+  // 单字段的框：40 高、圆角 10，框里右边一颗保存（28 见方、离框外沿 6、圆角 4），没改时灰着，回车也能存（程序 bindSaveInput 的保存语义）。
+  // 现在只有音乐共享用（我在游戏里的名字、voice_host）；游戏内 AI 的几个框进草稿，用下面的 draftIn
   const saveIn = ({ key, val = "", ph = "", mono = false, max = 64, label }) => `<label class="ex-in${mono ? " mono" : ""}" data-ex-in="${key}" data-saved="${esc(val)}">`
     + `<input value="${esc(val)}" placeholder="${esc(ph)}" maxlength="${max}" spellcheck="false" autocomplete="off" aria-label="${esc(label)}"><span class="ex-msg"></span>`
     + `<button type="button" class="ex-ib r4 ex-save" title="保存" disabled><i data-ic="save"></i></button></label>`;
+  // 进草稿的框（触发前缀、别名、自定义正则）：样子同上，没有自己的保存键，边打边进草稿，跟最下面的保存条一起存；填错了保存时拦下
+  const draftIn = ({ key, val = "", ph = "", mono = false, max = 64, label }) => `<label class="ex-in${mono ? " mono" : ""}" data-ex-in="${key}">`
+    + `<input value="${esc(val)}" placeholder="${esc(ph)}" maxlength="${max}" spellcheck="false" autocomplete="off" aria-label="${esc(label)}"><span class="ex-msg"></span></label>`;
   // 加名字、加生物的框：同「玩家」页的输入框，回车或点框里的 ＋
   const addBox = (key, ph, plusTip, max, label) => `<label class="ex-in ex-add" data-ex-in="${key}"><input maxlength="${max}" placeholder="${esc(ph)}" spellcheck="false" autocomplete="off" aria-label="${esc(label)}">`
     + `<span class="ex-msg"></span><button type="button" class="ex-ib r4 ex-plus" title="${esc(plusTip)}"><i data-ic="plus"></i></button></label>`;
@@ -294,6 +314,63 @@
     $$("button, input, textarea, [tabindex]", p).forEach(el => { el.inert = off; });
   }
 
+  // ---- 草稿和保存条（作者 11-28 定：游戏内 AI、AI 伙伴的「设置」先进草稿、点保存才生效，同「定时任务」「设置」）。两页共用这一套 ----
+  // 一页一份 pg：
+  //   cls 根的类名；D() 这一页的数据；fields 进草稿的字段名——D 上这几个字段就是界面上的值（草稿），D.base 是存过的样子；
+  //   items(s) 把一份设置摊成「项名 → 值」：改了几项、哪几项标小点，都照草稿和 base 摊开以后哪些项不一样算（加一个、删一个各算一项，改回原样不算）；
+  //   check(r, D) 保存前查填错的框，返回 false 就拦下（可缺）；norm(D) 存之前把框里的字理齐（可缺）；tidy(D) 存好、放弃以后清掉只在草稿里有过的东西（可缺）；
+  //   sync(r, D, was) 照数据把页面一样一样画回去（不整块重画），was 是刚放弃掉的那几项，存好以后是空的；saved(r, D) 存好以后（可缺）。
+  // 不进草稿、照旧点了就生效的不写进 fields：两个总开关（像开关机，蒙层跟着它走）、开启白名单、刷出 / 停止 / 移除伙伴、安装模组；音乐共享整页也不进（音量要边听边调）。
+  // 页面上带 data-dk="项名" 的那一项改过就标 .mod，里面的小点（DOT）亮起来；删掉的没有行可标，名单的标题带 data-dkp="项名前缀"，这份名单有改动就标
+  const snap = (pg, D) => JSON.parse(JSON.stringify(Object.fromEntries(pg.fields.map(f => [f, D[f]]))));
+  const commit = (pg, D) => { D.base = snap(pg, D); return D; };
+  function dirtyKeys(pg, D) { const a = pg.items(D.base), b = pg.items(D); return [...new Set([...Object.keys(a), ...Object.keys(b)])].filter(k => a[k] !== b[k]); }
+  // 保存条：内容面板最下面一条，在 .ex-pane 外面（总开关关着、「设置」蒙着时照样能存、能放弃）。样子和数值同「定时任务」「设置」的保存条：
+  // 干净时只有灰着的「保存」；有改动时淡进来「N 项修改未保存」「放弃修改」，「保存」亮起来；条本身的大小不变。换分段时它不动，草稿跨分段留着
+  function barHTML(pg) {
+    const n = dirtyKeys(pg, pg.D()).length, on = n ? " on" : "";
+    return `<div class="ex-bar"><span class="ex-sp"></span><span class="ex-bn${on}" aria-live="polite"><i></i><span>${n} 项修改未保存</span></span>`
+      + `<button type="button" class="ex-bdis${on}" data-ex-bar="discard"${n ? "" : ' tabindex="-1"'}>放弃修改</button>`
+      + `<button type="button" class="ex-bsave${on}" data-ex-bar="save"${n ? "" : ' aria-disabled="true" title="暂无未保存的修改"'}>保存</button></div>`;
+  }
+  // 草稿变了、存了、放弃了、换了分段都调：改过的项标小点，保存条的数字和两颗按钮跟着变
+  function paintDraft(pg, r) {
+    if (!r) return;
+    const D = pg.D(), keys = dirtyKeys(pg, D), n = keys.length, on = n > 0;
+    $$("[data-dk]", r).forEach(el => el.classList.toggle("mod", keys.includes(el.dataset.dk)));
+    $$("[data-dkp]", r).forEach(el => el.classList.toggle("mod", keys.some(k => k.startsWith(el.dataset.dkp))));
+    const t = $(".ex-bn", r), x = $(".ex-bdis", r), s = $(".ex-bsave", r);
+    if (on) t.lastElementChild.textContent = `${n} 项修改未保存`; // 变回 0 时旧的数跟着淡掉，不先换成 0
+    t.classList.toggle("on", on); x.classList.toggle("on", on); x.tabIndex = on ? 0 : -1;
+    if (D.saving) return;
+    s.classList.toggle("on", on);
+    if (on) { s.removeAttribute("aria-disabled"); setTip(s, ""); } else { s.setAttribute("aria-disabled", "true"); setTip(s, "暂无未保存的修改"); }
+  }
+  // 存：先查填错的，再把草稿记成存过的样子（这一步是同步的：外壳「离开前拦未保存」里选「保存」时 now = true，存完马上换页）；
+  // 点保存条时草图装作等了一下请求，「保存」里转一下再回到干净的样子。返回 false 表示没存成（有框填错了，已经标红、晃过），外壳就留在这一页
+  function saveDraft(pg, now) {
+    const D = pg.D(), r = rootOf(pg.cls);
+    if (!dirtyKeys(pg, D).length) return true;
+    if (pg.check && !pg.check(r, D)) return false;
+    pg.norm?.(D); commit(pg, D); pg.tidy?.(D);
+    const done = () => {
+      D.saving = false; const r2 = rootOf(pg.cls); if (!r2) return;
+      $(".ex-bsave", r2).textContent = "保存"; pg.sync(r2, D, []); pg.saved?.(r2, D); paintDraft(pg, r2);
+    };
+    if (now || !r) { done(); return true; }
+    if (!D.saving) { D.saving = true; $(".ex-bsave", r).innerHTML = `${ico("spinner")}保存`; setTimeout(done, 450); }
+    return true;
+  }
+  // 放弃：回到存过的样子。外壳选「不保存」时也调它——各页的数据按核心缓存着，草稿不丢的话切回来还在；那时页面马上换掉，所以 DOM 在不在都行
+  function discardDraft(pg) {
+    const D = pg.D(), was = dirtyKeys(pg, D); if (!was.length) return;
+    Object.assign(D, snap(pg, D.base)); pg.tidy?.(D);
+    const r = rootOf(pg.cls); if (r) { pg.sync(r, D, was); paintDraft(pg, r); }
+  }
+  const barClick = (pg, b) => { if (b.getAttribute("aria-disabled") !== "true") b.dataset.exBar === "save" ? saveDraft(pg) : discardDraft(pg); };
+  // 登记给外壳的三样（kit.js 第 6 条）：换标签、换子页、刷新、跳页之前，外壳照它们问「有未保存的修改：取消 / 不保存 / 保存」
+  const guardOf = pg => ({ dirty: () => (C ? dirtyKeys(pg, pg.D()).length : 0), save: () => saveDraft(pg, true), discard: () => discardDraft(pg) });
+
   // ======================================================================
   // ================= 游戏内 AI ==========================================
   // ======================================================================
@@ -310,16 +387,18 @@
     { id: "difficulty", title: "修改游戏难度", usage: "difficulty peaceful|easy|normal|hard", limit: "影响所有玩家", def: false },
     { id: "seed", title: "查看世界种子", usage: "seed", limit: "只读", def: false },
   ];
-  // 四项限流：默认值照 internal/chatai/settings.go；档位是草图定的（见「替作者定的」）。0 = 不限：冷却的 0 是「0 秒」在最下面，次数和 token 的「不限」在最上面
+  // 四项限流：默认值、能填的上限（max）照 internal/chatai/settings.go；档位是草图定的（见「替作者定的」）。0 = 不限：冷却的 0 是「0 秒」在最下面，次数和 token 的「不限」在最上面。
+  // unit、scale 是就地打字用的：token 在界面上按万写，打字也按万（同程序的数字框），存的还是 token 数
   const LIMS = [
-    { k: "cooldown", title: "每人冷却", L: [0, 3, 5, 8, 10, 15, 20, 30, 60, 120], def: 8, tip: "同一玩家两次提问的最小间隔（游戏内 AI 与 AI 伙伴共用），默认 8 秒" },
-    { k: "perPlayer", title: "每人每天", L: [10, 20, 30, 60, 100, 200, 500, Infinity], def: 60, tip: "每位玩家每日最多提问次数（使用「@伙伴名」呼叫 AI 伙伴单独计次，上限相同），默认 60 次" },
-    { k: "perServer", title: "全服每天", L: [50, 100, 200, 300, 500, 1000, 2000, Infinity], def: 300, tip: "本服务器所有玩家每日合计最多提问次数（含游戏内 AI 与 AI 伙伴），默认 300 次" },
-    { k: "budget", title: "全服每天 token", L: [5, 10, 20, 50, 100, 200, 500, Infinity].map(x => x * 1e4), def: 5e5, tip: "本服务器每日 token 消耗上限（含输入与输出），默认 50 万" },
+    { k: "cooldown", title: "每人冷却", unit: "秒", max: 3600, L: [0, 3, 5, 8, 10, 15, 20, 30, 60, 120], def: 8, tip: "同一玩家两次提问的最小间隔（游戏内 AI 与 AI 伙伴共用），默认 8 秒" },
+    { k: "perPlayer", title: "每人每天", unit: "次", max: 1e5, L: [10, 20, 30, 60, 100, 200, 500, Infinity], def: 60, tip: "每位玩家每日最多提问次数（使用「@伙伴名」呼叫 AI 伙伴单独计次，上限相同），默认 60 次" },
+    { k: "perServer", title: "全服每天", unit: "次", max: 1e6, L: [50, 100, 200, 300, 500, 1000, 2000, Infinity], def: 300, tip: "本服务器所有玩家每日合计最多提问次数（含游戏内 AI 与 AI 伙伴），默认 300 次" },
+    { k: "budget", title: "全服每天 token", unit: "万 token", max: 1e11, scale: 1e4, L: [5, 10, 20, 50, 100, 200, 500, Infinity].map(x => x * 1e4), def: 5e5, tip: "本服务器每日 token 消耗上限（含输入与输出），默认 50 万" },
   ];
   const limNum = v => v === 0 ? Infinity : v; // 存的 0 是「不限」
+  const limAmt = (l, v) => l.k === "cooldown" ? v : limNum(v); // 排大小用的数：冷却的 0 就是 0，别的 0 排在最上面
   const limText = (l, v) => l.k === "cooldown" ? `${v} 秒` : v === 0 ? "不限" : l.k === "budget" ? fmtTokens(v) : `${v} 次`;
-  const limEnds = (l, v) => { const n = l.k === "cooldown" ? v : limNum(v); return [ladder(l.L, n, -1) === n, ladder(l.L, n, 1) === n]; };
+  const limEnds = (l, v) => { const n = limAmt(l, v); return [ladder(l.L, n, -1) === n, ladder(l.L, n, 1) === n]; };
   const PRICE = 0.28; // 草图编的单价：每 100 万 token 0.28 美元（程序按 LiteLLM 的价格文件估，查不到时不写）
   const money = n => "$" + (n > 0 && n < 0.01 ? n.toFixed(4) : n.toFixed(2));
   const LIM_TIP = "设为「不限」即不设上限。不调用 AI 的回复不计次（/帮助、/额度、选项错误）。\n同一玩家 1 分钟内提问超过 5 次后将静默 3 分钟，并在游戏内私聊提示剩余冷却时间（冷却中或超额拦截不重复计次）。\n同时仅处理 1 个提问，最多排队 3 个。";
@@ -353,12 +432,33 @@
       const today = { paper: { count: 37, tokens: 124000, top: [["Steve", 12, 0], ["Notch_CN", 9, 0], ["Alex", 8, 0], ["xiaoming_2008", 5, 0], ["LittleFox", 3, 0]] },
         forge: { count: comp ? 25 : 21, tokens: comp ? 81500 : 68000, top: [["Steve", 9, comp ? 3 : 0], ["GearHead", 7, 0], ["Alex", 5, comp ? 1 : 0]] },
         vanilla: { count: 4, tokens: 9600, top: [["Steve", 3, 0], ["SnapshotTester", 1, 0]] } }[k] || { count: 0, tokens: 0, top: [] };
-      GA[k] = { on: true, prefix: "@AI", aliases: k === "paper" ? ["@小助手"] : [], players, allowed: [...s.allowed], wlOn: s.wlOn, wlFirst: "",
+      // prefix、alias（框里的原文，逗号隔开）、lim、tpl、allowed、adv 是进草稿的设置（见 GA_PG），打开时的样子记成 base
+      GA[k] = commit(GA_PG, { on: true, prefix: "@AI", alias: k === "paper" ? "@小助手" : "", players, allowed: [...s.allowed], wlOn: s.wlOn, wlFirst: "",
         tpl: Object.fromEntries(TPL.map(t => [t.id, t.def])), lim: { cooldown: 8, perPlayer: 60, perServer: 300, budget: 500000 }, today,
-        quota: { used: 186000, limit: 2000000 }, log: logOf(k), line: "", res: null, adv: { loose: false, thread: false, pattern: "" }, seg: "set" };
+        quota: { used: 186000, limit: 2000000 }, log: logOf(k), line: "", res: null, adv: { loose: false, thread: false, pattern: "" }, seg: "set" });
     }
     return GA[k];
   }
+  const aliasList = t => t.split(/[,，、;；\s]+/).map(x => x.trim()).filter(Boolean);
+  const prefixesOf = G => [G.prefix.trim(), ...aliasList(G.alias)].filter(Boolean); // 识别测试用眼下框里的（没保存的也算，同程序）；空着的不算，不然什么都对得上
+  // 进草稿的三个框填得对不对（保存前查，识别测试也先查正则）：返回 [框里的短话, 悬停里的全文]，没问题返回 null
+  const gaErr = {
+    prefix: G => { const v = G.prefix.trim(); return !v ? ["不可为空", "触发前缀不可为空"] : /\s/.test(v) ? ["不可含空格", "触发前缀不可包含空格"] : null; },
+    alias: G => aliasList(G.alias).some(x => same(x, G.prefix.trim())) ? ["与前缀重复", `别名「${G.prefix.trim()}」与触发前缀重复`] : null,
+    pattern: G => {
+      const v = G.adv.pattern.trim(); if (!v) return null;
+      try { new RegExp(v.replace(/\(\?P</g, "(?<")); } catch (err) { return ["语法有误", "自定义正则语法有误：" + err.message]; }
+      return /\(\?P?<name>/.test(v) && /\(\?P?<msg>/.test(v) ? null : ["缺少命名分组", "自定义正则须包含两个命名分组：(?P<name>…) 表示玩家名，(?P<msg>…) 表示聊天内容"];
+    },
+  };
+  // 这一页的草稿（见「草稿和保存条」）。项名：prefix、alias、pattern、adv:loose、adv:thread、lim:<哪一项>、tpl:<模板>、allow:<玩家名小写>（授了权的才有这一项）
+  const GA_PG = { cls: "ex-gai", D: ga, fields: ["prefix", "alias", "lim", "tpl", "allowed", "adv"], check: gaCheck, sync: gaSync, saved: gaSaved,
+    items: s => ({ prefix: s.prefix.trim(), alias: aliasList(s.alias).join(), pattern: s.adv.pattern.trim(), "adv:loose": s.adv.loose, "adv:thread": s.adv.thread,
+      ...Object.fromEntries(LIMS.map(l => ["lim:" + l.k, s.lim[l.k]])), ...Object.fromEntries(TPL.map(t => ["tpl:" + t.id, !!s.tpl[t.id]])),
+      ...Object.fromEntries(s.allowed.map(n => ["allow:" + n.toLowerCase(), true])) }),
+    norm: G => { G.prefix = G.prefix.trim(); G.alias = aliasList(G.alias).join("，"); G.adv.pattern = G.adv.pattern.trim(); },
+    // 按名字加进来、最后又没授权的人不留在名单里（名单只列在线、白名单、管理员、最近来过和授了权的）
+    tidy: G => { G.players = G.players.filter(p => !p.extra || has(G.allowed, p.name)); } };
   // 最近的问答（编的）：谁问、问了什么、AI 答了什么、执行了哪些命令；类型、选项、用量的说法照 gamechat.js
   function logOf(k) {
     const [a, b, c, d, e] = { paper: ["Steve", "Notch_CN", "Alex", "xiaoming_2008", "LittleFox"], forge: ["Steve", "GearHead", "Alex", "Create_Fan", "Kiki"],
@@ -381,7 +481,8 @@
   const whoAsked = G => { const top = G.today.top.filter(x => x[1] || x[2]); return top.length ? "今日提问统计：" + top.map(([n, c, cp]) => c ? `${n} ${c} 次${cp ? `（AI 伙伴 ${cp} 次）` : ""}` : `${n} AI 伙伴 ${cp} 次`).join("、") : "今日暂无提问记录"; };
   const limTip = (G, l) => l.k !== "budget" ? l.tip : l.tip + (G.lim.budget ? `\n按当前模型单价估算，每日 ${fmtTokens(G.lim.budget)} token 约 ${money(PRICE * G.lim.budget / 1e6)}` : `\n按当前模型单价估算，每 100 万 token 约 ${money(PRICE)}`);
   const QUOTA_TIP = "「设置 → AI」中为游戏内 AI 配置的全局每日额度（所有服务器合计），耗尽后将暂停至次日恢复。\n点击右侧前往「设置 → AI」修改。";
-  const swTip = G => `玩家在聊天中使用「${G.prefix} 问题」提问，回复默认全服可见；加 /私 仅回复提问者，加 /帮助 查看全部用法。\n关闭后 MineDeck 不监听聊天内容，也不会自动回复。`;
+  // 页头开关的说明、问答记录空着时的提示写的是生效中的前缀（存过的 base），不是框里还没保存的
+  const swTip = G => `玩家在聊天中使用「${G.base.prefix} 问题」提问，回复默认全服可见；加 /私 仅回复提问者，加 /帮助 查看全部用法。\n关闭后 MineDeck 不监听聊天内容，也不会自动回复。`;
   const PROVIDER = "DeepSeek（deepseek-v4-flash）"; // 程序预设里 DeepSeek 的默认模型；说法照程序「提问会发给 X（模型）」
 
   // ---- 画 ----
@@ -391,7 +492,7 @@
     return `<div class="ex ex-gai"><div class="ex-top">${tgl({ key: "gaOn", on: G.on, label: "游戏内 AI", tip: swTip(G), cls: "big" })}`
       + (AI_ON() ? "" : gateHTML("AI 未配置", "去设置", "aiset", "请先前往「设置 → AI」选择服务商并填写 Key 与模型。未配置时，玩家发送 @AI 仅会收到「主机还没配置 AI」提示。\n缺少：Key、模型"))
       + `<span class="ex-sp"></span>${segHTML("ga", [["set", "设置"], ["log", "问答记录"], ["test", "识别测试"]], G.seg)}</div>`
-      + `<div class="ex-pane ${v.cls}">${v.html}</div></div>`;
+      + `<div class="ex-pane ${v.cls}">${v.html}</div>${barHTML(GA_PG)}</div>`;
   }
   // 顶上一排的提示胶囊：32 高、警告色，里面一颗 24 高的小胶囊按钮（同页头常驻提示的做法）
   const gateHTML = (t, btn, act, tip, tone = "warn") => `<span class="ex-gate ${tone}" title="${esc(tip)}"><i data-ic="${tone === "warn" ? "warn" : "info"}"></i><span>${esc(t)}</span>`
@@ -400,8 +501,8 @@
   function gaSet(G) {
     const ask = `<section class="ex-col"><div class="ex-lw ex-fill"><div class="list ex-form">`
       + `<div class="ex-hd"><span class="ex-t">提问</span></div>`
-      + `<div class="ex-pair">${fld("触发前缀", "聊天消息以此开头时触发（如「@AI 今晚怎么打末影龙」），不区分大小写，兼容全角 ＠。", saveIn({ key: "prefix", val: G.prefix, max: 16, label: "触发前缀" }))}`
-      + fld("别名", "与触发前缀等效（如 @小助手），多项以逗号分隔，选填。", saveIn({ key: "alias", val: G.aliases.join("，"), ph: "如 @小助手", max: 200, label: "别名" })) + `</div>`
+      + `<div class="ex-pair">${fld("触发前缀", "聊天消息以此开头时触发（如「@AI 今晚怎么打末影龙」），不区分大小写，兼容全角 ＠。", draftIn({ key: "prefix", val: G.prefix, max: 16, label: "触发前缀" }), "", "prefix")}`
+      + fld("别名", "与触发前缀等效（如 @小助手），多项以逗号分隔，选填。", draftIn({ key: "alias", val: G.alias, ph: "如 @小助手", max: 200, label: "别名" }), "", "alias") + `</div>`
       + fld("提问会发给", "本次启动后首次有人提问时，会在游戏内公告所使用的 AI 服务商与模型。\n点击前往「设置 → AI」切换服务商与模型。",
         `<button type="button" class="ex-box" data-ex-act="aiset"><span class="${AI_ON() ? "" : "faint"}">${AI_ON() ? PROVIDER : "未配置"}</span><i data-ic="chevronRight"></i></button>`)
       + `<div class="ex-hd ex-hd2"><span class="ex-t" title="${esc(LIM_TIP)}">限流和额度</span></div>`
@@ -420,16 +521,17 @@
   function limRow(G, l) {
     const v = G.lim[l.k], [lo, hi] = limEnds(l, v);
     const today = l.k === "perServer" ? `<small title="${esc(whoAsked(G))}">今天 ${G.today.count} 次</small>` : l.k === "budget" ? `<small>今天 ${fmtTokens(G.today.tokens)}</small>` : "";
-    return `<div class="ex-lim" data-lim="${l.k}"><span class="ex-ll"><b title="${esc(limTip(G, l))}">${l.title}</b>${today}</span>${stpHTML("lim-" + l.k, limText(l, v), lo, hi)}</div>`;
+    return `<div class="ex-lim" data-lim="${l.k}" data-dk="lim:${l.k}"><span class="ex-ll"><b title="${esc(limTip(G, l))}">${l.title}${DOT}</b>${today}</span>${stpHTML("lim-" + l.k, limText(l, v), lo, hi)}</div>`;
   }
   const nTpl = G => `${TPL.filter(t => G.tpl[t.id]).length} / ${TPL.length}`;
-  const tplRow = (G, t) => `<button type="button" class="ex-tg ex-tr${G.tpl[t.id] ? " on" : ""}" role="switch" aria-checked="${!!G.tpl[t.id]}" data-ex-tg="tpl" data-id="${t.id}" `
-    + `title="${esc(`${t.usage}\n限制：${t.limit}${t.def ? "" : "\n默认关闭"}`)}"><span class="ex-sw"></span><span class="ex-tx"><b>${esc(t.title)}</b><span>${esc(t.usage)}</span></span></button>`;
+  const tplRow = (G, t) => `<button type="button" class="ex-tg ex-tr${G.tpl[t.id] ? " on" : ""}" role="switch" aria-checked="${!!G.tpl[t.id]}" data-ex-tg="tpl" data-id="${t.id}" data-dk="tpl:${t.id}" `
+    + `title="${esc(`${t.usage}\n限制：${t.limit}${t.def ? "" : "\n默认关闭"}`)}"><span class="ex-sw"></span><span class="ex-tx"><b>${esc(t.title)}${DOT}</b><span>${esc(t.usage)}</span></span></button>`;
   function authRow(G, p) {
     const on = has(G.allowed, p.name);
-    return `<div class="ex-pr" data-name="${esc(p.name)}">${tgl({ key: "allow", on, label: `<span class="ex-nm">${esc(p.name)}</span>`, tip: `允许 ${p.name} 让 AI 执行命令`, cls: "ex-prt" })}`
+    // 白名单的小标签只标没在白名单里的（作者 11-28 定：原来在名单里的每行都标「白名单」，太吵）；白名单关着时也照名单标
+    return `<div class="ex-pr" data-name="${esc(p.name)}" data-dk="allow:${esc(p.name.toLowerCase())}">${tgl({ key: "allow", on, label: `<span class="ex-nm">${esc(p.name)}</span>`, tip: `允许 ${p.name} 让 AI 执行命令`, cls: "ex-prt" })}`
       + (p.online ? `<i class="ex-dotok" title="在线"></i>` : "") + (p.op ? `<span class="ex-op" title="管理员">${ico("exCrown")}</span>` : "")
-      + `<span class="ex-sp"></span><span class="ex-tags">${p.wl ? tag("白名单") : ""}${!p.online && p.seen ? tag("最近来过", "faint") : ""}</span></div>`;
+      + `<span class="ex-sp"></span><span class="ex-tags">${p.wl ? "" : `<span class="ex-tag" data-k="nowl">不在白名单</span>`}${!p.online && p.seen ? tag("最近来过", "faint") : ""}</span>${DOT}</div>`;
   }
   // 授了权却没开白名单：栏顶一条提醒（会改变结果：离线服谁都能冒名让 AI 执行命令），带「开启白名单」
   const wlTip = G => `离线模式下，任何人使用 ${has(G.allowed, G.wlFirst) ? G.wlFirst : G.allowed[0]} 的名称进服均可让 AI 执行已启用的命令。开启白名单可拦截未知玩家，不开启亦可正常授权。`;
@@ -441,7 +543,7 @@
   function gaLog(G) {
     return `<section class="ex-col ex-logc"><div class="ex-hd"><span class="ex-t" title="${esc(LOG_TIP)}">问答与执行记录</span><span class="ex-n">${G.log.length || ""}</span></div>`
       + `<div class="ex-lw${G.log.length ? "" : " is-none"}" data-lw="log"><div class="list ex-recs">${G.log.map(recHTML).join("")}</div><span class="thumb"></span>`
-      + `<div class="ex-none" title="${esc(`开启游戏内 AI 后，在游戏聊天中发送「${G.prefix} 你好」即可触发。`)}">暂无问答记录</div></div></section>`;
+      + `<div class="ex-none" title="${esc(`开启游戏内 AI 后，在游戏聊天中发送「${G.base.prefix} 你好」即可触发。`)}">暂无问答记录</div></div></section>`;
   }
   function recHTML(r) {
     const tone = r.kind === "failed" || r.kind === "silenced" ? "warn" : r.kind === "ask" ? "acc" : "";
@@ -458,16 +560,17 @@
     return h + `</div>`;
   }
   function gaTest(G) {
+    if (G.res) G.res = judge(G, G.line.trim()); // 上次认过以后，前缀、别名、授权可能在「设置」里改过（没保存的也算）：换回来时照眼下的重认
     return `<section class="ex-col ex-testc"><div class="ex-hd"><span class="ex-t" title="${esc(TEST_TIP)}">识别测试</span></div>`
       + `<div class="ex-trow"><label class="ex-in mono" data-ex-in="line"><input value="${esc(G.line)}" placeholder="${esc(SAMPLE)}" spellcheck="false" autocomplete="off" aria-label="一行服务器日志"><span class="ex-msg"></span></label>`
       + `<button type="button" class="ex-btn big" data-ex-act="sample" title="填入一行 Forge 格式的玩家聊天日志">填入示例</button><button type="button" class="ex-btn big pri" data-ex-act="run"><i data-ic="search"></i>识别</button></div>`
       + `<div class="ex-lw" data-lw="res"><div class="list ex-res" data-k="res">${G.res ? resHTML(G.res) : ""}</div><span class="thumb"></span></div></section>`
       // 高级识别：两个开关放在栏的标题行右边（同「玩家」页白名单的开关在栏头），下面自定义正则
       + `<section class="ex-col ex-advc"><div class="ex-hd"><span class="ex-t" title="无法识别聊天日志时可调整以下选项；修改后上方已测试的日志会立即按新规则重新识别">高级识别</span><span class="ex-sp"></span>`
-      + `<span class="ex-advrow">${tgl({ key: "loose", on: G.adv.loose, label: "放宽名字规则", tip: "默认仅识别 1～16 位字母、数字及下划线；离线服玩家名含 - 或 . 时可开启此项。\n以 @ 开头、含 \" 或 \\、或包含中文的名称仍不识别，以防命令注入风险。" })}`
-      + tgl({ key: "thread", on: G.adv.thread, label: "忽略线程名", tip: "默认仅识别服务器主线程输出的聊天日志；若模组修改了线程名导致无法识别，可开启此项（仍需由 MinecraftServer 输出）。" }) + `</span></div>`
+      + `<span class="ex-advrow">${tgl({ key: "loose", on: G.adv.loose, label: "放宽名字规则" + DOT, attrs: `data-dk="adv:loose"`, tip: "默认仅识别 1～16 位字母、数字及下划线；离线服玩家名含 - 或 . 时可开启此项。\n以 @ 开头、含 \" 或 \\、或包含中文的名称仍不识别，以防命令注入风险。" })}`
+      + tgl({ key: "thread", on: G.adv.thread, label: "忽略线程名" + DOT, attrs: `data-dk="adv:thread"`, tip: "默认仅识别服务器主线程输出的聊天日志；若模组修改了线程名导致无法识别，可开启此项（仍需由 MinecraftServer 输出）。" }) + `</span></div>`
       + fld("自定义正则", "适用于安装了聊天格式插件或模组的服务器。请使用 (?P<name>…) 捕获玩家名、(?P<msg>…) 捕获聊天内容，按整行匹配；留空则使用内置规则。\n修改前建议先在上方识别测试中验证。",
-        saveIn({ key: "pattern", val: G.adv.pattern, ph: "如 " + PATTERN_EXAMPLE, mono: true, max: 500, label: "自定义正则" }))
+        draftIn({ key: "pattern", val: G.adv.pattern, ph: "如 " + PATTERN_EXAMPLE, mono: true, max: 500, label: "自定义正则" }), "", "pattern")
       + `</section>`;
   }
   function resHTML(r) {
@@ -524,11 +627,11 @@
     return { prefix: t.slice(0, p.length), opts, act, unknown, question: act === "ask" ? rest : "", priv: opts.includes("私"), noExec: opts.includes("问") };
   }
   function recognize(line, G) {
-    const prefixes = [G.prefix, ...G.aliases], l = parseLine(line), h = { format: l.format || "", thread: l.thread || "" };
+    const prefixes = prefixesOf(G), l = parseLine(line), h = { format: l.format || "", thread: l.thread || "" };
     if (l.md) { h.reason = "MineDeck 写入控制台的系统输出（命令回显、提示），已忽略"; return h; }
     let player, msg;
-    if (G.adv.pattern) {
-      let m = null; try { m = line.match(new RegExp(G.adv.pattern.replace(/\(\?P</g, "(?<"))); } catch { /* 保存时已经查过 */ }
+    if (G.adv.pattern.trim()) {
+      let m = null; try { m = line.match(new RegExp(G.adv.pattern.trim().replace(/\(\?P</g, "(?<"))); } catch { /* runTest 先查过（gaErr.pattern） */ }
       h.format = "custom"; h.thread = "";
       if (!m || !m.groups) { h.reason = "自定义正则未匹配该行日志"; return h; }
       player = m.groups.name; msg = m.groups.msg;
@@ -568,13 +671,20 @@
     if (!G.on) out += "。游戏内 AI 当前未开启";
     return out;
   }
+  // 认一行日志：前缀、别名、授权、高级识别都用眼下草稿里的（没保存的也算，同程序的识别测试）
+  function judge(G, line) {
+    const h = recognize(line, G);
+    h.online = !!h.player && has(C.online || [], h.player); h.authorized = !!h.player && has(G.allowed, h.player); h.result = describe(h, G);
+    return h;
+  }
   function runTest(r, quiet) {
     const G = ga(), box = $("[data-ex-in=line]", r); if (!box) return;
     G.line = $("input", box).value;
     const line = G.line.trim(), out = $("[data-k=res]", r), w = $("[data-lw=res]", r), fit = () => repaint(w);
     if (!line) { if (!quiet) bad(box, "请粘贴一行日志"); if (G.res) { G.res = null; swapIn(out, "", 1, "Y", fit); } return; }
-    const h = recognize(line, G);
-    h.online = !!h.player && has(C.online || [], h.player); h.authorized = !!h.player && has(G.allowed, h.player); h.result = describe(h, G);
+    const pe = gaErr.pattern(G); // 自定义正则填错了：先指出来，不拿错的去认（跟着改动悄悄重认时，等它填对再认）
+    if (pe) { if (!quiet) bad($("[data-ex-in=pattern]", r), ...pe); return; }
+    const h = judge(G, line);
     const first = !G.res; G.res = h;
     if (first) { out.innerHTML = resHTML(h); hy(out); fit(); [...out.children].forEach((c, i) => c.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, delay: i * 22, easing: E_OUT, fill: "backwards" })); }
     else swapIn(out, resHTML(h), 1, "Y", fit);
@@ -596,34 +706,66 @@
     const r = rootOf("ex-gai"); if (!r) return;
     placeSeg($(".ex-top .ex-seg", r), true);
     gaPane(r);
-    r.addEventListener("click", gaClick); r.addEventListener("keydown", gaKey); r.addEventListener("input", onInput);
+    r.addEventListener("click", gaClick); r.addEventListener("keydown", gaKey); r.addEventListener("input", onInput); r.addEventListener("input", gaInput);
   }
-  const gaPane = r => { bars(r); fitNames(r); gaOff(r); };
+  // 每次画出新的一段（挂上去、换分段）都跑：细滚动条、截断的名字、步进接上就地打字、总开关关着时蒙上、未保存的小点。步进要先接好再蒙（蒙的时候把能点的都设成 inert）
+  const gaPane = r => { bars(r); fitNames(r); gaNums(r); gaOff(r); paintDraft(GA_PG, r); };
   const gaOff = r => { const G = ga(); paintOff(r, !G.on && G.seg === "set", "游戏内 AI 未开启，开启后方可修改"); };
   const paintCount = (r, k, text) => { const el = $(`[data-k=${k}]`, r); if (el && el.textContent !== text) swapIn(el, esc(text), 1); };
+  // 限流的步进：只换中间的字、两头灰不灰（token 那一项的估价在悬停里，跟着换）
+  function paintLim(r, G, l, dir) {
+    const v = G.lim[l.k], [lo, hi] = limEnds(l, v);
+    paintStp($(`[data-ex-stp=lim-${l.k}]`, r), limText(l, v), lo, hi, dir);
+    if (l.k === "budget") setTip($(`[data-lim=budget] .ex-ll b`, r), limTip(G, l));
+  }
+  function setLim(r, l, v, dir) { const G = ga(); G.lim[l.k] = v; paintLim(r, G, l, dir); paintDraft(GA_PG, r); } // 进草稿，点保存才生效（程序是改了数字再点那一项的保存）
+  // 步进中间的数字就地打字（kit.js 第 7 条）：范围照程序；次数和 token 打「不限」或 0 都是不限（存 0）；token 按万打（可以带小数），框里、提示里都写清单位。
+  // 打进来的值不在档位上的照收，之后点加减往那个方向落到最近的一档（ladder）
+  function gaNums(r) {
+    const G = ga();
+    LIMS.forEach(l => {
+      const el = $(`[data-ex-stp=lim-${l.k}] b`, r); if (!el) return;
+      const s = l.scale || 1, nolim = l.k !== "cooldown", u = l.unit.replace(/\s/g, ""), sfx = new RegExp(`(${u}|${u[0]})$`, "i");
+      el.title = `点击输入数值（单位：${l.unit}）${nolim ? "，输入「不限」或 0 表示不设上限" : ""}`;
+      window.KIT.numEdit(el, { label: `${l.title}（${l.unit}）`, min: 0, max: l.max, int: true,
+        get: () => G.lim[l.k], set: n => setLim(r, l, n, limAmt(l, n) > limAmt(l, G.lim[l.k]) ? 1 : -1),
+        text: n => nolim && !n ? "不限" : String(n / s),
+        parse: raw => {
+          const t = raw.replace(/\s/g, ""); if (nolim && /^(不限|无限)$/.test(t)) return 0;
+          const m = t.replace(sfx, "").match(/^\d+(\.\d+)?$/); return m ? (s > 1 ? Math.round(m[0] * s) : +m[0]) : NaN;
+        },
+        hint: `请输入 0～${l.max / s} 之间的${s > 1 ? "数值" : "整数"}（单位：${l.unit}）${nolim ? "，或输入「不限」" : ""}` });
+    });
+  }
+  // 进草稿的三个框：边打边进草稿；正则改了、上面有识别结果时，停手 0.18 秒照新的重认
+  function gaInput(e) {
+    const r = e.currentTarget, G = ga(), k = e.target.closest?.(".ex-in")?.dataset.exIn;
+    if (k === "prefix" || k === "alias") G[k] = e.target.value;
+    else if (k === "pattern") { G.adv.pattern = e.target.value; clearTimeout(G.patT); G.patT = setTimeout(() => { if (r.isConnected && G.res) runTest(r, true); }, 180); }
+    else return;
+    paintDraft(GA_PG, r);
+  }
   function gaClick(e) {
-    if (e.target.closest(".ex-pane.off")) return; // 总开关关着：设置这一段什么都不接（按钮已 inert，这里兜底）
     const r = e.currentTarget, G = ga();
+    const bb = e.target.closest("[data-ex-bar]"); if (bb) { barClick(GA_PG, bb); return; }
+    if (e.target.closest(".ex-pane.off")) return; // 总开关关着：设置这一段什么都不接（按钮已 inert，这里兜底）
     const sg = e.target.closest(".ex-top .ex-seg span[data-v]"); if (sg) { goSeg(r, G, sg.dataset.v, gaView, gaPane); return; }
     const t = e.target.closest("[data-ex-tg]");
     if (t) {
       if (t.getAttribute("aria-disabled") === "true") return;
       const k = t.dataset.exTg;
-      if (k === "gaOn") { G.on = !G.on; setTgl(t, G.on); gaOff(r); if (G.res) runTest(r, true); return; }
-      if (k === "tpl") { const id = t.dataset.id; G.tpl[id] = !G.tpl[id]; setTgl(t, G.tpl[id]); paintCount(r, "nTpl", nTpl(G)); return; }
+      if (k === "gaOn") { G.on = !G.on; setTgl(t, G.on); gaOff(r); if (G.res) runTest(r, true); return; } // 总开关不进草稿：点了就生效（程序也是）
+      if (k === "tpl") { const id = t.dataset.id; G.tpl[id] = !G.tpl[id]; setTgl(t, G.tpl[id]); paintCount(r, "nTpl", nTpl(G)); paintDraft(GA_PG, r); return; }
       if (k === "allow") { const n = t.closest(".ex-pr").dataset.name; setAllowed(r, n, !has(G.allowed, n)); return; }
-      if (k === "loose" || k === "thread") { G.adv[k] = !G.adv[k]; setTgl(t, G.adv[k]); if (G.res) runTest(r, true); return; }
+      if (k === "loose" || k === "thread") { G.adv[k] = !G.adv[k]; setTgl(t, G.adv[k]); paintDraft(GA_PG, r); if (G.res) runTest(r, true); return; }
     }
     const st = e.target.closest(".ex-stp button");
     if (st) {
-      const k = st.closest(".ex-stp").dataset.exStp.slice(4), l = LIMS.find(x => x.k === k), d = +st.dataset.d;
-      const cur = k === "cooldown" ? G.lim[k] : limNum(G.lim[k]), nx = ladder(l.L, cur, d); if (nx === cur) return;
-      G.lim[k] = nx === Infinity ? 0 : nx; // 即时生效（程序是改了数字再点保存）
-      const [lo, hi] = limEnds(l, G.lim[k]); paintStp(st.closest(".ex-stp"), limText(l, G.lim[k]), lo, hi, d);
-      if (k === "budget") setTip($(`[data-lim=budget] .ex-ll b`, r), limTip(G, l));
+      const l = LIMS.find(x => x.k === st.closest(".ex-stp").dataset.exStp.slice(4)), d = +st.dataset.d;
+      const cur = limAmt(l, G.lim[l.k]), nx = ladder(l.L, cur, d); if (nx === cur) return;
+      setLim(r, l, nx === Infinity ? 0 : nx, d);
       return;
     }
-    if (e.target.closest(".ex-save")) { e.preventDefault(); commitGa(r, e.target.closest(".ex-in")); return; }
     if (e.target.closest(".ex-plus")) { e.preventDefault(); addAllowed(r, e.target.closest(".ex-in")); return; }
     const a = e.target.closest("[data-ex-act]");
     if (a) {
@@ -642,29 +784,37 @@
     const k = box.dataset.exIn;
     if (k === "line") runTest(r);
     else if (k === "allow") addAllowed(r, box);
-    else if (box.classList.contains("dirty")) commitGa(r, box);
+    else if (k === "pattern" && $("[data-ex-in=line] input", r)?.value.trim()) runTest(r); // 前缀、别名、正则不再单独回车保存（跟保存条一起存）；正则回车是拿它马上认一遍
   }
-  function commitGa(r, box) {
-    const G = ga(), k = box.dataset.exIn, inp = $("input", box), v = inp.value.trim();
-    if (k === "prefix") {
-      if (!v) return bad(box, "不可为空", "触发前缀不可为空");
-      if (/\s/.test(v)) return bad(box, "不可含空格", "触发前缀不可包含空格");
-      G.prefix = v; inp.value = v;
-      setTip($("[data-ex-tg=gaOn]", r), swTip(G));
-    } else if (k === "alias") {
-      const list = v.split(/[,，、;；\s]+/).map(x => x.trim()).filter(Boolean);
-      if (list.some(x => same(x, G.prefix))) return bad(box, "与前缀重复", `别名「${G.prefix}」与触发前缀重复`);
-      G.aliases = list; inp.value = list.join("，");
-    } else if (k === "pattern") {
-      if (v) {
-        let re = null; try { re = new RegExp(v.replace(/\(\?P</g, "(?<")); } catch (err) { return bad(box, "语法有误", "自定义正则语法有误：" + err.message); }
-        if (!/\(\?P?<name>/.test(v) || !/\(\?P?<msg>/.test(v) || !re) return bad(box, "缺少命名分组", "自定义正则须包含两个命名分组：(?P<name>…) 表示玩家名，(?P<msg>…) 表示聊天内容");
-      }
-      G.adv.pattern = v; inp.value = v;
-      if (G.res) runTest(r, true);
-    }
-    savedOK(box);
+  // 保存前查那三个框（GA_PG.check）：有填错的就拦下，框标红、晃一下、说原因；框不在眼下这一段（正则在「识别测试」，前缀、别名在「设置」）就先换过去
+  function gaCheck(r, G) {
+    const k = ["prefix", "alias", "pattern"].find(x => gaErr[x](G)); if (!k) return true;
+    const seg = k === "pattern" ? "test" : "set", show = () => bad($(`[data-ex-in=${k}]`, r), ...gaErr[k](G));
+    if (!r) return false;
+    if (G.seg === seg) show(); else goSeg(r, G, seg, gaView, x => { gaPane(x); show(); });
+    return false;
   }
+  // 照数据把页面画回去（GA_PG.sync；放弃修改、存好以后）：框里的字、步进、开关、名单一样一样就地改
+  function gaSync(r, G) {
+    [["prefix", G.prefix], ["alias", G.alias], ["pattern", G.adv.pattern]].forEach(([k, v]) => {
+      const box = $(`[data-ex-in=${k}]`, r); if (!box) return;
+      const inp = $("input", box); if (inp.value !== v) inp.value = v; box.classList.remove("bad");
+    });
+    LIMS.forEach(l => paintLim(r, G, l, 1));
+    $$("[data-ex-tg=tpl]", r).forEach(t => setTgl(t, !!G.tpl[t.dataset.id]));
+    paintCount(r, "nTpl", nTpl(G));
+    $$(".ex-pr:not(.ex-out)", r).forEach(row => {
+      const n = row.dataset.name;
+      if (G.players.some(p => same(p.name, n))) setTgl($("[data-ex-tg=allow]", row), has(G.allowed, n));
+      else rowOut(row, () => noneOf($("[data-lw=auth]", r))); // 按名字加进来、最后没授权的人（GA_PG.tidy 已经从数据里拿掉）
+    });
+    paintCount(r, "nAllow", String(G.allowed.length || ""));
+    paintWl(r);
+    ["loose", "thread"].forEach(k => setTgl($(`[data-ex-tg=${k}]`, r), G.adv[k]));
+    if (G.res) runTest(r, true);
+  }
+  // 存好以后（GA_PG.saved）：页头开关的说明里写着生效中的前缀，跟着换
+  function gaSaved(r, G) { setTip($("[data-ex-tg=gaOn]", r), swTip(G)); }
   // 授权、收回：只换那一行的开关、栏头的人数，没开白名单时栏顶那条提醒跟着出来或收起
   function setAllowed(r, n, on) {
     const G = ga();
@@ -672,7 +822,7 @@
     const row = $$(".ex-pr", r).find(x => same(x.dataset.name, n));
     setTgl($("[data-ex-tg=allow]", row), on);
     paintCount(r, "nAllow", String(G.allowed.length || ""));
-    paintWl(r);
+    paintWl(r); paintDraft(GA_PG, r);
     if (G.res && same(G.res.player || "", n)) runTest(r, true);
   }
   function paintWl(r) {
@@ -688,15 +838,16 @@
     if (has(G.allowed, n)) { flash($$(".ex-pr", r).find(x => same(x.dataset.name, n))); inp.value = ""; box.classList.remove("has"); return; }
     inp.value = ""; box.classList.remove("has");
     let p = G.players.find(x => same(x.name, n));
-    if (!p) { // 列表里没有的人（还没进过服的好友）：加在最后，从下面淡进来
-      p = { name: n, online: false, wl: false, op: false, seen: false }; G.players.push(p);
+    if (!p) { // 列表里没有的人（还没进过服的好友）：加在最后，从下面淡进来。extra：只因为按名字授权才列出来的，放弃修改、或最后没授权就存了，这一行撤掉
+      p = { name: n, online: false, wl: false, op: false, seen: false, extra: true }; G.players.push(p);
       const list = $("[data-lw=auth] .list", r); list.insertAdjacentHTML("beforeend", authRow(G, p));
       const row = list.lastElementChild; hy(row); fitTitle($(".ex-nm", row)); rowIn(row); noneOf($("[data-lw=auth]", r));
       list.scrollTo({ top: list.scrollHeight, behavior: "smooth" });
       setAllowed(r, n, true);
     } else { setAllowed(r, p.name, true); flash($$(".ex-pr", r).find(x => same(x.dataset.name, p.name))); }
   }
-  // 开启白名单：照程序的确认框，勾要先加进白名单的人（在线的、最近来过的、授了权的、还不在名单里的），名字不合法的加不进去
+  // 开启白名单：照程序的确认框，勾要先加进白名单的人（在线的、最近来过的、授了权的、还不在名单里的），名字不合法的加不进去。
+  // 这是马上执行的动作（发 whitelist 命令 / 改白名单文件），不进草稿、放弃修改也撤不回；「已授权」照眼下勾着的算（没保存的也算）
   function wlDialog(r) {
     const G = ga(), cand = G.players.filter(p => !p.wl && (p.online || p.seen || has(G.allowed, p.name)));
     const ok = cand.filter(p => NAME_OK.test(p.name)), badN = cand.filter(p => !NAME_OK.test(p.name)), listed = G.players.filter(p => p.wl).map(p => p.name);
@@ -713,14 +864,14 @@
         const picked = $$(".ex-ck.on", mk).map(c => c.dataset.n);
         G.wlOn = true;
         picked.forEach(n => {
-          const p = G.players.find(x => same(x.name, n)); if (!p) return; p.wl = true;
-          const row = $$(".ex-pr", r).find(x => same(x.dataset.name, n)), tg = row && $(".ex-tags", row);
-          if (tg) { tg.insertAdjacentHTML("afterbegin", tag("白名单")); rowIn(tg.firstElementChild); }
+          const p = G.players.find(x => same(x.name, n)); if (!p) return; p.wl = true; p.extra = false; // 进了白名单的人名单里本来就列，放弃修改时不撤
+          const row = $$(".ex-pr", r).find(x => same(x.dataset.name, n)), tg = row && $("[data-k=nowl]", row); // 进了白名单：那一行的「不在白名单」淡掉
+          if (tg) tg.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 180, easing: E_IN, fill: "forwards" }).onfinish = () => tg.remove();
         });
         paintWl(r);
       } });
   }
-  window.DETAIL_TABS["ext/gameai"] = { html: gaHTML, mount: gaMount };
+  window.DETAIL_TABS["ext/gameai"] = { html: gaHTML, mount: gaMount, ...guardOf(GA_PG) };
 
   // ======================================================================
   // ================= AI 伙伴 ============================================
@@ -751,19 +902,24 @@
         ["21:31", "「小方」卡住了：要拆或放禁挖区域里的方块，绕不过去", "warn"], ["21:20", "伙伴模组已读取新配置"], ["21:12", "「阿铁」开始跟随 Alex"],
         ["21:05", "已刷出伙伴「阿铁」"], ["20:58", "已连接伙伴模组 0.2.1（PlayerEngine 1.20.1-1.4.0），现有 1 个伙伴"]].map(([t, x, lv]) => ({ t, x, lv: lv || "info" })) : [];
       if (ready && !run) evs.unshift({ t: "21:50", x: "服务器已停止，与伙伴模组的连接已断开（伙伴保留在存档中，下次启动后自动接管）", lv: "info" });
-      CP[k] = {
+      // max、deny、zones 是进草稿的设置（见 CP_PG），打开时的样子记成 base；区域带一个不变的 id，改了名字也认得出是同一个
+      CP[k] = commit(CP_PG, {
         mods: MODDEF.map(m => ({ ...m, state: ready ? "ok" : "missing", version: ready ? m.want : "" })), restart: false, installing: false,
-        on: ready, linking: false, max: 4, deny: [...DEF_DENY], pend: 0,
-        zones: ready ? [{ name: "base", dim: "minecraft:overworld", min: [-120, -64, 240], max: [-60, 320, 310] }, { name: "farm", dim: "minecraft:overworld", min: [-40, 60, 180], max: [10, 80, 230] }] : [],
+        on: ready, linking: false, max: 4, deny: [...DEF_DENY], pend: 0, nextZone: 3,
+        zones: ready ? [{ id: 1, name: "base", dim: "minecraft:overworld", min: [-120, -64, 240], max: [-60, 320, 310] }, { id: 2, name: "farm", dim: "minecraft:overworld", min: [-40, 60, 180], max: [10, 80, 230] }] : [],
         comps: ready ? [
           { id: 1, name: "小方", owner: "Steve", state: "busy", hp: 20, max: 20, dim: "minecraft:overworld", xyz: [-88, 71, 262], task: { id: 7, op: "collect", item: "minecraft:oak_log", count: 32 }, last: null },
           { id: 2, name: "阿铁", owner: "Alex", state: "idle", hp: 17.5, max: 20, dim: "minecraft:overworld", xyz: [12, 64, 198], task: null, last: { title: "跟随 Alex", result: "cancelled", at: "21:40" } }] : [],
         events: evs, nextId: 3, nextTask: 8, quota: { used: 32000, limit: 500000 },
         seg: ready ? "comp" : "inst",
-      };
+      });
     }
     return CP[k];
   }
+  // 这一页的草稿（见「草稿和保存条」）。项名：max、deny:<生物 ID>（名单里有的才有这一项）、zone:<区域 id>（值是名字、维度、两个角）
+  const CP_PG = { cls: "ex-cpn", D: cp, fields: ["max", "deny", "zones"], sync: cpSync, saved: cpSaved,
+    items: s => ({ max: s.max, ...Object.fromEntries(s.deny.map(id => ["deny:" + id, true])),
+      ...Object.fromEntries(s.zones.map(z => ["zone:" + z.id, JSON.stringify([z.name, z.dim, z.min, z.max])])) }) };
   const needInstall = D => D.mods.some(m => m.state === "missing" || m.state === "outdated");
   const modMissing = D => D.mods[0].state === "missing";
   // 和伙伴模组的连接（companion.js 的 LINK）：草图按开关和服务器的状态推出来
@@ -788,14 +944,14 @@
     return `<div class="ex ex-cpn"><div class="ex-top">${tgl({ key: "cpOn", on: D.on, label: "AI 伙伴", tip: cpSwTip(D), cls: "big", dis: modMissing(D) && !D.on })}`
       + `<span class="ex-pslot" data-k="link">${pill(tone, t, tip)}</span><span class="ex-gslot" data-k="gate">${cpGate(D)}</span><span class="ex-sp"></span>`
       + segHTML("cp", [["comp", "伙伴"], ["set", "设置"], ["inst", "安装", `<i class="ex-sdot"${needInstall(D) ? "" : " hidden"} title="有待安装或待更新的模组"></i>`]], D.seg) + `</div>`
-      + `<div class="ex-pane ${v.cls}">${v.html}</div></div>`;
+      + `<div class="ex-pane ${v.cls}">${v.html}</div>${barHTML(CP_PG)}</div>`;
   }
   const cpView = D => ({ cls: D.seg === "comp" ? "g2 wide" : "g2", html: D.seg === "set" ? cpSet(D) : D.seg === "inst" ? cpInst(D) : cpComps(D) });
-  // ---- 伙伴 ----
+  // ---- 伙伴 ----（这一段里的伙伴上限是生效中的那个，读存过的 D.base.max，不读「设置」里还没保存的）
   function cpComps(D) {
     const live = isLive(D), list = live ? D.comps : [];
     return `<section class="ex-col" data-ex-col="comps"><div class="ex-hd"><span class="ex-t" title="玩家可在游戏聊天中使用「@伙伴名 指令」下达任务。仅在「游戏内 AI」中已授权的玩家可指挥伙伴，任务完成后会私聊通知发起者。">伙伴</span>`
-      + `<span class="ex-n" data-k="nComp">${live ? `${list.length} / ${D.max}` : ""}</span></div>`
+      + `<span class="ex-n" data-k="nComp">${live ? `${list.length} / ${D.base.max}` : ""}</span></div>`
       + `<div class="ex-lw${list.length ? "" : " is-none"}" data-lw="comps"><div class="list">${list.map(compRow).join("")}</div><span class="thumb"></span>`
       + `<div class="ex-none" data-k="cnone"${live ? "" : ` title="伙伴数据保存在存档中，停止服务器或断开连接均不会使其消失。"`}>${live ? "暂无伙伴" : "连接伙伴模组后将在此显示伙伴列表"}</div></div>`
       + `<div class="ex-acts">${spawnBtn(D)}<button type="button" class="ex-btn big" data-ex-act="stopall"${live && list.some(c => c.task) ? "" : " disabled"}><i data-ic="stop"></i>全部停止</button></div></section>`
@@ -804,8 +960,8 @@
       + `<div class="ex-none" title="连接伙伴模组、刷出伙伴或任务状态变更时，将在此记录。">暂无事件</div></div></section>`;
   }
   function spawnBtn(D) {
-    const live = isLive(D), full = D.comps.length >= D.max;
-    const dis = !live ? "请先启动服务器、开启 AI 伙伴并等待连接模组。" : full ? `已达伙伴上限（${D.max} 个），请先移除现有伙伴或在「设置」中调高上限。` : "";
+    const live = isLive(D), full = D.comps.length >= D.base.max;
+    const dis = !live ? "请先启动服务器、开启 AI 伙伴并等待连接模组。" : full ? `已达伙伴上限（${D.base.max} 个），请先移除现有伙伴或在「设置」中调高上限。` : "";
     return `<button type="button" class="ex-btn big pri" data-ex-act="spawn"${dis ? ` aria-disabled="true" title="${esc(dis)}"` : ` title="伙伴不占用在线玩家名额，亦不显示在 Tab 列表中。"`}><i data-ic="plus"></i>刷出伙伴</button>`;
   }
   const num1 = x => Number.isInteger(+x) ? String(+x) : (+x).toFixed(1);
@@ -823,24 +979,25 @@
   const evRow = e => `<div class="ex-ev${e.lv === "warn" ? " warn" : ""}">${ico(e.lv === "warn" ? "warn" : "info")}<span class="ex-evt">${esc(e.x)}</span><span class="ex-when">${esc(e.t)}</span></div>`;
   // ---- 设置 ----
   function cpSet(D) {
-    return `<section class="ex-col" data-ex-col="cset"><div class="ex-hd"><span class="ex-t" title="修改后约 2 秒内自动生效，无需重启服务器。">设置</span>`
+    return `<section class="ex-col" data-ex-col="cset"><div class="ex-hd"><span class="ex-t" title="保存后约 2 秒内生效，无需重启服务器。">设置</span>`
       + `<span class="ex-pend" data-k="pend" hidden title="正在同步配置至伙伴模组（每 2 秒读取一次）">${ico("spinner")}</span></div>`
-      + `<div class="ex-lim"><span class="ex-ll"><b title="同时存在的最大伙伴数量（1～16）。调低上限不会移除现有伙伴，仅限制新增。">伙伴上限</b></span>${stpHTML("max", `${D.max} 个`, D.max <= 1, D.max >= 16)}</div>`
-      + `<div class="ex-fld ex-denyf"><span class="ex-lb"><span title="执行攻击（attack）任务时跳过以下生物 ID。\n玩家、伙伴及已驯服、已命名或拴绳的生物默认受保护，不受此列表影响。">禁止攻击的生物</span>`
+      + `<div class="ex-lim" data-dk="max"><span class="ex-ll"><b title="同时存在的最大伙伴数量（1～16）。调低上限不会移除现有伙伴，仅限制新增。">伙伴上限${DOT}</b></span>${stpHTML("max", `${D.max} 个`, D.max <= 1, D.max >= 16)}</div>`
+      + `<div class="ex-fld ex-denyf"><span class="ex-lb" data-dkp="deny:"><span title="执行攻击（attack）任务时跳过以下生物 ID。\n玩家、伙伴及已驯服、已命名或拴绳的生物默认受保护，不受此列表影响。">禁止攻击的生物${DOT}</span>`
       + `<button type="button" class="ex-ib sm" data-ex-act="denyDef" title="恢复默认：不打村民、流浪商人、铁傀儡、雪傀儡、悦灵"><i data-ic="restore"></i></button></span>`
       + `<div class="ex-lw ex-chipw" data-lw="deny"><div class="list ex-chips" data-k="deny">${D.deny.map(denyChip).join("")}</div><span class="thumb"></span><div class="ex-none" title="清空表示无额外限制">暂无额外限制</div></div>`
       + addBox("deny", "生物 ID，如 minecraft:villager", "添加", 100, "添加禁止攻击的生物") + `</div>`
       + `<div class="ex-lim"><span class="ex-ll"><b title="玩家呼叫 AI 伙伴时消耗的额度统计；任务完成通知不调用 AI，不计入 token。\n点击右侧前往「设置 → AI」修改。">AI 伙伴每日额度</b><small>今日已用 / 每日上限</small></span>`
       + `<span class="ex-val">${fmtTokens(D.quota.used)} / ${D.quota.limit ? fmtTokens(D.quota.limit) : "不限"}</span><button type="button" class="ex-ib" data-ex-act="aiset" title="前往「设置 → AI」修改"><i data-ic="chevronRight"></i></button></div></section>`
-      + `<section class="ex-col" data-ex-col="zones"><div class="ex-hd"><span class="ex-t" title="伙伴不会破坏或放置该区域内的方块（倒水、点火、锄地同样不做）；伙伴可穿行，受阻时将报告「卡住了」。\n采用方块坐标（含端点），两角顺序不限。">禁挖区域</span>`
+      + `<section class="ex-col" data-ex-col="zones"><div class="ex-hd" data-dkp="zone:"><span class="ex-t" title="伙伴不会破坏或放置该区域内的方块（倒水、点火、锄地同样不做）；伙伴可穿行，受阻时将报告「卡住了」。\n采用方块坐标（含端点），两角顺序不限。">禁挖区域${DOT}</span>`
       + `<span class="ex-n" data-k="nZone">${D.zones.length || ""}</span><button type="button" class="ex-ib ex-corner" data-ex-act="zoneAdd" title="添加区域（最多 64 个）"><i data-ic="plus"></i></button></div>`
       + `<div class="ex-lw${D.zones.length ? "" : " is-none"}" data-lw="zones"><div class="list">${D.zones.map(zoneRow).join("")}</div><span class="thumb"></span>`
       + `<div class="ex-none" title="可将基地、农场等需保护区域设为禁挖；游戏内按 F3 可查看当前位置坐标。">暂无禁挖区域</div></div></section>`;
   }
   const denyChip = id => `<span class="ex-chip" data-id="${esc(id)}" title="${esc(id)}">${esc(shortID(id))}<button type="button" class="ex-cx" data-ex-act="denyRm" aria-label="移除 ${esc(id)}">${ico("x")}</button></span>`;
-  const zoneRow = z => `<div class="ex-zr" data-name="${esc(z.name)}" role="button" tabindex="0" title="点击编辑"><span class="ex-av sm"><i data-ic="exPick"></i></span><div class="ex-cm">`
+  // 生物的小胶囊不带未保存的小点（名单有改动标在「禁止攻击的生物」几个字后面）；区域的行带，新加的、改过的亮
+  const zoneRow = z => `<div class="ex-zr" data-name="${esc(z.name)}" data-dk="zone:${z.id}" role="button" tabindex="0" title="点击编辑"><span class="ex-av sm"><i data-ic="exPick"></i></span><div class="ex-cm">`
     + `<div class="ex-c1"><b class="ex-mono">${esc(z.name)}</b><span class="ex-dim">${esc(dimName(z.dim))}</span></div><div class="ex-c2 ex-mono">(${z.min.join(", ")}) → (${z.max.join(", ")})</div></div>`
-    + `<button type="button" class="ex-ib ex-rx" data-ex-act="zoneDel" title="删除区域"><i data-ic="trash"></i></button></div>`;
+    + `${DOT}<button type="button" class="ex-ib ex-rx" data-ex-act="zoneDel" title="删除区域"><i data-ic="trash"></i></button></div>`;
   // ---- 安装 ----
   function cpInst(D) {
     return `<section class="ex-col" data-ex-col="inst"><div class="ex-hd"><span class="ex-t" title="服务端需安装以下三个模组，其中 MineDeck Companion 由 MineDeck 内置。\nPlayerEngine 与 Architectury API 需点击「安装」从 Modrinth 下载已验证版本，不会自动升级。">安装</span></div>`
@@ -889,7 +1046,32 @@
     cpPane(r);
     r.addEventListener("click", cpClick); r.addEventListener("keydown", cpKey); r.addEventListener("input", onInput);
   }
-  const cpPane = r => { bars(r); fitNames(r); cpOff(r); };
+  const cpPane = r => { bars(r); fitNames(r); cpNums(r); cpOff(r); paintDraft(CP_PG, r); }; // 同 gaPane：步进先接好就地打字再蒙
+  // 伙伴上限：步进一下一个，中间的数字点进去能打（1～16 的整数）
+  const paintMax = (r, D, dir) => paintStp($("[data-ex-stp=max]", r), `${D.max} 个`, D.max <= 1, D.max >= 16, dir);
+  function setMax(r, n, dir) { const D = cp(); D.max = n; paintMax(r, D, dir); paintDraft(CP_PG, r); } // 进草稿，点保存才生效
+  function cpNums(r) {
+    const el = $("[data-ex-stp=max] b", r), D = cp(); if (!el) return;
+    window.KIT.numEdit(el, { label: "伙伴上限（个）", min: 1, max: 16, int: true, get: () => D.max, set: n => setMax(r, n, n > D.max ? 1 : -1) });
+  }
+  // 名单整份换（恢复默认、放弃修改）：一批换，换完重新算空不空、蒙不蒙、哪几项没保存
+  function paintDeny(r, D) {
+    const w = $("[data-lw=deny]", r); if (!w) return;
+    swapKids($(".list", w), D.deny.map(denyChip).join(""), 1, "Y", () => { noneOf(w); cpOff(r); });
+  }
+  function paintZones(r, D) {
+    const w = $("[data-lw=zones]", r); if (!w) return;
+    w.classList.toggle("is-none", !D.zones.length); paintCount(r, "nZone", String(D.zones.length || ""));
+    swapKids($(".list", w), D.zones.map(zoneRow).join(""), 1, "Y", () => { repaint(w); cpOff(r); paintDraft(CP_PG, r); });
+  }
+  // 照数据把页面画回去（CP_PG.sync）：上限就地改；名单只在刚放弃的改动里有它时才换
+  function cpSync(r, D, was) {
+    paintMax(r, D, 1);
+    if (was.some(k => k.startsWith("deny:"))) paintDeny(r, D);
+    if (was.some(k => k.startsWith("zone:"))) paintZones(r, D);
+  }
+  // 存好以后（CP_PG.saved）：「设置」标题旁转 2 秒的小圈（伙伴模组每 2 秒读一次设置）；「伙伴」那一段的上限、「刷出伙伴」灰不灰跟着新的上限
+  function cpSaved(r) { pending(r); paintComps(r); }
   const cpOff = r => { const D = cp(); paintOff(r, !D.on && D.seg === "set", modMissing(D) ? "需先安装伙伴模组并开启 AI 伙伴，方可修改" : "AI 伙伴未开启，开启后方可修改"); };
   const addEv = (r, x, lv = "info") => {
     const D = cp(), e = { t: nowHM(), x, lv }; D.events.unshift(e);
@@ -912,7 +1094,7 @@
     const spawn = $("[data-ex-act=spawn]", r), stopAll = $("[data-ex-act=stopall]", r);
     if (spawn) { spawn.outerHTML = spawnBtn(D); hy($(".ex-acts", r)); }
     if (stopAll) stopAll.disabled = !(isLive(D) && D.comps.some(c => c.task));
-    paintCount(r, "nComp", isLive(D) ? `${D.comps.length} / ${D.max}` : "");
+    paintCount(r, "nComp", isLive(D) ? `${D.comps.length} / ${D.base.max}` : "");
     if (!w) return;
     const live = isLive(D), list = $(".list", w), none = $("[data-k=cnone]", w);
     none.textContent = live ? "暂无伙伴" : "连接伙伴模组后将在此显示伙伴列表"; setTip(none, live ? "" : "伙伴数据保存在存档中，停止服务器或断开连接均不会使其消失。");
@@ -938,15 +1120,16 @@
     paintGate(r); cpOff(r);
   }
   function cpClick(e) {
-    if (e.target.closest(".ex-pane.off")) return; // 同 gaClick
     const r = e.currentTarget, D = cp();
+    const bb = e.target.closest("[data-ex-bar]"); if (bb) { barClick(CP_PG, bb); return; }
+    if (e.target.closest(".ex-pane.off")) return; // 同 gaClick
     const sg = e.target.closest(".ex-top .ex-seg span[data-v]"); if (sg) { goSeg(r, D, sg.dataset.v, cpView, cpPane); return; }
     const t = e.target.closest("[data-ex-tg]");
-    if (t && t.dataset.exTg === "cpOn") { if (t.getAttribute("aria-disabled") !== "true") cpToggle(r, t); return; }
+    if (t && t.dataset.exTg === "cpOn") { if (t.getAttribute("aria-disabled") !== "true") cpToggle(r, t); return; } // 总开关不进草稿：点了就生效（程序也是）
     const st = e.target.closest(".ex-stp button");
     if (st) {
-      const d = +st.dataset.d, n = Math.max(1, Math.min(16, D.max + d)); if (n === D.max) return;
-      D.max = n; paintStp(st.closest(".ex-stp"), `${n} 个`, n <= 1, n >= 16, d); pending(r); return;
+      const d = +st.dataset.d, n = Math.max(1, Math.min(16, D.max + d)); if (n !== D.max) setMax(r, n, d);
+      return;
     }
     if (e.target.closest(".ex-plus")) { e.preventDefault(); addDeny(r, e.target.closest(".ex-in")); return; }
     const zr = e.target.closest(".ex-zr");
@@ -960,7 +1143,7 @@
       case "stopall": D.comps.filter(x => x.task).forEach(x => stopComp(r, x)); break;
       case "stop": if (c) stopComp(r, c); break;
       case "despawn": if (c) despawnDialog(r, c); break;
-      case "denyRm": { const chip = a.closest(".ex-chip"), id = chip.dataset.id; D.deny = D.deny.filter(x => x !== id); chipOut(chip, () => noneOf($("[data-lw=deny]", r))); pending(r); break; }
+      case "denyRm": { const chip = a.closest(".ex-chip"), id = chip.dataset.id; D.deny = D.deny.filter(x => x !== id); chipOut(chip, () => noneOf($("[data-lw=deny]", r))); paintDraft(CP_PG, r); break; }
       case "denyDef": resetDeny(r); break;
       case "zoneAdd": zoneDialog(r, null); break;
       case "zoneDel": if (zr) zoneDel(r, zr.dataset.name); break;
@@ -975,7 +1158,7 @@
     if (e.key === "Enter" && e.target.tagName === "INPUT" && e.target.closest(".ex-in")?.dataset.exIn === "deny") { e.preventDefault(); addDeny(r, e.target.closest(".ex-in")); return; }
     if ((e.key === "Enter" || e.key === " ") && e.target.classList?.contains("ex-zr")) { e.preventDefault(); zoneDialog(r, cp().zones.find(z => z.name === e.target.dataset.name)); }
   }
-  // 设置改了：栏标题旁转 2 秒的小圈（伙伴模组每 2 秒读一次）
+  // 设置存好以后：栏标题旁转 2 秒的小圈（伙伴模组每 2 秒读一次）；眼下不在「设置」这一段就不转
   function pending(r) {
     const D = cp(), p = $("[data-k=pend]", r); if (!p) return;
     p.hidden = false; const tok = ++D.pend;
@@ -994,12 +1177,11 @@
     const w = $("[data-lw=deny]", r), list = $(".list", w);
     if (D.deny.includes(id)) { flash($(`.ex-chip[data-id="${CSS.escape(id)}"]`, list)); return; }
     D.deny.push(id); list.insertAdjacentHTML("beforeend", denyChip(id)); rowIn(list.lastElementChild); noneOf(w);
-    list.scrollTo({ top: list.scrollHeight, behavior: "smooth" }); pending(r);
+    list.scrollTo({ top: list.scrollHeight, behavior: "smooth" }); paintDraft(CP_PG, r);
   }
   function resetDeny(r) {
     const D = cp(); if (D.deny.join() === DEF_DENY.join()) return;
-    D.deny = [...DEF_DENY]; const w = $("[data-lw=deny]", r);
-    swapKids($(".list", w), D.deny.map(denyChip).join(""), 1, "Y", () => noneOf(w)); pending(r);
+    D.deny = [...DEF_DENY]; paintDeny(r, D); paintDraft(CP_PG, r);
   }
   // 停下：那一行的状态、第三行、「停下」三处换掉；事件一栏顶上多一条
   function stopComp(r, c) {
@@ -1060,7 +1242,8 @@
         paintComps(r); addEv(r, `已移除伙伴「${c.name}」${drop ? "，背包物品已掉落至原地" : ""}`);
       } });
   }
-  // 禁挖区域：表单弹窗（同程序的字段：名字、维度、维度 ID、两个角的 x y z），字段就地拦下
+  // 禁挖区域：表单弹窗（同程序的字段：名字、维度、维度 ID、两个角的 x y z），字段就地拦下。
+  // 加、改、删都只进草稿，跟保存条一起存；所以弹窗的主键叫「添加」「确定」，不叫「保存」（程序的弹窗是当场存，叫「保存」）
   const coordErr = (k, s) => { if (!/^-?\d+$/.test(s.trim())) return "坐标须为整数"; const n = +s; if (k === "y") return n < -2048 || n > 2048 ? "y 坐标范围为 -2048 至 2048" : ""; return Math.abs(n) > 30000000 ? "x、z 坐标须在 ±30000000 以内" : ""; };
   function zoneDialog(r, z) {
     const D = cp(), cur = z || { name: "", dim: "minecraft:overworld", min: ["", "", ""], max: ["", "", ""] };
@@ -1072,7 +1255,7 @@
       + fld("维度", "", ddField("dim", dimLabel(dim), "维度"))
       + `<div class="ex-dimid${dim ? "" : " on"}">${fld("维度 ID", "模组维度须填写完整 ID", `<label class="ex-in mono" data-ex-in="dimid"><input value="${dim ? "" : esc(cur.dim)}" placeholder="如 twilightforest:twilight_forest" spellcheck="false" autocomplete="off" aria-label="维度 ID"><span class="ex-msg"></span></label>`)}</div>`
       + `<div class="ex-full">${fld("角 1", "", xyz("a", cur.min))}</div><div class="ex-full">${fld("角 2", "", xyz("b", cur.max))}</div></div>`;
-    ask({ ic: "exPick", tone: "acc", title: z ? `编辑禁挖区域「${esc(z.name)}」` : "添加禁挖区域", ok: "保存", w: 460, focusInput: true,
+    ask({ ic: "exPick", tone: "acc", title: z ? `编辑禁挖区域「${esc(z.name)}」` : "添加禁挖区域", ok: z ? "确定" : "添加", w: 460, focusInput: true,
       tip: "填写区域对角两端的方块坐标（含端点），例如基地东北角与西南角。若不确定 y 范围，可填 -64 至 320 覆盖全部高度。", body,
       setup: mk => mk.addEventListener("click", e => {
         const f = e.target.closest("[data-ex-dd=dim]"); if (!f) return;
@@ -1093,7 +1276,7 @@
           for (const k of ["x", "y", "z"]) { const b = q(id + k), v = $("input", b).value, er = coordErr(k, v); if (er) { bad(b, "", `${id === "a" ? "角 1" : "角 2"} 的 ${k}：${er}`); return false; } c.push(+v.trim()); }
           pts.push(c);
         }
-        const nz = { name: n, dim: d, min: pts[0], max: pts[1] }, w = $("[data-lw=zones]", r), list = w && $(".list", w);
+        const nz = { id: z ? z.id : D.nextZone++, name: n, dim: d, min: pts[0], max: pts[1] }, w = $("[data-lw=zones]", r), list = w && $(".list", w);
         if (z) { // 编辑：只换那一行
           D.zones = D.zones.map(x => x === z ? nz : x);
           const row = list && $$(".ex-zr", list).find(x => x.dataset.name === z.name);
@@ -1103,15 +1286,15 @@
           if (list) { list.insertAdjacentHTML("beforeend", zoneRow(nz)); const row = list.lastElementChild; hy(row); rowIn(row); noneOf(w); list.scrollTo({ top: list.scrollHeight, behavior: "smooth" }); }
           paintCount(r, "nZone", String(D.zones.length));
         }
-        pending(r);
+        paintDraft(CP_PG, r);
       } });
   }
   function zoneDel(r, name) {
-    ask({ ic: "trash", tone: "dgr", title: `删除禁挖区域「${esc(name)}」？`, body: `<div class="ex-mb">删除后，伙伴将可以在该区域内破坏或放置方块。</div>`, ok: "删除区域", w: 380,
+    ask({ ic: "trash", tone: "dgr", title: `删除禁挖区域「${esc(name)}」？`, body: `<div class="ex-mb">保存后，伙伴将可以在该区域内破坏或放置方块。</div>`, ok: "删除区域", w: 380,
       onOk: () => {
         const D = cp(); D.zones = D.zones.filter(z => z.name !== name);
         const w = $("[data-lw=zones]", r), row = w && $$(".ex-zr", w).find(x => x.dataset.name === name);
-        rowOut(row, () => noneOf(w)); paintCount(r, "nZone", String(D.zones.length || "")); pending(r);
+        rowOut(row, () => noneOf(w)); paintCount(r, "nZone", String(D.zones.length || "")); paintDraft(CP_PG, r);
       } });
   }
   // 安装：草图里转 1.6 秒就算装好；开着服装的要重启才加载（程序同样提示）
@@ -1133,7 +1316,7 @@
       paintLink(r);
     }, 1600);
   }
-  window.DETAIL_TABS["ext/companion"] = { html: cpHTML, mount: cpMount };
+  window.DETAIL_TABS["ext/companion"] = { html: cpHTML, mount: cpMount, ...guardOf(CP_PG) };
 
   // ======================================================================
   // ================= 音乐共享 ===========================================
@@ -1195,8 +1378,8 @@
       + segHTML("mode", [["process", "单程序采集"], ["system", "整机录音"]], M.mode, true, M.live ? "广播进行中不可切换，请先停止广播" : "") + `</div>`
       + `<div class="ex-lim"><span class="ex-ll"><b title="100% 为原始音量，调整后即时生效。">音量</b></span>${slider(M.vol)}</div>`
       + `<div class="ex-act"><span class="ex-why" data-k="why">${whyHTML(M)}</span>${castBtn(M)}</div></section>`
-      + `<div class="ex-side"><section class="ex-col" data-ex-col="check"><div class="ex-hd"><span class="ex-t" title="所有必需项就绪后即可广播。已安装 Simple Voice Chat（SVC）的玩家均可收听，亦可在游戏内 SVC 菜单单独静音。">检查清单</span>`
-      + `<span class="ex-hslot" data-k="rs">${restartTag(M)}</span></div><div class="ex-cks2">${checkRows(M)}</div></section>`
+      + `<div class="ex-side"><section class="ex-col" data-ex-col="check"><div class="ex-hd"><span class="ex-t" title="所有必需项就绪后即可广播。已安装 Simple Voice Chat（SVC）的玩家均可收听，亦可在游戏内 SVC 菜单单独静音。">检查清单</span></div>`
+      + `<div class="ex-cks2">${checkRows(M)}</div></section>`
       + `<section class="ex-col" data-ex-col="lis"><div class="ex-hd"><span class="ex-t">听众</span>`
       + `<button type="button" class="ex-ib ex-corner" data-ex-act="copyGuide" title="${esc("复制发给好友的说明：\n" + guideMU(M))}"><i data-ic="copy"></i></button></div>`
       + `<div class="ex-lw${listeners(M) ? "" : " is-none"}" data-lw="lis"><div class="list" data-k="groups">${groupsHTML(M)}</div><span class="thumb"></span>`
@@ -1235,17 +1418,19 @@
   // 音量：自己画的条（规范第九节：把手是竖着的小胶囊），0–200、一下 5，100% 那里一道刻度
   const slider = v => `<div class="ex-sl" data-ex-sl="vol" role="slider" tabindex="0" aria-label="音量" aria-valuemin="0" aria-valuemax="200" aria-valuenow="${v}">`
     + `<span class="ex-slt"><i class="ex-slf" style="width:${v / 2}%"></i><i class="ex-slm"></i></span><i class="ex-slh" style="left:${v / 2}%"></i></div><b class="ex-slv ex-mono">${v}%</b>`;
-  const restartTag = M => M.restart.length ? `<span class="ex-tag warn" title="${esc(`${M.restart.join("、")} 是服务器运行中装上或改过的：重启服务器以后才生效。`)}">重启服务器后生效</span>` : "";
+  // 「重启服务器后生效」只留这一处（作者 11-28 让主会话定，原来栏头还有一颗）：服务器运行中装上的那一行，值后面一个小标签，为什么进悬停。
+  // 「开始广播」左边那句点不了的原因照旧（会拦住下一步，要看得见），不算重复
+  const restartTag = () => `<span class="ex-tag warn" title="服务器运行期间安装，需重启服务器后生效。">重启生效</span>`;
   // 检查清单五行：核心、SVC、桥接模组、语音端口、远程好友的语音（music.js 的 drawCheck；说明进悬停）
   function checkRows(M) {
     const st = (ok, icn) => `<span class="ex-cki ${ok === true ? "ok" : ok === false ? "bad" : ""}">${ico(ok === true ? "check" : ok === false ? "warn" : icn)}</span>`;
     const runNote = C.st !== "stopped" ? "服务器运行中，安装完成后需重启服务器生效。" : "";
     const svc = M.svc.installed
-      ? row("svc", st(true), "Simple Voice Chat", `<span class="ex-mono">${SVC_VER}</span>${M.restart.includes("Simple Voice Chat") ? tag("重启生效", "warn") : ""}`, "", `已安装 ${SVC_VER}。玩家客户端也需安装 SVC，与服务器同版本最稳妥。\n${SVC_FILE}`)
+      ? row("svc", st(true), "Simple Voice Chat", `<span class="ex-mono">${SVC_VER}</span>${M.restart.includes("Simple Voice Chat") ? restartTag() : ""}`, "", `已安装 ${SVC_VER}。玩家客户端也需安装 SVC，与服务器同版本最稳妥。\n${SVC_FILE}`)
       : row("svc", st(false), "Simple Voice Chat", `<span class="faint">未安装</span>`, M.svc.busy ? `<span class="ex-busy">${ico("spinner")}下载中…</span>` : `<button type="button" class="ex-btn" data-ex-act="svcInstall">${ico("download")}安装</button>`,
         `音乐通过此模组推送给玩家。点击「安装」从 Modrinth 下载适配 Forge ${C.S.mc} 的最新正式版至 mods 文件夹（需联网）。${runNote}玩家客户端亦须安装同一版本。`);
     const br = M.bridge.installed
-      ? row("bridge", st(true), "桥接模组", `<span class="ex-mono">${BRIDGE_VER}${M.bridge.variant === "javafml" ? "（备用）" : ""}</span>${M.restart.includes("桥接模组") ? tag("重启生效", "warn") : ""}`,
+      ? row("bridge", st(true), "桥接模组", `<span class="ex-mono">${BRIDGE_VER}${M.bridge.variant === "javafml" ? "（备用）" : ""}</span>${M.restart.includes("桥接模组") ? restartTag() : ""}`,
         `<button type="button" class="ex-ib" data-ex-act="brMenu" title="更多"><i data-ic="more"></i></button>`, `已安装 MineDeck 桥接模组 ${BRIDGE_VER}${M.bridge.variant === "javafml" ? "（备用加载方式）" : ""}${running() && !M.restart.includes("桥接模组") ? "，SVC 已加载" : ""}。`)
       : row("bridge", st(false), "桥接模组", `<span class="faint">未安装</span>`, M.bridge.busy ? `<span class="ex-busy">${ico("spinner")}</span>`
         : `<button type="button" class="ex-btn" data-ex-act="brInstall"${M.svc.installed ? "" : ` aria-disabled="true" title="请先安装 Simple Voice Chat：桥接模组依赖该模组，缺少会导致服务器无法启动。"`}>${ico("download")}安装</button>`,
@@ -1430,14 +1615,14 @@
     const b = $("[data-ex-act=cast]", r); b.classList.replace("stop", "pri"); swapIn(b, `${ico("play")}${M.mode === "system" ? "开始广播（整机录音）" : "开始广播"}`, 1);
     paintWhy(r);
   }
-  // 装 SVC：草图里转 1.4 秒（程序从 Modrinth 下）；开着服装的要重启（清单顶上一个「重启服务器后生效」、那一行一个「重启生效」）
+  // 装 SVC：草图里转 1.4 秒（程序从 Modrinth 下）；开着服装的要重启（那一行一个「重启生效」）
   function svcInstall(r) {
     const M = mu(); if (M.svc.busy) return;
     M.svc.busy = true; paintCheck(r, "svc");
     setTimeout(() => {
       M.svc.busy = false; M.svc.installed = true; if (C.st !== "stopped") M.restart.push("Simple Voice Chat");
       if (!r.isConnected) return;
-      paintCheck(r, "svc"); paintCheck(r, "bridge"); paintRs(r); paintWhy(r); paintGroups(r);
+      paintCheck(r, "svc"); paintCheck(r, "bridge"); paintWhy(r); paintGroups(r);
     }, 1400);
   }
   function brInstall(r) {
@@ -1446,13 +1631,8 @@
     setTimeout(() => {
       M.bridge.busy = false; M.bridge.installed = true; if (C.st !== "stopped") M.restart.push("桥接模组");
       if (!r.isConnected) return;
-      paintCheck(r, "bridge"); paintRs(r); paintWhy(r);
+      paintCheck(r, "bridge"); paintWhy(r);
     }, 700);
-  }
-  function paintRs(r) {
-    const M = mu(), s = $("[data-k=rs]", r), html = restartTag(M), had = !!s.firstElementChild;
-    if (had && html) setTip(s.firstElementChild, `${M.restart.join("、")} 是服务器运行中装上或改过的：重启服务器以后才生效。`);
-    else if (had !== !!html) swapIn(s, html, 1);
   }
   // 手动填 voice_host：弹一块小浮层（程序是行下面展开一个框）
   function vhPop(r, anchor) {
