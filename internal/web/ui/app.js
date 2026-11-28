@@ -609,6 +609,9 @@ const ACCENTS = [
 const MODE_LABEL = { auto: "跟随系统", light: "浅色", dark: "深色" };
 const MODE_ICON = { auto: "monitor", light: "sun", dark: "moon" };
 let appearanceView = null; // 「设置 → 外观」打开时登记的重绘函数，外观变化（含侧栏快捷切换）后同步选中态
+// 「设置 → 存储位置」画着时登记的重画函数：Windows 安全中心排除项的结果回来后（window.__mdDefenderDone）按新的状态重画。
+// 切页时和 appearanceView 一起清掉，不再抓着旧页面的 DOM
+let defenderView = null;
 
 /* 冷启动不白闪：原生窗口里把当前标题栏底色（--chrome）上报给后端存进 config.json（chromeColor），
    下次启动时宿主在创建 WebView2 之前把它设成默认底色，页面画出来之前窗口就是这个颜色（见 webviewbg_windows.go）。
@@ -1336,6 +1339,7 @@ async function navigate() {
   dirtyCheck = null;
   leaveChecks.clear();
   appearanceView = null;
+  defenderView = null;
   curHash = hash;
   viewGen++;
   if (consoleES) { consoleES.close(); consoleES = null; }
@@ -5961,7 +5965,63 @@ function storageRow(ico, title, path, desc, pick) { // 三行都有「打开」�
    - 备份保留份数（全局 backupKeep）放在这里（以前在单台服务器的备份页上，可用性走查 U18、R15）。
      详情页的备份页只读显示份数、链接到这里：地址是 #/settings/storage，这一行的 id 是 set-backup-keep；
    - 服务器和备份设成同一个文件夹时提示，R20；备份那一行写「所有备份都放在这里」，U29 */
-const sameDir = (a, b) => !!a && !!b && a.replace(/[\\/]+$/, "").toLowerCase() === b.replace(/[\\/]+$/, "").toLowerCase();
+/* 比较文件夹用的写法：斜杠换成反斜杠、连着的反斜杠并成一个（开头 UNC 的那两个不动）、去掉末尾的反斜杠、不分大小写。
+   和后端 samePath（cmd/minedeck/defender_windows.go）里 filepath.Clean + 不分大小写那一层对得上；后端另外还会解开目录联接和 8.3 短名，前端做不到 */
+const normDir = s => {
+  const t = String(s || "").replace(/\//g, "\\");
+  return ((t.startsWith("\\\\") ? "\\" : "") + t.replace(/\\+/g, "\\")).replace(/\\+$/, "").toLowerCase();
+};
+const sameDir = (a, b) => !!a && !!b && normDir(a) === normDir(b);
+
+/* Windows 安全中心排除项：把程序数据文件夹加进 Microsoft Defender 的排除项，实时防护就不扫它了（开服、存档快一些，frpc 不会被误报隔离）。
+   只在 Windows 的窗口版里有：宿主给了 hostDefenderExclusion 才出这一行（Mac、局域网的手机、用浏览器打开时都没有）。
+   点了由宿主以管理员身份跑 PowerShell（弹系统的 UAC 确认窗口），页面只说加入还是撤销、不给路径；
+   做完宿主调 window.__mdDefenderDone 交结果（见 cmd/minedeck/defender_windows.go）。AI 助手和 MCP 调不到它。
+   加没加过只看 MineDeck 自己记的 config.defenderExclusion（不提权读不到系统里真实的排除项）；记着的路径和现在的程序数据文件夹
+   对不上（文件夹搬过）时只给「撤销」，撤销的是记着的那个旧位置。 */
+const hasDefenderHost = () => typeof window.hostDefenderExclusion === "function";
+/* 正在做的：add | remove；空 = 没在做。UAC 窗口开着时按钮灰掉、写「等系统确认…」，等 __mdDefenderDone 来清。
+   刷新页面后丢了也不要紧：再点时宿主回 busy，这里接着等上一次的结果（defenderView 登记在外观那几个视图钩子旁边，切页时清掉） */
+let defenderPending = "";
+const fmtDefenderAt = s => {
+  const d = new Date(s), p = n => String(n).padStart(2, "0");
+  return isNaN(d) ? "" : `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+/* 服务器或备份有放在程序数据文件夹外面的：存放位置、以前用过的位置、接管进来的服务器文件夹 */
+const storageOutsideBase = (info, cfg) => {
+  const base = normDir(info.base);
+  return !!base && [info.serversRoot, info.backupsRoot, ...(cfg.roots || []), ...(cfg.instanceDirs || []), ...(cfg.backupRoots || [])]
+    .some(p => p && normDir(p) !== base && !normDir(p).startsWith(base + "\\"));
+};
+function defenderRow(info, cfg) {
+  if (!hasDefenderHost()) return "";
+  const rec = cfg.defenderExclusion && cfg.defenderExclusion.path ? cfg.defenderExclusion : null;
+  const here = rec && sameDir(rec.path, info.base);
+  const outside = storageOutsideBase(info, cfg);
+  const state = defenderPending ? "等系统确认…" : here ? `已加入${SEP}${esc(fmtDefenderAt(rec.at))}` : rec ? "加入的是以前的位置" : "没加入";
+  const tip = "实时防护会扫这个文件夹里读写的每个文件，开服、存档会慢一些，frpc 这类穿透程序还常被误报隔离。" +
+    `加入以后 Windows 安全中心不再扫描 ${info.base}，要管理员权限，会弹出 Windows PowerShell 的确认窗口。` +
+    "放在别处的服务器和备份不在里面。装了别的杀毒软件的话，要在那个软件里另外设置。" +
+    (rec && !here ? `以前加入的是 ${rec.path}，撤销的是它。` : "") +
+    "MineDeck 只记得自己加过没有，在 Windows 安全中心里手动删掉的话，这里看不出来。";
+  const action = rec ? "remove" : "add";
+  const label = rec ? "撤销 Windows 安全中心排除项" : "加入 Windows 安全中心排除项";
+  return riRow({ ico: "lock", title: "Windows 安全中心排除项", attrs: `id="set-defender" title="${esc(tip)}"`,
+    sub: state + (outside ? `${SEP}放在别处的服务器不在里面` : ""),
+    right: `<button class="btn sm" data-defender="${action}" aria-label="${label}" title="${rec ? "从排除项里删掉（会弹出系统的确认窗口）" : "以管理员身份加入（会弹出系统的确认窗口）"}"${defenderPending ? " disabled" : ""}>${rec ? "撤销…" : "加入…"}</button>` });
+}
+/* 宿主做完一次加入或撤销后调这里（UAC 没通过也是）。没通过是人自己选的（或者确认被取消了），用普通提示；
+   系统里改了、配置却没记下来（unsaved）照宿主的原话报错；别的没做成的用报错提示，原文在「详情」里 */
+window.__mdDefenderDone = r => {
+  r = r || {};
+  defenderPending = "";
+  const add = r.action !== "remove";
+  if (r.kind === "ok") toast(add ? "已把程序数据文件夹加入 Windows 安全中心的排除项" : "已从 Windows 安全中心的排除项里撤销");
+  else if (r.kind === "cancelled") toast(`${add ? "没有加入" : "没有撤销"}：${r.msg || "没通过系统的管理员确认（点了「否」，或者确认被取消了）"}`);
+  else if (r.kind === "unsaved") toast(r.msg || "Windows 安全中心里已经改了，但 MineDeck 没能记下来", true, r.detail || r.msg);
+  else toastErr(add ? "没能加入排除项" : "没能撤销排除项", { message: r.detail || r.msg || "", hint: r.msg || "" });
+  if (defenderView) defenderView(r);
+};
 function setStorage(body, info) {
   const gen = viewGen;
   const cfg = info.config || (info.config = {});
@@ -6005,7 +6065,8 @@ function setStorage(body, info) {
       group(
         storageRow("server", "服务器存放文件夹", info.serversRoot, "新的服务器会建在这个文件夹里，一台一个子文件夹。中文名字不会直接用作文件夹名。", "servers") +
         storageRow("package", "备份存放文件夹", info.backupsRoot, "所有备份都放在这里，每台服务器一个子文件夹：开着、停着时做的，手动的、定时的都是。", "backups") +
-        storageRow("folder", "程序数据文件夹", info.base, "程序、下载的 Java 和缓存都在这里。整个文件夹可以一起复制走。", ""),
+        storageRow("folder", "程序数据文件夹", info.base, "程序、下载的 Java 和缓存都在这里。整个文件夹可以一起复制走。", "") +
+        defenderRow(info, cfg),
         { ico: true }) +
       (same ? `<div class="warn-card" id="st-same" role="status"><div class="wc-title">${icon("warn")} 服务器和备份放在了同一个文件夹</div>
         <div class="wc-note">这样也能用，但备份会和服务器文件夹混在一起，不好找；硬盘坏了，服务器和备份会一起没了。建议给备份另选一个文件夹，最好在另一块硬盘上。</div></div>` : "") +
@@ -6016,6 +6077,17 @@ function setStorage(body, info) {
         field: `<input type="number" id="set-bk-keep" min="1" max="1000" value="${keep}" style="max-width:120px" aria-label="每台服务器保留几份备份"><span class="ri-unit">份</span><button class="btn" id="set-bk-keep-save" aria-label="保存备份保留份数">保存</button>` }), { ico: true });
     body.querySelectorAll("[data-open]").forEach(b => b.onclick = () =>
       api("/api/openpath", { method: "POST", body: { path: b.dataset.open } }).catch(e => toastErr("无法打开文件夹", e)));
+    body.querySelectorAll("[data-defender]").forEach(b => b.onclick = async () => {
+      const action = b.dataset.defender;
+      if (defenderPending) return;
+      defenderPending = action;
+      draw();
+      // 宿主马上回 started（开始了）或 busy（上一次的还没做完，比如 UAC 开着时刷新了页面又点一次），结果另由 __mdDefenderDone 交回来，
+      // 两者谁先到都行。busy 时不清 defenderPending、按钮照旧灰着，等上一次的结果来清；只有宿主报错（没开始）才恢复可点
+      try {
+        if (await window.hostDefenderExclusion(action) === "busy") toast("上一次的还没做完，先在系统弹出的确认窗口里选好");
+      } catch (e) { defenderPending = ""; draw(); toastErr(action === "add" ? "没能加入排除项" : "没能撤销排除项", e); }
+    });
     body.querySelectorAll("[data-pick]").forEach(b => b.onclick = async () => {
       const which = b.dataset.pick;
       try {
@@ -6036,6 +6108,23 @@ function setStorage(body, info) {
       if (!stale(gen)) $("#set-bk-keep").value = n;
       toast(`已设置每台服务器保留最近 ${n} 份备份（下次备份时生效）`);
     }, gen);
+  };
+  // 排除项做完以后重画这一页。没改动系统（没通过 UAC、拒绝、失败）时后端的记录没变，直接重画；
+  // 改了（ok，或者改了没记下来的 unsaved：这次运行里后端的配置也已经是新的）按 /api/app 重画（撤销后配置里没有这个键了，要清掉手上的那份），
+  // 读不到 /api/app 时照这次的结果在本地改（加入记路径和时间，撤销清空），不按旧值画出相反的状态
+  const view = defenderView = async r => {
+    if (stale(gen)) { if (defenderView === view) defenderView = null; return; }
+    if (r && (r.kind === "ok" || r.kind === "unsaved")) {
+      try {
+        const fresh = await api("/api/app");
+        if (stale(gen)) return;
+        info.base = fresh.base; info.serversRoot = fresh.serversRoot; info.backupsRoot = fresh.backupsRoot;
+        if (fresh.config) { Object.assign(cfg, fresh.config); cfg.defenderExclusion = fresh.config.defenderExclusion; }
+      } catch {
+        cfg.defenderExclusion = r.action === "remove" ? undefined : { path: r.path, at: new Date().toISOString() };
+      }
+    }
+    draw();
   };
   draw();
 }

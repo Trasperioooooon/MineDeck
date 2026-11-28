@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -174,5 +175,46 @@ func TestOpenURLFailedJS(t *testing.T) {
 	var back string
 	if err := json.Unmarshal([]byte(lit), &back); err != nil || back != msg {
 		t.Errorf("解不回原文：%q, %v", back, err)
+	}
+}
+
+// shellExecuteInfo 要和 SHELLEXECUTEINFOW 一字不差：大小、每个字段的位置照 C 的定义（64 位 112 字节、32 位 60 字节）；
+// fMask 的三个值照 shellapi.h。
+func TestShellExecuteInfoLayout(t *testing.T) {
+	var i shellExecuteInfo
+	ptr := unsafe.Sizeof(uintptr(0))
+	type field struct {
+		name   string
+		got    uintptr
+		want64 uintptr
+		want32 uintptr
+	}
+	for _, f := range []field{
+		{"size", unsafe.Sizeof(i), 112, 60},
+		{"fMask", unsafe.Offsetof(i.fMask), 4, 4},
+		{"hwnd", unsafe.Offsetof(i.hwnd), 8, 8},
+		{"lpVerb", unsafe.Offsetof(i.lpVerb), 16, 12},
+		{"lpFile", unsafe.Offsetof(i.lpFile), 24, 16},
+		{"lpParameters", unsafe.Offsetof(i.lpParameters), 32, 20},
+		{"lpDirectory", unsafe.Offsetof(i.lpDirectory), 40, 24},
+		{"nShow", unsafe.Offsetof(i.nShow), 48, 28},
+		{"hInstApp", unsafe.Offsetof(i.hInstApp), 56, 32},
+		{"lpIDList", unsafe.Offsetof(i.lpIDList), 64, 36},
+		{"lpClass", unsafe.Offsetof(i.lpClass), 72, 40},
+		{"hkeyClass", unsafe.Offsetof(i.hkeyClass), 80, 44},
+		{"dwHotKey", unsafe.Offsetof(i.dwHotKey), 88, 48},
+		{"hIcon", unsafe.Offsetof(i.hIcon), 96, 52},
+		{"hProcess", unsafe.Offsetof(i.hProcess), 104, 56},
+	} {
+		want := f.want64
+		if ptr == 4 {
+			want = f.want32
+		}
+		if f.got != want {
+			t.Errorf("%s 在 %d，应为 %d", f.name, f.got, want)
+		}
+	}
+	if seeMaskNoCloseProcess != 0x40 || seeMaskNoAsync != 0x100 || seeMaskFlagNoUI != 0x400 {
+		t.Errorf("SEE_MASK 的值不对：%#x %#x %#x", seeMaskNoCloseProcess, seeMaskNoAsync, seeMaskFlagNoUI)
 	}
 }
