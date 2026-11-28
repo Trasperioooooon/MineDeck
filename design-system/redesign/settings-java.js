@@ -20,7 +20,8 @@
 //   · 做完一件事不弹提示，那一处自己变（同详情页各页）：卸载、清理的那一行往右划掉，加的那一行从下面淡进来。
 // 示例数据同详情页「启动与内存」（detail-settings.js 的 JAVAS）：便携 21、17、25，本机 Java 8（1.8.0_421）；四台服务器各用 21、17、25、21，
 // 所以三套便携都有人用、卸载都灰着。另编了一份没装完的 Java 11（能清理、看确认框）；第一次重新扫描会多扫出一个 Temurin 17。路径都是编的。
-// 草图专用：&java=spare 多一套没人用的便携 Java 16（看卸载的确认框和往右划掉）；&java=empty 两栏都是空的。
+// 草图专用：&java=spare 多一套没人用的便携 Java 16（看卸载的确认框和往右划掉）；&java=empty 两栏都是空的；
+// &java=bad 便携 Java 17 检查不过（标「无法启动」，点重新下载看下载、检查、恢复；用着它的「机械动力整合包」详情页也加 &java=bad 对得上）。
 // 程序里有、这里没画的：局域网打开时没有卸载、添加（程序 isLocal）；读取失败。用着它的服务器这一项程序的 /api/javas 不给，要后端补。
 (() => {
   window.SETTINGS_SECS = window.SETTINGS_SECS || {};
@@ -40,9 +41,15 @@
   const RT = "D:\\MineDeck\\runtimes"; // 程序：exe 所在文件夹下的 runtimes\java-N（app.RuntimesDir）；草图里程序放在 D:\MineDeck（同详情页的服务器文件夹）
   const exeOf = m => `${RT}\\java-${m}\\bin\\java.exe`;
   const USES = { paper: 21, forge: 17, vanilla: 25, proxy: 21 }; // 每台服务器配的 Java，同 detail-settings.js
-  const TIP_P = "由 MineDeck 独立下载的 Java 运行时。新建服务器缺少合适版本时会自动下载，不影响系统已安装的 Java。\n卸载仅删除对应运行时；若有服务器正在运行或配置使用该版本，则无法卸载。";
+  const TIP_P = "由 MineDeck 独立下载的 Java 运行时。新建服务器缺少合适版本时会自动下载，不影响系统已安装的 Java。\n打开此页时会检查每一套能否正常启动；无法启动的可重新下载，检查通过后才替换原文件，服务器设置不用改。\n卸载仅删除对应运行时；若有服务器正在运行或配置使用该版本，则无法卸载。";
   const TIP_S = "新建服务器时优先使用本机已安装的 Java；若无合适版本，则使用 MineDeck 已下载的运行时或自动下载。";
   const TIP_INC = "上次下载或卸载未完成而残留的文件夹，无法用于开服，可点击右侧按钮清理。";
+  // 检查和重新下载（作者 11-28 要画的，做法照 v3.3.0-beta.1 下载与更新整改第四节）：打开这一页时把每一套都跑一次 java -version，
+  // 看能不能起来、报出来的大版本对不对；检查不过的那一行标「无法启动」，MineDeck 下载的可以重新下载（先下到旁边、检查过再换上去，同一个路径，
+  // 用着它的服务器设置不用改）。本机装的检查不过时新建服务器不用它，改用 MineDeck 下载的。左栏右上角「重新检查」再跑一次。
+  const JAVA_BROKEN_WHY = "运行 java -version 失败：找不到 bin\\server\\jvm.dll（文件可能被杀毒软件删除或磁盘出错）"; // 编的，同详情页「启动与内存」
+  const TIP_BAD_P = `检查未通过：${JAVA_BROKEN_WHY}\n可点击右侧按钮重新下载，用着它的服务器设置不用改`;
+  const TIP_BAD_S = `检查未通过：${JAVA_BROKEN_WHY}\n新建服务器时不会使用此 Java，改用 MineDeck 下载的`;
   const TIP_ADD = "粘贴 java.exe 或 JDK 文件夹的路径，如 C:\\Program Files\\Java\\jdk-21\\bin\\java.exe";
   let D = null;
   function seed(ctx) {
@@ -54,11 +61,13 @@
       scanned: [{ major: 8, version: "1.8.0_421", path: "C:\\Program Files\\Java\\jre1.8.0_421\\bin\\java.exe" }],
       found: [{ major: 17, version: "17.0.13", path: "C:\\Program Files\\Eclipse Adoptium\\jdk-17.0.13.11-hotspot\\bin\\java.exe" }], // 第一次重新扫描时多扫出来的
       scanning: false, draft: "",
+      checking: false, checked: false, bad: new Set(mode === "bad" ? ["p17"] : []), badUse: mode === "bad" ? "forge" : "", redl: {}, // redl：那一行重新下载进行到哪（"dl" / "check"）
     };
     if (mode === "spare") D.portable = [25, 21, 17, 16];
     if (mode === "empty") { D.portable = []; D.incomplete = []; D.scanned = []; }
   }
-  const usersOf = m => (C?.servers || []).filter(s => USES[s.id] === m);
+  // &java=bad 时用坏掉那套的服务器起不来，当它停着（不然「坏了还在跑」说不通）
+  const usersOf = m => (C?.servers || []).filter(s => USES[s.id] === m).map(s => s.running && D?.badUse === s.id ? { ...s, running: false } : s);
   // 卸载会被后端拦下的原因（mc.go java.remove 的原话）：有开着的先说开着的，没有再说配着的
   function blockOf(m) {
     const us = usersOf(m); if (!us.length) return "";
@@ -82,26 +91,40 @@
   };
   const svHTML = (s, m) => `<a class="sj-sv" href="${detailURL(s)}" title="${esc(`「${s.name}」${s.running ? "（运行中）" : ""}正在使用 Java ${m}，点击前往「设置 → 启动与内存」更换`)}">`
     + `${s.running ? "<i></i>" : ""}<span>${esc(s.name)}</span></a>`;
+  // 名字后面的检查状态：检查中一个小转圈；检查不过一个红的「无法启动」（原因进悬停）；没问题什么都不加
+  const chkHTML = (k, tip) => D.checking || D.redl[k] === "check" ? `<i data-ic="spinner" class="sj-chk"></i>`
+    : D.bad.has(k) && !D.redl[k] ? `<span class="sj-tg bad" title="${esc(tip)}">无法启动</span>` : "";
   function pRow(m) {
-    const us = usersOf(m), why = blockOf(m);
-    return `<div class="sj-row" data-sj-k="p${m}"><div class="sj-main"><div class="sj-l1"><span class="sj-nm">Java ${m}</span></div>${pathHTML(exeOf(m), 3)}</div>`
+    const k = "p" + m, us = usersOf(m), broke = D.bad.has(k), rd = D.redl[k];
+    const why = rd ? "正在重新下载，完成后才能卸载" : blockOf(m);
+    // 重新下载：一直露着；开着的服务器正用它跑时灰掉（文件被占着换不了）。坏了的那一套不会有服务器在用它跑
+    const run = broke ? [] : us.filter(s => s.running);
+    const rdWhy = run.length ? `服务器正在使用 Java ${m} 运行（${run.map(s => s.name).join("、")}），请先停止服务器再重新下载` : "";
+    return `<div class="sj-row" data-sj-k="${k}"><div class="sj-main"><div class="sj-l1"><span class="sj-nm">Java ${m}</span>${chkHTML(k, TIP_BAD_P)}</div>`
+      + (rd ? `<span class="sj-prog">${rd === "dl" ? "正在重新下载…" : "正在检查…"}</span>` : pathHTML(exeOf(m), 3)) + `</div>`
       + (us.length ? `<div class="sj-use">${us.map(s => svHTML(s, m)).join("")}</div>` : "")
+      + `<button type="button" class="sj-ib sj-rd${broke && !rd ? " hot" : ""}" data-sj-act="redl" data-m="${m}" aria-label="重新下载便携 Java ${m}"`
+      + (rd || rdWhy ? ` aria-disabled="true"` : "") + (rd ? "" : ` title="${esc(rdWhy || `重新下载 Java ${m}`)}"`) + `>`
+      + `<i data-ic="${rd === "dl" ? "spinner" : "download"}"${rd === "dl" ? ' class="sj-chk"' : ""}></i></button>`
       + `<button type="button" class="sj-ib sj-rm" data-sj-act="rm" data-m="${m}" aria-label="卸载便携 Java ${m}"`
       + (why ? ` aria-disabled="true" title="${esc(why)}"` : ` title="卸载"`) + `><i data-ic="trash"></i></button></div>`;
   }
   const iRow = m => `<div class="sj-row inc" data-sj-k="i${m}"><div class="sj-main"><div class="sj-l1"><span class="sj-nm">Java ${m}</span><span class="sj-tg warn" title="${esc(TIP_INC)}">残留</span></div>`
     + `${pathHTML(`${RT}\\java-${m}`, 1)}</div><button type="button" class="sj-ib sj-rm" data-sj-act="clean" data-m="${m}" title="清理" aria-label="清理残留的便携 Java ${m}"><i data-ic="trash"></i></button></div>`;
   const sRow = j => `<div class="sj-row" data-sj-k="s${esc(j.path.toLowerCase())}"><div class="sj-main"><div class="sj-l1"><span class="sj-nm">Java ${j.major}</span>`
-    + `<span class="sj-ver">${esc(j.version)}</span></div>${pathHTML(j.path, 3)}</div></div>`;
+    + `<span class="sj-ver">${esc(j.version)}</span>${chkHTML("s" + j.path.toLowerCase(), TIP_BAD_S)}</div>${pathHTML(j.path, 3)}</div></div>`;
   const pRows = () => D.portable.map(pRow).join("") + D.incomplete.filter(m => !D.portable.includes(m)).map(iRow).join("");
   const sRows = () => D.scanned.map(sRow).join("");
   const pCount = () => D.portable.length + D.incomplete.filter(m => !D.portable.includes(m)).length;
   const scanBtn = () => `<button type="button" class="sj-corner${D.scanning ? " busy" : ""}" data-sj-act="scan" title="${D.scanning ? "扫描中…（约数秒）" : "重新扫描本机 Java"}" aria-label="重新扫描本机 Java"`
     + `${D.scanning ? ' aria-disabled="true"' : ""}><i data-ic="refresh"></i></button>`;
 
+  const checkBtn = () => `<button type="button" class="sj-corner${D.checking ? " busy" : ""}" data-sj-act="check" title="${D.checking ? "检查中…" : "重新检查"}" aria-label="重新检查 MineDeck 下载的 Java"`
+    + `${D.checking ? ' aria-disabled="true"' : ""}><i data-ic="refresh"></i></button>`;
+
   function html(ctx) {
     seed(ctx); C = ctx;
-    const left = `<section class="sj-col" aria-label="MineDeck 下载的 Java"><div class="sj-hd"><span class="sj-t" title="${esc(TIP_P)}">MineDeck 下载的</span></div>`
+    const left = `<section class="sj-col" aria-label="MineDeck 下载的 Java"><div class="sj-hd fdpad"><span class="sj-t" title="${esc(TIP_P)}">MineDeck 下载的</span></div>${checkBtn()}`
       + `<div class="sj-lw${pCount() ? "" : " is-none"}" data-sj-lw="p"><div class="list">${pRows()}</div><span class="thumb"></span><div class="sj-none">暂无 MineDeck 下载的 Java</div></div></section>`;
     const right = `<section class="sj-col" aria-label="本机装的 Java"><div class="sj-hd fdpad"><span class="sj-t" title="${esc(TIP_S)}">本机装的</span></div>${scanBtn()}`
       + `<div class="sj-lw${D.scanned.length ? "" : " is-none"}" data-sj-lw="s"><div class="list">${sRows()}</div><span class="thumb"></span><div class="sj-none">未检测到</div></div>`
@@ -130,6 +153,7 @@
     r.addEventListener("click", onClick);
     r.addEventListener("keydown", onKey);
     r.addEventListener("input", onInput);
+    if (!D.checked) check();
   }
 
   // ================= 只换变了的那一处 =================
@@ -189,8 +213,33 @@
       paintScan(); swapList("s", sRows());
     }, 1400);
   }
+  // 检查：打开这一页时自动跑一次（换分类回来不再跑），左栏右上角「重新检查」再跑。草图里装作检查了 0.8 秒；只换名字后面那一小块，行不重画
+  function check() {
+    if (D.checking) return;
+    D.checking = true; paintChecks();
+    setTimeout(() => { D.checking = false; D.checked = true; paintChecks(); }, 800);
+  }
+  function paintChecks() {
+    const b = root()?.querySelector('[data-sj-act="check"]');
+    if (b) { b.classList.toggle("busy", D.checking); if (D.checking) b.setAttribute("aria-disabled", "true"); else b.removeAttribute("aria-disabled"); setTip(b, D.checking ? "检查中…" : "重新检查"); }
+    D.portable.forEach(m => paintRow("p" + m, pRow(m)));
+    D.scanned.forEach(j => paintRow("s" + j.path.toLowerCase(), sRow(j)));
+  }
+  // 换一行的内容（状态变了的那一行）：位置不动，不做动效
+  function paintRow(k, rowHTML) {
+    const row = rowEl(k); if (!row) return;
+    const t = document.createElement("div"); t.innerHTML = rowHTML;
+    const n = t.firstElementChild; row.replaceChildren(...n.childNodes); hy(row); fitTips(row);
+  }
+  // 重新下载（草图：下 1.6 秒、检查 0.6 秒；好了「无法启动」拿掉、那一行闪一下）
+  function redownload(m) {
+    const k = "p" + m; if (D.redl[k]) return;
+    D.redl[k] = "dl"; paintRow(k, pRow(m));
+    setTimeout(() => { D.redl[k] = "check"; paintRow(k, pRow(m)); }, 1600);
+    setTimeout(() => { delete D.redl[k]; D.bad.delete(k); paintRow(k, pRow(m)); flash(k); }, 2200);
+  }
   function paintScan() {
-    const b = root()?.querySelector(".sj-corner"); if (!b) return;
+    const b = root()?.querySelector('[data-sj-act="scan"]'); if (!b) return;
     b.classList.toggle("busy", D.scanning);
     if (D.scanning) b.setAttribute("aria-disabled", "true"); else b.removeAttribute("aria-disabled");
     setTip(b, D.scanning ? "扫描中…（约数秒）" : "重新扫描本机 Java");
@@ -269,6 +318,8 @@
     const m = +b.dataset.m;
     switch (b.dataset.sjAct) {
       case "scan": scan(); break;
+      case "check": check(); break;
+      case "redl": redownload(m); break;
       case "add": e.preventDefault(); submit(b.closest(".sj-add")); break;
       case "rm": askRemove(m, false); break;
       case "clean": askRemove(m, true); break;

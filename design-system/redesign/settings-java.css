@@ -63,6 +63,12 @@
 .sj-tg { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 9px; font-size: 11px; font-weight: 500; line-height: 18px; white-space: nowrap;
          background: color-mix(in srgb, var(--text) 9%, transparent); color: var(--muted); cursor: default; }
 .sj-tg.warn { background: var(--warning-subtle); color: var(--warning-text); }
+/* 检查：检查中名字后面一个小转圈；检查不过一个红的「无法启动」；重新下载中第二行换成一句淡字（同路径的位置和大小） */
+.sj-tg.bad { background: var(--danger-subtle); color: var(--danger-text); }
+.sj-chk { width: 13px; height: 13px; flex: none; color: var(--faint); animation: sj-spin .9s linear infinite; }
+.sj-prog { font-size: 11.5px; line-height: 17px; color: var(--faint); white-space: nowrap; }
+/* 重新下载：坏了的那一套强调成危险色，提醒点它 */
+.sj-ib.sj-rd.hot { color: var(--danger-text); }
 /* 谁在用：一台服务器一颗 20 高的小胶囊，开着的前面一个成功色小方点；点了去那台服务器的「设置 → 启动与内存」换 Java */
 .sj-use { flex: none; display: flex; gap: 4px; max-width: 58%; min-width: 0; overflow: hidden; }
 .sj-sv { flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px; border-radius: 10px; border: 0; font: inherit; font-size: 11.5px;

@@ -27,8 +27,18 @@
   let tip = null, cur = null, timer = 0, lastHide = 0;
   const tipEl = () => tip || (tip = Object.assign(document.createElement("div"), { className: "kit-tip" }), tip.setAttribute("role", "tooltip"), document.body.appendChild(tip), tip);
   const show = el => {
-    const t = tipEl(); t.textContent = el.dataset.tip; t.classList.remove("on", "below");
+    const t = tipEl(); t.textContent = el.dataset.tip; t.classList.remove("on", "below", "side-r", "side-l");
     const r = el.getBoundingClientRect(), w = t.offsetWidth, h = t.offsetHeight, gap = 8;
+    // 下拉菜单里的项：弹在菜单旁边（右边放不下就左边），竖着对齐这一项；弹在上下会盖住相邻的项（作者 11-28 指出 Java 下拉里路径盖住了上一行）
+    const menu = el.closest('[role="menu"]');
+    if (menu) {
+      const m = menu.getBoundingClientRect(), right = m.right + gap + w <= innerWidth - 8;
+      t.classList.add(right ? "side-r" : "side-l");
+      t.style.left = Math.round(right ? m.right + gap : Math.max(8, m.left - gap - w)) + "px";
+      t.style.top = Math.round(Math.min(Math.max(8, r.top + r.height / 2 - h / 2), innerHeight - h - 8)) + "px";
+      requestAnimationFrame(() => t.classList.add("on"));
+      return;
+    }
     const below = r.top - gap - h < 8;
     t.classList.toggle("below", below);
     t.style.left = Math.round(Math.min(Math.max(8, r.left + r.width / 2 - w / 2), innerWidth - w - 8)) + "px";

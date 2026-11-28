@@ -328,6 +328,13 @@
 .st-it.miss { cursor: default; }
 .st-it.miss:hover { background: none; }
 .st-it.miss .st-is { color: var(--danger-text); }
+/* 低于这个版本要的 Java：整块 0.45（规范第六节「暂时用不了的」），悬停说原因；检查不过的：字标红，右边一颗圆的「重新下载」 */
+.st-it.low { opacity: .45; cursor: default; }
+.st-it.low:hover { background: none; }
+.st-it.broke .st-is { color: var(--danger-text); }
+.st-redl { width: 28px; height: 28px; margin-right: -6px; border: 0; border-radius: 14px; padding: 0; flex: none; display: grid; place-items: center; background: none;
+           color: var(--danger-text); cursor: pointer; }
+.st-redl:hover { background: var(--hover); }
 
 /* ================= 浮层：调色板、实际启动参数（外圆角 16、细边加内边距 6，同控制台「Aa」那块） ================= */
 .st-pop { position: fixed; z-index: 50; padding: 6px; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px;

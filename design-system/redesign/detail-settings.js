@@ -148,7 +148,7 @@
   // 菜单（下拉）和浮层：同共用件页那张菜单（外圆角 16、细边加内边距 5，项 36 高、圆角 10）；挂在 body 上，点外面、Esc、栏里一滚就收
   // =====================================================================================================
   let menu = null, pop = null;
-  function openMenu(anchor, inner, pick) {
+  function openMenu(anchor, inner, pick, act) { // act：菜单项里另有按钮（data-act）时，点按钮走它，不算选这一项
     if (menu && menu._a === anchor) { closeMenu(); return; }
     closeMenu(); closePop();
     const m = document.createElement("div"); m.className = "st-dm enter"; m.setAttribute("role", "menu"); m.innerHTML = inner;
@@ -161,7 +161,9 @@
     m.style.top = Math.round(up ? r.top - h - 4 : r.bottom + 4) + "px";
     anchor.classList.add("open"); anchor.setAttribute("aria-expanded", "true"); m._a = anchor;
     m.addEventListener("click", e => {
-      const it = e.target.closest(".st-it"); if (!it || it.getAttribute("aria-disabled") === "true") return;
+      const it = e.target.closest(".st-it"), ab = e.target.closest("[data-act]");
+      if (it && ab && act) { closeMenu(); act(ab.dataset.act, it.dataset.v); return; }
+      if (!it || it.getAttribute("aria-disabled") === "true") return;
       closeMenu(); if (!it.classList.contains("here")) pick(it.dataset.v);
     });
     menu = m;
@@ -654,12 +656,15 @@
   const JAVAS = { portable: [21, 17, 25], scanned: [{ major: 8, version: "1.8.0_421", path: "C:\\Program Files\\Java\\jre1.8.0_421\\bin\\java.exe" }] };
   const JAVA_DOWNLOADABLE = [8, 11, 16, 17, 21, 25];
   const MISSING_JAVA = "C:\\Program Files\\Java\\jdk-21\\bin\\java.exe"; // 同页头「找不到这台服务器配的 Java」那条
-  // 每台的启动设置：内存同控制台第一行的启动命令（Paper、原版 4096，Forge 6144）；构建号是编的（程序里没有换构建，见开头）
+  const JAVA_BROKEN_WHY = "运行 java -version 失败：找不到 bin\\server\\jvm.dll（文件可能被杀毒软件删除或磁盘出错）"; // 编的，同全局设置 Java 那页
+  // 每台的启动设置：内存同控制台第一行的启动命令（Paper、原版 4096，Forge 6144）；构建号是编的（程序里没有换构建，见开头）。
+  // need 是这个版本至少要的 Java（同程序：游戏版本照官方元数据，缺字段时 mcsrc.staticJavaFor 兜底——26.1 起 25、1.20.5 起 21、1.18 起 17；
+  // 代理端是 mcsrc 里写死的 FixedJava，Velocity 21）。比它低的在下拉里灰掉（作者 11-28 要的：程序现在换 Java 时不拦，选了起不来）
   const JV_SEED = {
-    paper: { xmx: 4096, java: 21, build: "232", builds: ["232", "231", "230", "229", "228", "227", "226", "224"], dir: "D:\\MineDeck\\servers\\server-20261101-203512" },
-    forge: { xmx: 6144, java: 17, build: "47.3.0", builds: ["47.4.0", "47.3.12", "47.3.10", "47.3.7", "47.3.0", "47.2.32", "47.2.20", "47.2.0"], dir: "D:\\MineDeck\\servers\\create-pack" },
-    vanilla: { xmx: 4096, java: 25, build: "", builds: [], dir: "D:\\MineDeck\\servers\\server-20261120-195841" },
-    proxy: { xmx: 1024, java: 21, build: "498", builds: ["510", "509", "505", "498", "492", "487", "480"], dir: "D:\\MineDeck\\servers\\server-20261015-221007" },
+    paper: { xmx: 4096, java: 21, need: 21, build: "232", builds: ["232", "231", "230", "229", "228", "227", "226", "224"], dir: "D:\\MineDeck\\servers\\server-20261101-203512" },
+    forge: { xmx: 6144, java: 17, need: 17, build: "47.3.0", builds: ["47.4.0", "47.3.12", "47.3.10", "47.3.7", "47.3.0", "47.2.32", "47.2.20", "47.2.0"], dir: "D:\\MineDeck\\servers\\create-pack" },
+    vanilla: { xmx: 4096, java: 25, need: 25, build: "", builds: [], dir: "D:\\MineDeck\\servers\\server-20261120-195841" },
+    proxy: { xmx: 1024, java: 21, need: 21, build: "498", builds: ["510", "509", "505", "498", "492", "487", "480"], dir: "D:\\MineDeck\\servers\\server-20261015-221007" },
   };
   // 同程序 aikarsFlags：12 GB 以上换一套
   const aikars = xmx => {
@@ -684,13 +689,16 @@
     const javas = [];
     if (missing) javas.push({ major: 21, path: MISSING_JAVA, missing: true });
     JAVAS.portable.forEach(m => javas.push({ major: m, portable: true }));
+    // 草图：&java=bad 这台配的那套 MineDeck 下载的 Java 检查不过（同全局设置 Java 那页的 &java=bad；原因是编的，照 v3.3.0-beta.1 整改计划第四节的做法）
+    if (C.QS.get("java") === "bad") { const o = javas.find(x => x.portable && x.major === s.java); if (o) { o.broken = true; o.why = JAVA_BROKEN_WHY; } }
     JAVAS.scanned.forEach(j => javas.push({ ...j }));
     const have = new Set(javas.filter(o => !o.missing).map(o => o.major));
     JAVA_DOWNLOADABLE.filter(m => !have.has(m)).forEach(m => javas.push({ major: m, download: true }));
     const java = missing ? 0 : javas.findIndex(o => o.portable && o.major === s.java);
     const args = (C.QS.get("jvm") === "aikar" ? aikars(xmx) : []).map(t => ({ id: ++seqId, t }));
     JV[k] = { xmx, java, build: s.build, builds: s.builds, dir: s.dir, javas, args, form: "",
-      base: { xmx, java, build: s.build, args: args.map(a => a.t) }, pending: false, saving: false, restarting: false, dl: false };
+      base: { xmx, java, build: s.build, args: args.map(a => a.t) }, pending: false, saving: false, restarting: false, dl: false,
+      need: s.need || 8, needWho: C.S.proxy ? `${C.S.label} ${C.S.mc}` : `Minecraft ${C.S.mc}`, redl: "" }; // redl：重新下载进行到哪（"" / "dl" / "check"）
     return JV[k];
   }
   const argStr = list => list.join(" ");
@@ -716,8 +724,12 @@
     location.href = "task.html?" + q;
   }
   const buildName = b => (C.kind === "forge" ? b : `#${b}`);
-  const javaSub = (D, o, i) => (o.missing ? "未找到" : o.download ? "需下载（约 50 MB）" : o.portable ? "MineDeck 已下载" : `本机已安装 ${o.version}`) + (i === D.base.java && !o.missing ? " · 当前使用" : "");
-  const javaTip = o => (o.missing ? `${o.path}\n未找到该 Java 路径（可能已被卸载或移动），当前无法启动服务器` : o.path || "");
+  const javaLow = (D, o) => !o.missing && o.major < D.need; // 低于这个版本至少要的 Java：灰掉、悬停说原因
+  const javaSub = (D, o, i) => (o.missing ? "未找到" : o.download ? "需下载（约 50 MB）" : o.portable ? "MineDeck 已下载" : `本机已安装 ${o.version}`)
+    + (o.broken ? " · 无法启动" : "") + (i === D.base.java && !o.missing ? " · 当前使用" : "");
+  const javaTip = (D, o) => o.missing ? `${o.path}\n未找到该 Java 路径（可能已被卸载或移动），当前无法启动服务器`
+    : o.broken ? `Java ${o.major} 检查未通过：${o.why}\n可点开下拉重新下载，或换一个 Java`
+    : javaLow(D, o) ? `${D.needWho} 需要 Java ${D.need} 及以上` : o.path || "";
 
   // ---- 画 ----
   function memHTML(D) {
@@ -842,9 +854,10 @@
     const b = jvRoot()?.querySelector(".st-java"); if (!b) return;
     const o = D.javas[D.java], v = b.querySelector(".st-selv");
     const h = D.dl ? `${C.KIT.icon("spinner", "st-spin")}<span>正在下载 Java ${o.major}…</span>`
+      : D.redl ? `${C.KIT.icon("spinner", "st-spin")}<span>${D.redl === "check" ? "正在检查" : "正在重新下载"} Java ${o.major}…</span>`
       : `<span>Java ${o.major}</span><span class="st-sub">${esc(javaSub(D, o, D.java).replace(" · 当前使用", ""))}</span>`;
     setHTML(v, h);
-    b.classList.toggle("bad", !!o.missing && !D.dl); setTip(b, javaTip(o));
+    b.classList.toggle("bad", (!!o.missing || !!o.broken || javaLow(D, o)) && !D.dl && !D.redl); setTip(b, D.redl ? "" : javaTip(D, o));
     jvRoot().querySelector(".st-javaf").classList.toggle("mod", D.java !== D.base.java);
   }
   function paintBuild(D) {
@@ -852,9 +865,22 @@
     setHTML(b.querySelector(".st-selv"), `<span class="mono">${esc(buildName(D.build))}</span>${D.build === D.builds[0] ? `<span class="st-sub">最新</span>` : ""}`);
     jvRoot().querySelector(".st-buildf").classList.toggle("mod", D.build !== D.base.build);
   }
-  const javaMenu = D => D.javas.map((o, i) => `<div class="st-it${i === D.java ? " here" : ""}${o.missing ? " miss" : ""}" role="menuitemradio" aria-checked="${i === D.java}" data-v="${i}"`
-    + `${o.missing ? ' aria-disabled="true"' : ""}${javaTip(o) ? ` title="${esc(javaTip(o))}"` : ""}><span class="st-im">Java ${o.major}</span><span class="st-is">${esc(javaSub(D, o, i))}</span>`
-    + (o.download ? `<i data-ic="download" class="st-dl"></i>` : "") + (i === D.java ? `<i data-ic="check" class="st-ck"></i>` : "") + `</div>`).join("");
+  // 坏了的那一项（检查不过）：字标红，右边一颗「重新下载」（点它马上重下，不用等保存；先下到旁边、检查过再换上去，同一个路径，服务器设置不动）
+  const javaMenu = D => D.javas.map((o, i) => {
+    const low = javaLow(D, o), off = o.missing || (low && i !== D.java), tip = javaTip(D, o);
+    return `<div class="st-it${i === D.java ? " here" : ""}${o.missing ? " miss" : ""}${o.broken ? " broke" : ""}${low ? " low" : ""}" role="menuitemradio" aria-checked="${i === D.java}" data-v="${i}"`
+      + `${off ? ' aria-disabled="true"' : ""}${tip ? ` title="${esc(tip)}"` : ""}><span class="st-im">Java ${o.major}</span><span class="st-is">${esc(javaSub(D, o, i))}</span>`
+      + (o.broken ? `<button type="button" class="st-redl" data-act="redl" title="重新下载 Java ${o.major}" aria-label="重新下载 Java ${o.major}"><i data-ic="download"></i></button>`
+        : o.download && !low ? `<i data-ic="download" class="st-dl"></i>` : "")
+      + (i === D.java ? `<i data-ic="check" class="st-ck"></i>` : "") + `</div>`;
+  }).join("");
+  // 重新下载（草图：下 1.6 秒、检查 0.6 秒，好了那一项不再标红）
+  function redownload(D, i) {
+    const o = D.javas[i]; if (!o || D.redl) return;
+    D.redl = "dl"; paintJava(D);
+    setTimeout(() => { D.redl = "check"; paintJava(D); }, 1600);
+    setTimeout(() => { o.broken = false; delete o.why; D.redl = ""; paintJava(D); }, 2200);
+  }
   const buildMenu = D => D.builds.map((b, i) => `<div class="st-it${b === D.build ? " here" : ""}" role="menuitemradio" aria-checked="${b === D.build}" data-v="${esc(b)}">`
     + `<span class="st-im mono">${esc(buildName(b))}</span><span class="st-is">${[i === 0 ? "最新" : "", b === D.base.build ? "当前使用" : ""].filter(Boolean).join(" · ")}</span>`
     + (b === D.build ? `<i data-ic="check" class="st-ck"></i>` : "") + `</div>`).join("");
@@ -990,7 +1016,7 @@
     switch (b.dataset.st) {
       case "m-": case "m+": setMem(D, memStep(D.xmx, b.dataset.st === "m+" ? 1 : -1)); break;
       case "mp": setMem(D, +b.dataset.v); break;
-      case "java": if (!D.dl) openMenu(b, javaMenu(D), v => { D.java = +v; paintJava(D); paintBar(PG_JV); }); break;
+      case "java": if (!D.dl && !D.redl) openMenu(b, javaMenu(D), v => { D.java = +v; paintJava(D); paintBar(PG_JV); }, (act, v) => { if (act === "redl") redownload(D, +v); }); break;
       case "build": openMenu(b, buildMenu(D), v => { D.build = v; paintBuild(D); paintPreview(D); paintBar(PG_JV); }); break;
       case "copy": { // 复制以后图标换成勾 1.2 秒（规范第七节）
         navigator.clipboard?.writeText(D.dir).catch(() => {});

@@ -280,6 +280,7 @@ window.EXTRA_ICONS = {
   .dgm { padding-right: 9px; }
   .dgm:hover, .dga:hover { background: color-mix(in srgb, var(--term-fg) 16%, transparent); }
   .dgm .ico, .dga .ico { width: 14px; height: 14px; }
+  .dga .spin { animation: dg-spin .9s linear infinite; } @keyframes dg-spin { to { transform: rotate(360deg); } }
   .dgm .ico { transition: transform .32s cubic-bezier(.3, .7, .2, 1); }
   .dg.open .dgm .ico { transform: rotate(180deg); }
   .dgx { width: 28px; height: 28px; border-radius: 14px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; cursor: pointer;
@@ -435,7 +436,7 @@ const KINDS = {
 const kind = KINDS[QS.get("kind")] ? QS.get("kind") : "paper", S = KINDS[kind];
 const nNotice = Math.max(0, Math.min(4, +QS.get("notice") || 0));
 // 两条常驻提示都只在停着时出现（程序里「上次没能启动」只在已停止时显示；找不到 Java 时也开不起来）
-const st = nNotice || ["err", "multi", "crash"].includes(QS.get("diag")) ? "stopped" : (["running", "starting", "stopped"].includes(QS.get("st")) ? QS.get("st") : "running");
+const st = nNotice || ["err", "multi", "crash", "java"].includes(QS.get("diag")) ? "stopped" : (["running", "starting", "stopped"].includes(QS.get("st")) ? QS.get("st") : "running");
 
 // 标签和子页：照程序 detailTabs（app.js），这台服务器用不上的不列；加了「联机」（net），放在玩家后面
 function tabsOf(s) {
@@ -476,11 +477,12 @@ function skBar() {
     const q = new URLSearchParams(location.search);
     if (v) { q.set("diag", v); q.set("kind", "forge"); q.delete("notice"); q.set("tab", "console"); q.delete("sub"); if (v === "warn") q.delete("st"); else q.set("st", "stopped"); }
     else q.delete("diag");
+    if (v === "java") q.set("java", "bad"); else q.delete("java"); // 换到「设置 → 启动与内存」时 Java 17 也是坏的，对得上
     return `<a href="?${q}" class="${DIAG === v ? "on" : ""}"${title ? ` title="${title}"` : ""}>${label}</a>`;
   };
   const qa = new URLSearchParams(location.search); if (AI_ON) qa.set("ai", "0"); else qa.delete("ai");
   $("#sk2").innerHTML = `<b>控制台横幅</b>${dl("", "无")}${dl("err", "报错", "缺前置模组，没开起来")}${dl("multi", "两个问题", "同一次开服里：好友的模组对不上进不来，后来卡死被看门狗关掉")}`
-    + `${dl("warn", "提醒", "还开着，好友的模组对不上进不来")}${dl("crash", "没认出", "异常退出了，本地规则没认出是什么原因")}<i></i>`
+    + `${dl("warn", "提醒", "还开着，好友的模组对不上进不来")}${dl("crash", "没认出", "异常退出了，本地规则没认出是什么原因")}${dl("java", "Java 坏了", "配的 Java 17 少了文件、起不来（全局设置 Java 页、启动与内存加 &java=bad 对得上）")}<i></i>`
     + `<a href="?${qa}" class="${AI_ON ? "" : "on"}" title="没配 AI 时横幅上没有「让 AI 分析」">没配 AI</a>`;
 }
 
@@ -599,10 +601,10 @@ function folders() {
 // 程序里的控制台（app.js 约 3888 行起）有：过滤、自动滚动、编码、字号、复制全部、导出 txt，报错横幅（assistant.js，本地规则的结论；配了 AI 才有「让 AI 分析」），
 // 命令行（补全、翻历史、回车发送）。功能照着画全；改了做法的写在开头注释和计划书里，等作者定。
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-const DIAG = ["err", "multi", "warn", "crash"].includes(QS.get("diag")) ? QS.get("diag") : "";
+const DIAG = ["err", "multi", "warn", "crash", "java"].includes(QS.get("diag")) ? QS.get("diag") : "";
 const FAIL_LINE = `[MineDeck] 没能启动：端口 ${S.port} 被你的服务器「空岛生存」占着，先停掉它，或者给这台换个端口`; // inst/portcheck.go 的原话
 const AI_ON = QS.get("ai") !== "0";
-const CON = { auto: true, fs: 12.5, enc: "auto", q: "", hist: [], hi: -1, draft: "", sugg: [], si: -1, extra: [], dgOpen: false, dgClosed: false };
+const CON = { auto: true, fs: 12.5, enc: "auto", q: "", hist: [], hi: -1, draft: "", sugg: [], si: -1, extra: [], dgOpen: false, dgClosed: false, jredl: "" };
 // 示例日志都取自仓库里 internal/diag/testdata 的真日志（去掉了几行专门用来考规则的玩家聊天；端口、版本号换成这台服务器的）；代理端那几行照 Velocity 的格式
 const L_START = "[MineDeck] 启动: java -Xms1024M -Xmx6144M -Dfile.encoding=UTF-8 @libraries/net/minecraftforge/forge/1.20.1-47.3.0/win_args.txt nogui";
 const FORGE_RUN = [L_START,
@@ -642,6 +644,12 @@ const WATCHDOG = ["[13:09:44] [Server thread/WARN] [minecraft/MinecraftServer]: 
   "[13:10:44] [Server Watchdog/FATAL] [minecraft/ServerWatchdog]: Considering it to be crashed, server will forcibly shutdown.",
   "[13:10:45] [Server Watchdog/ERROR] [minecraft/CrashReport]: This crash report has been saved to: D:\\MineDeck\\servers\\create-pack\\.\\crash-reports\\crash-2026-10-28_13.10.44-server.txt",
   "[MineDeck] 服务器进程已退出（exit status 1）"];
+// Java 起不来（作者 11-28 要画修复 Java 的入口，做法照 v3.3.0-beta.1 下载与更新整改第四节）：这台配的 MineDeck 下载的 Java 17 少了 jvm.dll，
+// java.exe 一跑就退出。日志里那两行照 Windows 上 Java 启动器的原样报错；程序现在没有认这种报错的规则，要补（整改第四节第三条）
+const JAVA_BAD = ["[MineDeck] 启动: D:\\MineDeck\\runtimes\\java-17\\bin\\java.exe -Xms1024M -Xmx6144M -Dfile.encoding=UTF-8 @libraries/net/minecraftforge/forge/1.20.1-47.3.0/win_args.txt nogui",
+  "Error: missing `server' JVM at `D:\\MineDeck\\runtimes\\java-17\\bin\\server\\jvm.dll'.",
+  "Please install or use the JRE or JDK that contains these missing components.",
+  "[MineDeck] 服务器进程已退出（exit status 1）"];
 function consoleLog() {
   const done = a => a.findIndex(l => l.includes("Done ("));
   const port = a => a.map(l => l.replace("*:25565", `*:${S.port}`)); // 端口换成这台服务器的
@@ -649,6 +657,7 @@ function consoleLog() {
   if (DIAG === "multi") return port([...FORGE_RUN.slice(0, done(FORGE_RUN) + 1), MISMATCH, ...WATCHDOG]);
   if (DIAG === "warn") return port([...FORGE_RUN.slice(0, done(FORGE_RUN) + 1), MISMATCH]);
   if (DIAG === "crash") return port([...FORGE_RUN, "[MineDeck] 服务器进程已退出（exit status 1）"]);
+  if (DIAG === "java") return JAVA_BAD;
   let L;
   if (S.proxy) L = ["[12:01:03 INFO]: Booting up Velocity 3.4.0...", "[12:01:04 INFO]: Loading localizations...", "[12:01:05 INFO]: Done (1.86s)!",
     "[12:03:21 INFO]: [connected player] Steve (/192.168.1.20:52114) has connected", "[12:06:02 INFO]: [connected player] Notch_CN (/192.168.1.23:50871) has connected"];
@@ -681,7 +690,10 @@ const F_CRASH = { title: "服务器异常退出", summary: "服务器自己退�
 const F_WATCHDOG = { title: "卡死被看门狗关掉", summary: "服务器的一次 tick 卡了 60.00 秒，看门狗认为它死机了，把服务器强制关掉了",
   fixes: ["看崩溃报告里「Server thread」的堆栈，找出卡住主线程的模组，更新或禁用它", "生成新地形太重时，可以先预生成区块，或减小视距（view-distance）",
     "最后的办法：在 server.properties 里把 max-tick-time 设成 -1（关掉看门狗；卡住时不会自动重启）"], evidence: [WATCHDOG[1], WATCHDOG[2]] };
-const FINDINGS = { err: [F_MISSING], multi: [F_WATCHDOG, F_MISMATCH], warn: [F_MISMATCH], crash: [F_CRASH] }[DIAG] || [];
+// Java 起不来：规则是新加的（程序没有），字照全局设置 Java 那页和详情页「启动与内存」的说法；横幅上直接给「重新下载 Java 17」，怎么修里另有「换一个 Java」
+const F_JAVA = { title: "Java 无法启动", java: 17, summary: "Java 17（MineDeck 下载的）缺少 bin\\server\\jvm.dll，文件可能被杀毒软件删除或磁盘出错",
+  fixes: ["重新下载 Java 17：先下载到临时位置，检查通过后再替换，服务器设置不用改", "或在「设置 → 启动与内存」中换一个 Java"], evidence: [JAVA_BAD[1], JAVA_BAD[2]] };
+const FINDINGS = { err: [F_MISSING], multi: [F_WATCHDOG, F_MISMATCH], warn: [F_MISMATCH], crash: [F_CRASH], java: [F_JAVA] }[DIAG] || [];
 // 一段完整的插件报错（照 Paper 的格式编的示例，类名是真的、行号是编的）：外层 EventException 五帧，里面 Caused by 的最后「... 4 more」
 // 照作者 11-27 的要求展开成外层最后四帧（规则：Caused by 段的「... N more」就是它外面那个异常完整帧列表的最后 N 帧）。展开出来的几行淡一点，悬停说原文是什么
 const PAPER_OUTER = ["\tat co.aikar.timings.TimedEventExecutor.execute(TimedEventExecutor.java:80) ~[paper-api-1.21.4-R0.1-SNAPSHOT.jar:?]",
@@ -708,6 +720,7 @@ function bannerHTML() {
   return `<div class="dg${warn ? " warn" : ""}${CON.dgOpen ? " open" : ""}" id="dg" role="status"><div class="dgh"><span class="dgi" title="由本地规则离线分析，未联网"><i data-ic="warn"></i></span>`
     + `<div class="dgt"><b>${esc(top.title)}</b><span>${esc(top.summary)}</span></div>`
     + (n > 1 ? `<button class="dgk" title="共检测到 ${n} 个问题">+${n - 1}</button>` : "")
+    + (top.java ? `<button class="dga dgj" data-java="${top.java}">${CON.jredl ? `<i data-ic="spinner" class="spin"></i>${CON.jredl === "check" ? "正在检查…" : "正在重新下载…"}` : `<i data-ic="download"></i>重新下载 Java ${top.java}`}</button>` : "")
     + `<button class="dgm" aria-expanded="${CON.dgOpen}" title="看详情和怎么修">怎么修<i data-ic="chevronDown"></i></button>`
     + (AI_ON ? `<button class="dga"><i data-ic="sparkle"></i>让 AI 分析</button>` : "")
     + `<button class="dgx" title="忽略本次提示"><i data-ic="x"></i></button></div>`
@@ -860,6 +873,18 @@ document.addEventListener("click", e => {
   if (e.target.closest(".snd")) { sendCmd(); $("#cin").focus(); return; }
   if (e.target.closest(".dgm, .dgk")) { CON.dgOpen = !CON.dgOpen; const d = $("#dg"); d.classList.toggle("open", CON.dgOpen); $(".dgm", d).setAttribute("aria-expanded", CON.dgOpen); if (CON.dgOpen) thinBar($("#dgb")); return; }
   if (e.target.closest(".dgx")) { CON.dgClosed = true; const d = $("#dg"); d.classList.add("gone"); setTimeout(() => d.remove(), 140); return; }
+  // 重新下载 Java（草图：下 1.6 秒、检查 0.6 秒；好了横幅收起，控制台补一行。按钮里的字换掉、宽度跟着变，规范第七节）
+  const jb = e.target.closest(".dgj");
+  if (jb && !CON.jredl) {
+    const m = jb.dataset.java, paint = () => { const b = $(".dgj"); if (b) { b.innerHTML = CON.jredl ? `${KIT.icon("spinner", "spin")}${CON.jredl === "check" ? "正在检查…" : "正在重新下载…"}` : ""; } };
+    CON.jredl = "dl"; paint();
+    setTimeout(() => { CON.jredl = "check"; paint(); }, 1600);
+    setTimeout(() => {
+      CON.jredl = ""; CON.dgClosed = true; const d = $("#dg"); if (d) { d.classList.add("gone"); setTimeout(() => d.remove(), 140); }
+      const l = `[MineDeck] Java ${m} 已重新下载并通过检查，可以启动服务器了`; CON.extra.push(l); pushLine(l);
+    }, 2200);
+    return;
+  }
 });
 // 别的标签的内容在各自的文件里（detail-players.js、detail-net.js……），登记在 window.DETAIL_TABS[标签编号] = { html(ctx), mount(ctx) }。
 // html 返回内容面板里的那一块（外层自己定，通常是 flex: 1 的一栏）；mount 在内容换上去、图标换好以后跑一次。ctx 里是这台服务器的样子和几个共用的小工具。
