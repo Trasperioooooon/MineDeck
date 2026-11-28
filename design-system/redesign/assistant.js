@@ -91,7 +91,7 @@
     "1. 缺少前置模组：create 依赖 flywheel，但未安装",
     "   - 位置：<程序目录>\\servers\\机械动力整合包\\mods",
     "",
-    "## 控制台（最近一次启动以来，只留 WARN / ERROR、异常和最后几行）",
+    "## 控制台（自最近一次启动起，仅保留 WARN / ERROR、异常与最后几行）",
     "[21:13:58] [main/INFO]: ModLauncher running: args [--launchTarget, forgeserver, --fml.forgeVersion, 47.4.0]",
     "[21:13:59] [main/INFO]: Java home: C:\\Users\\<用户名>\\AppData\\Local\\MineDeck\\java\\17",
     "[21:14:01] [main/WARN]: Mod file create-1.20.1-0.5.1.j.jar is missing mods.toml dependency entries",
@@ -120,7 +120,7 @@
     "## MineDeck 本地规则的结论",
     "1. 端口被占用：25567 已被其他程序占用，服务器无法绑定该端口",
     "",
-    "## 控制台（最近一次启动以来，只留 WARN / ERROR、异常和最后几行）",
+    "## 控制台（自最近一次启动起，仅保留 WARN / ERROR、异常与最后几行）",
     "[18:02:10] [Server thread/INFO]: Starting Minecraft server on *:25567",
     "[18:02:11] [Server thread/WARN]: **** FAILED TO BIND TO PORT!",
     "[18:02:11] [Server thread/WARN]: The exception was: java.net.BindException: Address already in use: bind",
@@ -268,7 +268,7 @@
       }
       case "eula": {
         const s = sess("s8", "帮我开一个空岛服，Paper 最新版", "", "10:51", [U("帮我开一个空岛服，Paper 最新版"),
-          A({ think: "Paper 最新稳定版为 1.21.4。端口 25565～25567 均已占用，选用 25568。", text: "好的，将按以下配置新建一台 Paper 服务器：使用 MineDeck 便携版 Java 21，内存 4 GB，端口 25568。新建服务器前需先同意 Minecraft EULA。",
+          A({ think: "Paper 最新稳定版为 1.21.4。端口 25565～25567 均已占用，选用 25568。", text: "好的，将按以下配置新建一台 Paper 服务器：使用 MineDeck 下载的 Java 21，内存 4 GB，端口 25568。新建服务器前需先同意 Minecraft EULA。",
             tools: [card(P_CREATE())], ...usage(3302, 0, 160, 0.0016) })], { waiting: true });
         S.sessions.unshift(s); S.sid = "s8";
         break;
@@ -282,7 +282,7 @@
       case "nolist": S.sessions = []; S.sid = ""; if (!PAGE) S.view = "list"; break;
       case "quota": S.used = 50000; break;
       case "retry": S.sid = "s4"; break;
-      case "stale": s1.stale = "AI 服务商或接口地址已变更，当前会话不可继续使用"; break;
+      case "stale": s1.stale = "AI 服务商或接口地址已变更，当前会话已失效"; break;
       case "long": s1.long = true; break;
       case "attach": { const s = sess("s9", "分析「原版快照测试」的问题", "原版快照测试", nowHM(), [], { attach: (PV_LEAD + "\n\n" + PV_DATA).length }); S.sessions.unshift(s); S.sid = "s9"; S.attach = true; break; }
       case "off": case "lan-none": case "lan-closed": case "down": S.gate = GATES[ST]; break;
@@ -667,7 +667,7 @@
     const empty = !P.ta.value.trim() && !att;
     P.snd.classList.toggle("plain", !busy && !!s.waiting); // 有确认卡片时，卡片上的「确认」才是主键（同程序）
     P.snd.setAttribute("aria-disabled", !busy && (off || empty) ? "true" : "false");
-    const tip = busy ? "停止回复" : off ? (s.stale ? "当前会话不可继续使用" : "今日额度已用完") : "发送（回车发送，Shift + 回车换行）";
+    const tip = busy ? "停止回复" : off ? (s.stale ? "当前会话已失效" : "今日额度已用完") : "发送（回车发送，Shift + 回车换行）";
     setTip(P.snd, tip); P.snd.setAttribute("aria-label", busy ? "停止回复" : "发送");
     // 今天的用量（到 80% 变黄）
     const mh = `<span class="${S.used >= S.limit * 0.8 ? "warn" : ""}" title="AI 助手每日额度，可在「设置 → AI」调整。执行修改操作前会先弹出确认卡片。">今日已用 ${fmtTokens(S.used)} / ${fmtTokens(S.limit)} token</span>`;
