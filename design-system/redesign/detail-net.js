@@ -118,7 +118,7 @@ const ntg = (key, t, on, tip = "", cls = "", dis = false) => `<button class="ntg
 // 设置里存的自建 frps（11-29 作者定只在「设置 → 内网穿透」里填）：草图里 &frps=set 算存过，示例同设置页；没存过是 null
 const FRPS = () => C.QS.get("frps") === "set" ? { host: "frp.example.com", port: "7000" } : null;
 const FRPS_OFF = "适用于自有 frps 服务端，点击开启";
-const FRPS_NONE = "需先在「设置 → 内网穿透」中填写自建 frps 的地址、端口与令牌";
+const FRPS_NONE = "需先在「设置 → 内网穿透」中填写自建 frps 的地址与端口";
 const FRPS_BAD = "请输入 1～65535 之间的整数";
 const remoteOk = s => { s = s.trim(); return !s || (/^\d+$/.test(s) && +s >= 1 && +s <= 65535); }; // 公网端口：空着算对（用本地端口），填了要是 1～65535 的整数
 function frpsAddr() {

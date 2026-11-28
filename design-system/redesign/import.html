@@ -1635,7 +1635,7 @@ function viaDetail() {
 // 代理端的端口第一次启动才知道，自建 frps 同另外两个穿透一样灰着，等启动过以后在「联机」里开。
 // 11-29：设置里没存过自建 frps 时同样灰着（.off），整块悬停说去「设置 → 内网穿透」填；向导里不放跳转，中途离开会丢掉填了一半的向导
 const FRPS_OFF = "适用于自有 frps 服务端，点击开启";
-const FRPS_NONE = "需先在「设置 → 内网穿透」中填写自建 frps 的地址、端口与令牌";
+const FRPS_NONE = "需先在「设置 → 内网穿透」中填写自建 frps 的地址与端口";
 const FRPS_PROXY = "代理端端口需在首次启动生成配置文件后确定，启动后可在服务器的「联机」页开启自建 frps";
 const remoteOk = s => { s = s.trim(); return !s || (/^\d+$/.test(s) && +s >= 1 && +s <= 65535); }; // 公网端口：空着算对（用本地端口），填了要是 1～65535 的整数
 function lanPage() {
