@@ -30,6 +30,8 @@
 .ex-pane { transition: opacity .2s, filter .2s; }
 .ex-pane.off { opacity: .7; filter: grayscale(1); }
 .ex-pane.off, .ex-pane.off :not(.thumb) { cursor: default; }
+.ex-pane.off :is(.ex-pr, .ex-tr, .ex-zr, .ex-cr):hover { background: none; }
+.ex-pane.off :is(.ex-cx, .ex-rx) { opacity: 0 !important; }
 
 /* ---- 栏：圆角 18、内边距 8，底色同「玩家」「插件」各栏 ---- */
 .ex-col { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 8px; box-sizing: border-box; border-radius: 18px;

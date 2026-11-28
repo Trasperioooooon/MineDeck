@@ -602,6 +602,7 @@
   const gaOff = r => { const G = ga(); paintOff(r, !G.on && G.seg === "set", "游戏内 AI 未开启，开启后方可修改"); };
   const paintCount = (r, k, text) => { const el = $(`[data-k=${k}]`, r); if (el && el.textContent !== text) swapIn(el, esc(text), 1); };
   function gaClick(e) {
+    if (e.target.closest(".ex-pane.off")) return; // 总开关关着：设置这一段什么都不接（按钮已 inert，这里兜底）
     const r = e.currentTarget, G = ga();
     const sg = e.target.closest(".ex-top .ex-seg span[data-v]"); if (sg) { goSeg(r, G, sg.dataset.v, gaView, gaPane); return; }
     const t = e.target.closest("[data-ex-tg]");
@@ -634,6 +635,7 @@
     }
   }
   function gaKey(e) {
+    if (e.target.closest(".ex-pane.off")) return;
     if (e.key !== "Enter" || e.target.tagName !== "INPUT") return;
     const box = e.target.closest(".ex-in"), r = e.currentTarget; if (!box) return;
     e.preventDefault();
@@ -936,6 +938,7 @@
     paintGate(r); cpOff(r);
   }
   function cpClick(e) {
+    if (e.target.closest(".ex-pane.off")) return; // 同 gaClick
     const r = e.currentTarget, D = cp();
     const sg = e.target.closest(".ex-top .ex-seg span[data-v]"); if (sg) { goSeg(r, D, sg.dataset.v, cpView, cpPane); return; }
     const t = e.target.closest("[data-ex-tg]");
@@ -967,6 +970,7 @@
     }
   }
   function cpKey(e) {
+    if (e.target.closest(".ex-pane.off")) return;
     const r = e.currentTarget;
     if (e.key === "Enter" && e.target.tagName === "INPUT" && e.target.closest(".ex-in")?.dataset.exIn === "deny") { e.preventDefault(); addDeny(r, e.target.closest(".ex-in")); return; }
     if ((e.key === "Enter" || e.key === " ") && e.target.classList?.contains("ex-zr")) { e.preventDefault(); zoneDialog(r, cp().zones.find(z => z.name === e.target.dataset.name)); }
