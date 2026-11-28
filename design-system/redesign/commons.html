@@ -138,6 +138,7 @@ body { background: var(--bg); overflow: hidden; }
 .b.sdg:hover { background: color-mix(in srgb, var(--danger-text) 18%, transparent); }
 .b[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
 .b.dgr[aria-disabled="true"]:hover { background: var(--danger-solid); }
+.b.pri[aria-disabled="true"]:hover { background: var(--accent-solid); } /* 11-29：灰着的主键（「应用所选的处理」）悬停不变色，同上一行 */
 .b.fk { outline: 2px solid var(--accent); outline-offset: 2px; }
 .b.auto { flex: none; }
 .b.sm { flex: none; height: 28px; padding: 0 12px; border-radius: 14px; font-size: 12px; } /* 28 高胶囊：同向导的快捷预设、筛选片 */
@@ -503,6 +504,7 @@ const M_quit = () => md({ id: "quit", icon: "power", title: "退出 MineDeck？"
 // 默认只移出列表：「同时删除服务器文件夹」默认关，关着时主键「移出列表」（不是红的），文件全留着；打开才是删除，主键「删除服务器和文件夹」实底红，
 // 还要输一遍服务器名，对上了才能点。程序是打开开关时才把输名字那一栏露出来（弹窗跟着变高）；这里一直摆着、关着时整块 0.45 淡着（同向导第四步自建 frps 关着时的框），
 // 弹窗高度不跳。名字没对上时点主键：框标红、晃一下、光标落过去、栏右边一句「服务器名对不上」（规范第七节「反馈」），程序是键灰着点不动。
+// 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）——这一颗就是这样：名字没对上时主键灰着（delCheck 标 aria-disabled），点了照旧由 delOk 拦下。
 // 程序里的长说明：「以后可以用「新建服务器 → 接管已有服务器」把它加回来」「已有的世界备份不受影响」「不打开时只从列表移出……」收进说明后面的悬停；
 // 「（含世界，无法恢复）」从开关的字里挪到打开以后的说明里（开关的字只写名字，规范第九节）。
 // 接管来的：程序写出是哪个文件夹、移出后里面会留下哪些 MineDeck 写的文件（info.mdFiles）。这里一行写「会留下 3 个文件」，清单和怎么换回原来的启动脚本进悬停；
@@ -618,6 +620,19 @@ function pndPick(m, item, v) {
   if (more.firstElementChild) more.firstElementChild.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: OUT });
   $(".lwrap", m)._paint?.();
 }
+// 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）。「应用所选的处理」：还有没给路径的「用本地文件代替」、或者一个都没选时灰着，
+// 悬停说原因（同下面拦下来时的那两句）；点了照旧由 pndApply 拦下，不标 data-hold（标了 kit.js 会截走这一下）。pndWhy 只看状态、不动页面
+function pndWhy(m) {
+  const st = m._st, items = $$(".pnd:not(.skipped)", m).filter(el => !el.classList.contains("out"));
+  if (items.some(el => st.items[+el.dataset.i]?.act === "local" && !$('[data-k="lpath"]', el)?.value.trim())) return "选了「用本地文件代替」，要填本地文件的路径";
+  if (!items.some(el => st.items[+el.dataset.i]?.act)) return "先给至少一个文件选处理方式";
+  return "";
+}
+function pndPaint(m) {
+  const b = $('[data-act="apply"]', m), why = b && pndWhy(m); if (!b) return;
+  if (why) b.setAttribute("aria-disabled", "true"); else b.removeAttribute("aria-disabled");
+  const now = b.getAttribute("title") ?? b.dataset.tip ?? ""; if (now !== why) { if (why) b.title = why; else b.removeAttribute("title"); delete b.dataset.tip; }
+}
 function pndApply(m) {
   const st = m._st, items = $$(".pnd", m).filter(el => !el.classList.contains("out"));
   const bad = items.find(el => { const x = st.items[+el.dataset.i]; return x.act === "local" && !$('[data-k="lpath"]', el).value.trim(); });
@@ -642,6 +657,7 @@ function pndAfter(m) {
   const st = m._st, live = st.items.filter(x => !x.gone).length;
   const c = $('[data-k="pcount"]', m); if (c) c.textContent = live ? `${live} 个待处理` : "都处理完了";
   const f = $('[data-act="pfold"] span', m); if (f) f.textContent = `已跳过的 ${st.skipped.length} 个`;
+  pndPaint(m);
   const l = $('[data-k="plist"]', m);
   if (!live && !$(".pdone", l)) { l.insertAdjacentHTML("afterbegin", `<div class="pdone"><i data-ic="check"></i>没装上的文件都处理完了</div>`); KIT.hydrate(l); $(".pdone", l).animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: OUT }); }
   $(".lwrap", m)._paint?.();
@@ -702,6 +718,7 @@ function mount(box, kind, st) {
   $$(".seg", m).forEach(s => placeSeg(s, false));
   $$(".lwrap", m).forEach(scrollbar);
   if (kind.startsWith("delete")) delCheck(m);
+  if (kind === "pending") pndPaint(m);
   return m;
 }
 // 真弹出来：遮罩从标题栏下面盖到底，面板在正中；默认聚焦的那颗键拿到焦点
@@ -768,6 +785,8 @@ document.addEventListener("input", e => {
 document.addEventListener("keydown", e => {
   if (e.key === "Enter" && e.target.dataset?.k === "name") { const m = e.target.closest(".md"); $('[data-x="ok"]', m)?.click(); }
 });
+// 11-29：「没装上的文件」里点了、填了以后（上面处理完），重算「应用所选的处理」灰不灰（见 pndWhy）
+["click", "input"].forEach(t => document.addEventListener(t, e => { const m = e.target.closest?.('.md[data-md="pending"]'); if (m) pndPaint(m); }));
 
 /* ================= 右上角的提示 =================
    普通的 3.5 秒自己走、点一下就关；报错的和带按钮的停 20 秒（程序现在的数），鼠标停在上面、或者它的「详情」开着时不走，移开以后至少再留 4 秒；
@@ -827,7 +846,8 @@ const FOLDERS = core => {
   return d;
 };
 function menuHTML(s) {
-  const busy = s.st !== "stopped", dis = busy ? ` aria-disabled="true" title="需先停止服务器"` : "";
+  // 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）：开着时导出、删除灰着，点了在那一项旁边弹出原因（kit.js 第 9 条，没有能当场改的）
+  const busy = s.st !== "stopped", dis = busy ? ` aria-disabled="true" data-hold="需先停止服务器" title="需先停止服务器"` : "";
   return `<div class="hd">打开文件夹</div>` + FOLDERS(s.core).map(([i, l]) => `<div class="it" role="menuitem" data-mi="dir"><i data-ic="${i}"></i>${l}</div>`).join("")
     + `<div class="sep"></div><div class="it" role="menuitem" data-mi="export"${dis}><i data-ic="share"></i>导出交接包…</div>`
     + `<div class="sep"></div><div class="it dgr" role="menuitem" data-mi="delete"${dis}><i data-ic="trash"></i>删除服务器…</div>`;

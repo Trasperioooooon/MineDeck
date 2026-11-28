@@ -256,6 +256,11 @@
     if (["proto", "auth", "echo", "effort"].includes(k)) {
       el.classList.toggle("off", !!off); setTip(el, off); setTip(el.querySelector(".sai-lt"), off ? "" : tip);
       el.querySelectorAll("button").forEach(b => { b.tabIndex = off ? -1 : 0; });
+      // 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）：还没选服务商时这几格点了，「服务商」那一格描红、晃一下、光标落过去，
+      // 这一格上弹出「请先选择服务商」（kit.js 第 9 条）。选了预设、只是不让改（「仅『自定义』服务商可修改」「仅对 Claude 协议生效」）的照旧灰着、点了没反应
+      const hold = off && !p && k !== "effort" ? off : "";
+      if (hold) { el.setAttribute("aria-disabled", "true"); el.dataset.hold = hold; el.dataset.holdTarget = '.sai-f[data-k="preset"] .sai-sel'; }
+      else { el.removeAttribute("aria-disabled"); delete el.dataset.hold; delete el.dataset.holdTarget; }
     }
     el.classList.toggle("mod", modOf(k));
   }
@@ -271,7 +276,12 @@
   function paintTest() {
     const r = root(); if (!r) return; const b = r.querySelector('[data-sai="test"]'), n = dirtyN();
     const why = !enabled() ? "请先填写并保存服务商、API Key 与模型" : n ? "请先保存服务商修改，再测试连接" : "按已保存的配置发送轻量测试请求，检测延迟及工具调用能力（消耗少量 token，不计入每日额度）";
-    b.disabled = V.testing || !enabled() || n > 0; setTip(b, why);
+    // 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）：没配好、有没保存的修改时不用 disabled（收不到点击），标 aria-disabled 加 data-hold，
+    // 点了在键上弹出原因（kit.js 第 9 条，没有能当场改的）；正在测试时照旧 disabled、点了没反应
+    const hold = !V.testing && (!enabled() || n > 0);
+    b.disabled = V.testing;
+    if (hold) { b.setAttribute("aria-disabled", "true"); b.dataset.hold = why; } else { b.removeAttribute("aria-disabled"); delete b.dataset.hold; }
+    setTip(b, why);
     const sp = b.querySelector(".ico"); sp.classList.toggle("sai-spin", V.testing);
     const t = r.querySelector(".sai-tr"), h = V.testing ? `<span class="sai-tf">测试中…</span>` : V.test || "";
     if (t._h !== h) { setHTML(t, h); [...t.children].forEach(rise); }

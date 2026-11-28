@@ -489,9 +489,12 @@
   }
   // 存档动不了时（D.hold），导入、填路径和恢复点的按钮为什么灰着
   const holdWhy = () => ({ busy: "正在更换地图，请等待操作完成", stuck: "换地图尚未完成，请先重试恢复" })[dat().hold] || "";
+  // 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）：要先停服、要先重试恢复的灰键标 data-hold，点了在键上弹出原因（kit.js 第 9 条，没有能当场改的）；
+  // 正在更换地图（hold 是 busy）时是正在进行中，照旧灰着、点了没反应
+  const holdAttr = why => why && dat().hold !== "busy" ? ` data-hold="${esc(why)}"` : "";
   function ptRow(pt) {
     const [cls, tag, say0] = pointSay(pt), why = holdWhy() || (live() ? (pt.canReturn ? "请先停止服务器后再换回或删除" : "请先停止服务器后再删除恢复点") : "");
-    const dis = why ? ' aria-disabled="true"' : "", busy = ["restoring", "committing", "rolling-back"].includes(pt.state);
+    const dis = why ? ' aria-disabled="true"' + holdAttr(why) : "", busy = ["restoring", "committing", "rolling-back"].includes(pt.state);
     const say = say0 + (pt.error ? `\n失败原因：${pt.error}` : ""); // 出过错的那一次（没有生效、需手动处理）：原因跟在那句话后面
     const sizes = [pt.oldMb > 0 ? `原存档 ${size(pt.oldMb)}` : "", pt.keptMb > 0 ? `已保留地图 ${size(pt.keptMb)}` : ""].filter(Boolean).join(" · ");
     return `<div class="wd-pt" data-wd-pt="${pt.id}"><div class="wd-pn"><span class="nm">${esc(pt.name)}</span><span class="wd-tag ${cls}" data-wd-k="tag" title="${esc(say)}">${tag}</span><span class="wd-sp"></span>`
@@ -519,7 +522,7 @@
       + `<span class="wd-dzs" title="例如在 MineDeck 之外手动启动的服务器、打开此存档的地图工具">请先关闭占用存档文件夹的程序，再重试恢复</span><span class="wd-rty">${retryBtn(false)}</span>`;
   }
   const retryBtn = busy => busy ? `<button type="button" class="wd-btn" aria-disabled="true">${icon("spinner", "wd-spin")}正在恢复</button>`
-    : `<button type="button" class="wd-btn" data-wd-act="retry"${live() ? ` aria-disabled="true" title="请先停止服务器"` : ""}><i data-ic="refresh"></i>重试恢复</button>`;
+    : `<button type="button" class="wd-btn" data-wd-act="retry"${live() ? ` aria-disabled="true" data-hold="请先停止服务器" title="请先停止服务器"` : ""}><i data-ic="refresh"></i>重试恢复</button>`; // 11-29：点了弹出原因（规范第九节）
   // 虚线框现在是哪种样子：hold 换成警告卡、busy 正在传或识别、bad 来源用不了、空串等人选
   const dzState = () => { const D = dat(), p = D.flow.phase; return D.hold ? "hold" : p === "up" || p === "scan" ? "busy" : p === "error" ? "bad" : ""; };
   function dzInner() {
@@ -537,7 +540,8 @@
   // 别的设备上只能传 ZIP；程序是把这一行藏掉、另写一句说明）
   const pathOff = () => holdWhy() || (remote() ? "仅可在运行 MineDeck 的设备上选择文件夹或填写本机路径；在当前设备上，请将地图压缩为 ZIP 后上传" : "");
   function prowHTML() {
-    const F = dat().flow, why = pathOff(), off = why ? ` aria-disabled="true" title="${esc(why)}"` : "";
+    // 11-29：存档动不了、要先重试恢复时（hold 是 stuck）点了弹出原因（规范第九节）；正在更换地图、从别的设备打开时照旧灰着、点了没反应
+    const F = dat().flow, why = pathOff(), off = why ? ` aria-disabled="true"${dat().hold === "stuck" ? holdAttr(why) : ""} title="${esc(why)}"` : "";
     return `<label class="wd-prow${why ? " off" : ""}"${why ? ` title="${esc(why)}"` : ""}><input class="wd-path" spellcheck="false" autocomplete="off" value="${esc(F.fromPath ? F.path : "")}" aria-label="地图文件夹或 ZIP 文件的路径" placeholder="或输入文件夹 / ZIP 路径，如 D:\\Maps\\SkyCity"`
       + `${why ? ` readonly tabindex="-1"` : ` title="本机上的地图存档文件夹（含 level.dat 或其上级文件夹），或未解压的 ZIP 压缩包"`}>`
       + `<button type="button" class="wd-ib" data-wd-act="browse"${off || ` title="选择地图文件夹（含 level.dat 的存档文件夹或其上级文件夹）"`}><i data-ic="folder"></i></button>`
@@ -629,7 +633,7 @@
         + (live() ? `<button type="button" class="wd-tg${F.stop ? " on" : ""}" data-wd-tg="stop" role="switch" aria-checked="${F.stop}" title="服务器正在运行。开启后，导入前会先通知服务器保存并正常退出（不强制终止）；若超时未能停止则中止导入，不会修改任何文件"><span class="wd-sw"></span><span class="t">停止并导入</span></button>` : "") + `</div>`;
     }
     const go = rel === "newer" ? `<button type="button" class="wd-nb pri" aria-disabled="true" title="${esc(relTip)}"><i data-ic="download"></i>导入并替换当前存档</button>`
-      : `<button type="button" class="wd-nb pri" data-wd-act="go"><i data-ic="download"></i>导入并替换当前存档</button>`;
+      : `<button type="button" class="wd-nb pri" data-wd-act="go"${goMiss().length ? ` aria-disabled="true" title="${GO_NEED}"` : ""}><i data-ic="download"></i>导入并替换当前存档</button>`;
     return `<div class="wd-flow">${cover()}<div class="wd-scols chk${sets.length ? "" : " one"}">${left}${right}</div>${strip}${footHTML(backBtn(), go)}</div>`;
   }
   // 进度：四步（internal/worldimport/service.go importSteps 的前四步；它的第五步「完成」不画，四步都打勾就是做完了），复制那一步有 30 格的经验条
@@ -773,12 +777,23 @@
     swapKeyed($(".wd-det", r), factsHTML(cand()), dir);
   }
   // ---- 导入 ----
+  // 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）。底下那条的开关没开时「导入并替换当前存档」灰着（goMiss），
+  // 点了照旧由 tryGo 拦下（那一条描红、开关晃一下，11-29 起光标也落到第一个没开的开关上），不标 data-hold（标了 kit.js 会截走这一下）
+  const GO_NEED = "请先开启上方确认开关"; // 同 AI 助手确认卡片上的那句
+  const goMiss = () => { const F = dat().flow, rel = relation(cand()); return [needAck(rel) && !F.ack ? "ack" : "", live() && !F.stop ? "stop" : ""].filter(Boolean); };
+  function paintGo() {
+    const b = mapRoot() && $('[data-wd-act="go"]', mapRoot()); if (!b) return;
+    const off = goMiss().length > 0, now = b.getAttribute("title") ?? b.dataset.tip ?? "";
+    if (off) b.setAttribute("aria-disabled", "true"); else b.removeAttribute("aria-disabled");
+    if (now !== (off ? GO_NEED : "")) { if (off) b.title = GO_NEED; else b.removeAttribute("title"); delete b.dataset.tip; }
+  }
   function tryGo() {
     const D = dat(), F = D.flow, c = cand(), rel = relation(c), r = mapRoot();
-    const miss = [needAck(rel) && !F.ack ? "ack" : "", live() && !F.stop ? "stop" : ""].filter(Boolean);
+    const miss = goMiss();
     if (miss.length) { // 不开不让往下走：那一条描红，开关晃一下（同向导的 EULA、import.html 的「核对地图」）
       const st = $(".wd-strip", r); st?.classList.add("bad");
       miss.forEach(k => { const t = $(`[data-wd-tg="${k}"]`, r); t?.classList.add("bad"); shake(t); });
+      $(`[data-wd-tg="${miss[0]}"]`, r)?.focus({ preventScroll: true });
       return;
     }
     const sets = settingsOf(c).filter(s => F.sets[s.key]);
@@ -884,9 +899,10 @@
     if (tg) {
       const k = tg.dataset.wdTg; F[k] = !F[k]; tg.classList.toggle("on", F[k]); tg.setAttribute("aria-checked", F[k]);
       if (F[k]) { tg.classList.remove("bad"); const s = tg.closest(".wd-strip"); if (s && !$(".wd-tg.bad", s)) s.classList.remove("bad"); }
+      paintGo();
       return;
     }
-    const a = e.target.closest("[data-wd-act]"); if (!a || a.getAttribute("aria-disabled") === "true") return;
+    const a = e.target.closest("[data-wd-act]"); if (!a || (a.getAttribute("aria-disabled") === "true" && a.dataset.wdAct !== "go")) return; // 灰着的「导入并替换」点了要拦一下（tryGo）
     const act = a.dataset.wdAct, pt = a.closest("[data-wd-pt]") && D.points.find(x => x.id === a.closest("[data-wd-pt]").dataset.wdPt);
     if (act === "upx") { e.stopPropagation(); F.tok++; F.phase = "empty"; F.pct = 0; paintDz(); return; }
     if (act === "pick") { if (F.phase === "empty" || F.phase === "error") startUpload(); return; } // 草图里不真弹选文件的窗口：当作选了示例压缩包

@@ -560,9 +560,10 @@
   /* 关着时拼好的地址和公网端口框一起淡（11-26 作者要了拼好的地址：打开以后边填边拼出朋友要填的那串）；框下面那行淡字本来就淡，不再淡 */
   .frpp:not(.on) .lbody { pointer-events: none; }
   .frpp:not(.on) .lbody > :not(.fsrv) { opacity: .7; }
-  /* 代理端、设置里没配置自建 frps：开关灰着拨不动，整块悬停说原因 */
+  /* 代理端、设置里没配置自建 frps：开关灰着拨不动，整块悬停说原因。
+     11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）：开关不再不接鼠标，点了在开关上弹出原因（kit.js 第 9 条） */
   .frpp.off { cursor: default; }
-  .frpp.off .lh .tg { pointer-events: none; opacity: .45; }
+  .frpp.off .lh .tg { opacity: .45; cursor: not-allowed; }
   .ib { width: 28px; height: 28px; border-radius: 4px; border: 0; background: none; color: var(--muted); display: grid; place-items: center; cursor: pointer; padding: 0; transition: background .2s, color .2s; }
   .ib:hover { background: var(--hover); color: var(--text); }
   .ib .ico { width: 15px; height: 15px; }
@@ -648,6 +649,7 @@
           font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
   .kbtn .ico { width: 14px; height: 14px; }
   .kbtn:disabled { opacity: .7; cursor: default; }
+  .kbtn[aria-disabled="true"] { opacity: .7; cursor: default; } /* 11-29：没粘密钥时「连接」灰着也能点，点了照旧拦（规范第九节）；灰得同上一行、同设置页 .stn-kb */
   .tlink { flex: none; font-size: 12.5px; color: var(--accent-text); cursor: pointer; white-space: nowrap; }
   .nph { flex: 1; min-height: 0; margin-top: 6px; border-radius: 10px; border: 1px dashed color-mix(in srgb, var(--text) 18%, transparent); display: grid; place-items: center; font-size: 12.5px; color: var(--faint); }
   .spin { animation: spin .9s linear infinite; }
@@ -712,7 +714,10 @@
   .wbtn.back:hover { background: color-mix(in srgb, var(--overlay) 86%, var(--text) 6%); }
   .wbtn.back .ico { transform: rotate(180deg); }
   .wbtn.next { padding-right: 14px; border: 0; color: var(--on-accent); background: var(--accent-solid); }
-  .wbtn.next:hover { background: var(--accent-solid-hov); }
+  .wbtn.next:hover:not([aria-disabled="true"]) { background: var(--accent-solid-hov); }
+  /* 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）。这一步的条件没满足时主键灰着（同向导、引导页主键），点了照旧由各步自己的检查拦下 */
+  .wbtn.next[aria-disabled="true"] { background: var(--control); color: var(--muted); box-shadow: inset 0 0 0 1px var(--border); opacity: .6; cursor: not-allowed; }
+  body.hidden-nav .wbtn.next[aria-disabled="true"] { opacity: 0; }
   /* 小点钉在窗口正中，不夹在两个按钮中间（作者 11-26：到最后一步右边按钮变成「创建服务器」、宽了 26，小点跟着往左挪了 13） */
   .wnav .in { position: relative; }
   .dots { display: flex; gap: 8px; pointer-events: auto; transition: opacity .32s; position: absolute; left: 50%; transform: translateX(-50%); }
@@ -1404,11 +1409,12 @@ function placeSeg(el, animate) {
   if (!animate) { void hl.offsetWidth; hl.style.transition = ""; }
 }
 // 这一步能不能往下走：名称不能空、端口要合法、EULA 要勾（代理端不用）；不行就把出错的那一处标出来
+// （11-29 起名称空着、端口不对时也晃一下，同 EULA：规范第七节「反馈」；同 wizard.html）
 function checkSettings() {
   let ok = true;
-  const nm = document.getElementById("sname"); if (nm && !SET.name.trim()) { nm.classList.add("bad"); nm.focus(); ok = false; }
+  const nm = document.getElementById("sname"); if (nm && !SET.name.trim()) { nm.classList.add("bad"); nm.focus(); shakeEl(nm); ok = false; }
   const v = Number(SET.port), pt = document.getElementById("sport");
-  if (pt && !(Number.isInteger(v) && v >= 1 && v <= 65535)) { pt.classList.add("bad"); if (ok) pt.focus(); ok = false; }
+  if (pt && !(Number.isInteger(v) && v >= 1 && v <= 65535)) { pt.classList.add("bad"); if (ok) pt.focus(); shakeEl(document.getElementById("pwrap")); ok = false; }
   const eu = document.querySelector("[data-eula]");
   if (eu && !SET.eula) {
     eu.classList.add("bad");
@@ -1531,10 +1537,13 @@ const PLAT_TUNS = {
   sakura: [{ n: "survival_01", t: "TCP", node: "浙江移动PLUS1", lp: 25565 }, { n: "voice_01", t: "UDP", node: "浙江移动PLUS1", lp: 24454 }],
 };
 const nodesOf = k => k === "openfrp" ? OF_NODES : SK_NODES;
-const ltg = (key, t, tip, on = LINK[key], dis = false) => `<div class="tg sm${on ? " on" : ""}" data-ltg="${key}"${dis ? ` aria-disabled="true"` : ""} title="${esc(tip)}"><div class="m"><div class="t">${t}</div></div><span class="sw"></span></div>`;
+// dis：拨不动的原因（空串是能拨）。11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）——拨不动时标 data-hold，点了在开关上弹出原因（kit.js 第 9 条），悬停也说原因
+const ltg = (key, t, tip, on = LINK[key], dis = "") => `<div class="tg sm${on ? " on" : ""}" data-ltg="${key}"${dis ? ` aria-disabled="true" data-hold="${esc(dis)}"` : ""} title="${esc(dis || tip)}"><div class="m"><div class="t">${t}</div></div><span class="sw"></span></div>`;
 const nchip = n => `<span class="nchip" data-name="${esc(n)}">${esc(n)}<span class="nx" data-unname="${esc(n)}" title="移除"><i data-ic="x"></i></span></span>`;
 const shakeEl = el => el?.animate([{ transform: "none" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "none" }],
   { duration: 360, easing: "cubic-bezier(.3, .7, .2, 1)" });
+// 改悬停的字（kit.js 悬停时会把 title 挪进 data-tip，两处都看；字没变就不动）
+const setTipW = (el, t) => { if (!el) return; const now = el.getAttribute("title") ?? el.dataset.tip ?? ""; if (now === (t || "")) return; if (t) el.title = t; else el.removeAttribute("title"); delete el.dataset.tip; };
 function viaMeta(k) {
   if (k === "lan") return "同一 Wi-Fi / 连接自有服务端"; // 两句都是作者定过的（原来两张卡各自的第二行）
   if (k === "openfrp") return `<i class="dot ok"></i>${OF_USER.name} · ${TIER_NAME[OF_USER.tier] || "普通用户"}`;
@@ -1616,11 +1625,18 @@ function nodePanel(k) {
     + `<button class="ib" data-act="nrefresh" title="${use ? "刷新隧道列表" : "刷新节点列表"}"><i data-ic="refresh"></i></button></div>`
     + `<div class="nbody">${nodeBody(k)}</div>`;
 }
-// 樱花没连上：粘访问密钥
+// 樱花没连上：粘访问密钥。11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）——没粘密钥时「连接」灰着，点了照旧由 connectSakura 拦下（框标红、晃一下、光标落过去）；
+// 悬停的话同「设置 → 内网穿透」那一格（settings-tunnels.js）
+const KEY_NEED = "请粘贴访问密钥";
+function paintConnect() {
+  const b = document.querySelector('.kbtn[data-act="connect"]'); if (!b || b.disabled) return;
+  const off = !LINK.key.trim();
+  if (off) { b.setAttribute("aria-disabled", "true"); setTipW(b, KEY_NEED); } else { b.removeAttribute("aria-disabled"); setTipW(b, ""); }
+}
 function sakuraKey() {
   return `<div class="keyb"><div class="lrow"><span class="lb">樱花访问密钥</span><a class="tlink" data-act="sakurakey" title="在浏览器中打开樱花穿透官网的用户信息页，复制「访问密钥」">去官网复制</a></div>
       <div class="keyrow"><input class="inp" id="skey" type="password" placeholder="粘贴访问密钥" value="${esc(LINK.key)}" autocomplete="off" spellcheck="false">`
-    + `<button class="kbtn" data-act="connect"${LINK.connecting ? " disabled" : ""}>${LINK.connecting ? `<i data-ic="spinner" class="spin"></i>连接中` : "连接"}</button></div>
+    + `<button class="kbtn" data-act="connect"${LINK.connecting ? " disabled" : LINK.key.trim() ? "" : ` aria-disabled="true" title="${KEY_NEED}"`}>${LINK.connecting ? `<i data-ic="spinner" class="spin"></i>连接中` : "连接"}</button></div>
       ${ltg("saveKey", "记住密钥", "使用 Windows 加密保存在本机，后续配置其他服务器时无需重复粘贴；可在「设置 → 内网穿透」中更换或删除。\n若关闭此项，当前隧道仍可正常使用（凭据随隧道单独保存），下次新建时需重新输入。")}</div>
     <div class="nph">请先连接账号，以加载并选择可用节点</div>`;
 }
@@ -1650,7 +1666,7 @@ function lanPage() {
     + `<div class="vnone${vlanNets().length ? " gone" : ""}" id="vnone"><i data-ic="info"></i><span>未检测到虚拟局域网，启动 Radmin、ZeroTier 等组网工具后将自动识别</span></div>`
     + `</div></div>`;
   const frp = `<div class="lanp frpp${on ? " on" : ""}${proxy || !FRPS ? " off" : ""}" title="${esc(proxy ? FRPS_PROXY : !FRPS ? FRPS_NONE : on ? "" : FRPS_OFF)}">`
-    + `<div class="lh">${ltg("frpsOn", "自建 frps", "由 MineDeck 启动 frpc 连接自有 frps，实现公网联机", on, proxy || !FRPS)}</div>`
+    + `<div class="lh">${ltg("frpsOn", "自建 frps", "由 MineDeck 启动 frpc 连接自有 frps，实现公网联机", on, proxy ? FRPS_PROXY : !FRPS ? FRPS_NONE : "")}</div>`
     + `<div class="lbody"><span class="lb" title="公网玩家连接时使用此地址，由 frps 地址与公网端口组成（公网端口留空时默认与本地端口一致）">公网联机地址</span>`
     + `<div class="bigaddr" id="faddr">${frpsAddr()}</div>`
     + `<div class="frps"><input class="inp" id="fremote" placeholder="公网端口" value="${esc(LINK.frps.remote)}" inputmode="numeric" autocomplete="off" title="公网联机使用的端口，留空时默认与本地端口一致（${esc(SET.port)}）"${fd}>`
@@ -1842,6 +1858,7 @@ function connectSakura() {
     LINK.connecting = false; LINK.sakura = true;
     const m = document.querySelector('[data-via="sakura"] .m'); if (m) m.innerHTML = viaMeta("sakura");
     if (viaOf() === "sakura") swapItems(document.querySelector(".vdet"), viaDetail(), 1, "Y", afterDetail);
+    paintNext();
   }, 1200);
 }
 // 白名单的名字：回车、空格、逗号加一个，输入框空着按退格拿掉最后一个；名字照程序「玩家」页的规矩（mclog.ValidName）：1~16 位字母、数字、下划线
@@ -2236,7 +2253,7 @@ document.getElementById("page").addEventListener("input", e => {
   }
   else if (t.id === "smotd") SET.motd = t.value;
   else if (t.id === "fremote") { LINK.frps.remote = t.value; markRemote(false); paintFrpsAddr(); }
-  else if (t.id === "skey") { LINK.key = t.value; t.classList.remove("bad"); }
+  else if (t.id === "skey") { LINK.key = t.value; t.classList.remove("bad"); paintConnect(); }
   else if (t.id === "nq") { LINK.q = t.value; clearTimeout(nqTimer); nqTimer = setTimeout(() => regridNodes(0), 180); }
   else if (t.id === "wlname") {
     const box = document.getElementById("names"), note = document.getElementById("wlnote");
@@ -2545,14 +2562,14 @@ function startSrc(fromPath) {
   dz.classList.remove("bad"); dz.classList.add("busy"); document.getElementById("prow")?.classList.remove("bad");
   SRC.phase = "busy";
   if (FLOW === "adopt" && !fromPath) { SRC.path = AD().dir; const i = document.getElementById("srcpath"); if (i) i.value = SRC.path; } // 草图里不真弹选文件夹的窗口
-  if (fromPath || FLOW === "adopt") { SRC.busy = "scan"; swapItems(dzc, dzInner(), 1, "Y"); return finishScan(tok); }
-  SRC.busy = "up"; SRC.pct = 0; SRC.path = "";
+  if (fromPath || FLOW === "adopt") { SRC.busy = "scan"; swapItems(dzc, dzInner(), 1, "Y"); paintNext(); return finishScan(tok); }
+  SRC.busy = "up"; SRC.pct = 0; SRC.path = ""; paintNext();
   swapItems(dzc, dzInner(), 1, "Y");
   const t0 = performance.now() + 320, dur = FLOW === "modpack" ? 900 : 1800;
   const tick = now => {
     if (SRC.tok !== tok) return;
     SRC.pct = Math.max(0, Math.min(100, (now - t0) / dur * 100)); paintUp();
-    if (SRC.pct < 100) requestAnimationFrame(tick); else { SRC.busy = "scan"; swapItems(dzc, dzInner(), 1, "Y"); finishScan(tok); }
+    if (SRC.pct < 100) requestAnimationFrame(tick); else { SRC.busy = "scan"; swapItems(dzc, dzInner(), 1, "Y"); paintNext(); finishScan(tok); }
   };
   requestAnimationFrame(tick);
 }
@@ -2566,14 +2583,14 @@ function finishScan(tok) {
     if (SRC.tok !== tok) return;
     SRC.phase = "done"; applyRecognized();
     swapItems(document.getElementById("srcp"), doneHTML(), 1, "Y", afterSrc);
-    paintSk();
+    paintSk(); paintNext();
   }, 700);
 }
 // 回到空着（「换一个」「取消上传」）：框架整块换回来，填过的本地来源、选过的候选都清掉
 function resetSrc() {
   const v = SRC.v; SRC = Object.assign(freshSrc(), { tok: SRC.tok + 1, v: v === "cf" || v === "unknown" ? "" : v });
   swapItems(document.getElementById("srcp"), srcInner(), -1, "Y", afterSrc);
-  paintSk();
+  paintSk(); paintNext();
 }
 // 识别好了：把知道的值填进后面几步（第三步的名称、内存、端口……）；地图要等挑定了那一张、点下一步时再填（applyMapPick）
 function applyRecognized() {
@@ -2784,6 +2801,7 @@ function render() {
   document.body.classList.toggle("on-s0", step === 0);
   document.body.classList.toggle("on-link", nm === "配置联机与访问");
   paintSk();
+  paintNext(); // 11-29：这一步的条件没满足时主键灰着（见 nextWhy）
 }
 // 照 wizard.html 的 navLabel：最后一步的字换成这条路的动作名
 function navLabel() {
@@ -2835,6 +2853,39 @@ function checkSrc() {
   dz?.classList.add("bad");
   if (s) { s.classList.add("bad"); s.textContent = SRC.phase === "busy" ? (SRC.busy === "up" ? "正在上传，请稍候" : "正在识别，请稍候") : SRCF[FLOW].need; }
   return false;
+}
+// 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）。这一步还走不下去时主键看着是灰的、悬停说第一条原因；
+// 点了照旧走 checkSrc、checkMap、checkSettings、checkLink 拦下（标红、晃一下、光标落过去），不标 data-hold（标了 kit.js 会截走这一下）。
+// nextWhy 只看状态、不动页面，和那四个检查一一对上
+const eulaNeeded = () => FLOW === "map" ? !isProxyCore() : FLOW === "modpack" || (FLOW === "transfer" && !TP.eula) || (FLOW === "adopt" && !AD().eula); // 同 step3、step3i 出不出 EULA 那一条
+function nextWhy() {
+  const nm = STEPS()[step];
+  if (step === 0) {
+    if (SRC.phase === "busy") return SRC.busy === "up" ? "正在上传，请稍候" : "正在识别，请稍候";
+    if (SRC.phase !== "done") return SRCF[FLOW].need;
+    if (FLOW === "adopt" && !SRC.acore) return SRC.amc.trim() ? "请选择核心" : "请选择核心并填写版本号";
+    if (FLOW === "adopt" && !SRC.amc.trim()) return "请填写版本号";
+    return "";
+  }
+  if (nm === "选择核心以进行下一步") return mapIssues().length && !SRC.ack ? "请先确认地图存档升级" : "";
+  if (nm === "配置服务器参数") {
+    const proxy = FLOW === "map" && isProxyCore();
+    if (!SET.name.trim()) return "请填写服务器名称";
+    if (!proxy && !portOk()) return "端口需为 1～65535 的整数";
+    if (eulaNeeded() && !SET.eula) return "开服前需要同意 EULA";
+  }
+  if (nm === "配置联机与访问") {
+    const v = viaOf();
+    if (v === "lan") return LINK.frpsOn && !isProxyCore() && FRPS && !remoteOk(LINK.frps.remote) ? "公网端口需为 1～65535 的整数" : "";
+    if (v === "sakura" && !LINK.sakura) return "请先连接账号，以加载并选择可用节点";
+    if (isTun(v)) return tabOf(v) === "new" ? (LINK.node[v] ? "" : "请先选择节点") : (LINK.use[v] ? "" : "请先选择隧道");
+  }
+  return "";
+}
+function paintNext() {
+  const b = document.getElementById("next"), why = nextWhy();
+  if (why) b.setAttribute("aria-disabled", "true"); else b.removeAttribute("aria-disabled");
+  setTipW(b, why);
 }
 document.getElementById("next").addEventListener("click", () => {
   if (stepping) return;
@@ -3033,6 +3084,8 @@ document.getElementById("sk").addEventListener("click", e => {
   if (v === "cf" || v === "unknown") jump(FLOW, 0, "done", v); else jump(FLOW, 0, v);
 });
 window.SKETCH = { jump, get state() { return { FLOW, step, SRC, core, play, ver, SET }; } };
+// 11-29：页面里点了、填了以后（上面几处处理完），重算主键灰不灰
+["click", "input"].forEach(t => document.getElementById("page").addEventListener(t, paintNext));
 KIT_READY.then(() => {
   const v = QS.get("v") || "";
   jump(FLOW, +QS.get("step") || 0, QS.get("state") || "empty", ["cf", "unknown"].includes(v) ? v : "");

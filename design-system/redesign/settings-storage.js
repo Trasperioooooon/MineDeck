@@ -136,7 +136,9 @@
   function defBox(s) {
     const v = defView(s);
     return `<div class="ss-db"><i data-ic="lock"></i><span class="ss-ds${v.warn ? " warn" : ""}"${v.tip ? ` title="${esc(v.tip)}"` : ""}>${esc(v.line)}</span>`
-      + `<button type="button" class="ss-btn" data-ss="def" data-act="${v.act}" aria-disabled="${!!(v.off || v.busy)}"${v.btip ? ` title="${esc(v.btip)}"` : ""}>`
+      // 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）：程序数据文件夹位置不对、加不了时标 data-hold，点了在键上弹出原因（kit.js 第 9 条，没有能当场改的）；
+      // 等系统确认时照旧灰着、点了没反应
+      + `<button type="button" class="ss-btn" data-ss="def" data-act="${v.act}" aria-disabled="${!!(v.off || v.busy)}"${v.off && !v.busy ? ` data-hold="${esc(v.btip)}"` : ""}${v.btip ? ` title="${esc(v.btip)}"` : ""}>`
       + `${v.busy ? `<i data-ic="spinner" class="ss-spin"></i>` : ""}<span>${v.btn}</span></button></div>`;
   }
   const outTip = list => `以下文件夹不在排除项范围内：\n${list.join("\n")}`;
@@ -201,6 +203,7 @@
     }
     ln.classList.toggle("warn", v.warn); setTip(ln, v.tip);
     setAttr(bt, "aria-disabled", !!(v.off || v.busy)); setAttr(bt, "data-act", v.act); setTip(bt, v.btip);
+    if (v.off && !v.busy) bt.dataset.hold = v.btip; else delete bt.dataset.hold; // 11-29：同 defBox
     const want = `${v.busy ? C.KIT.icon("spinner", "ss-spin") : ""}<span>${v.btn}</span>`;
     if (bt._h !== want) { bt._h = want; bt.innerHTML = want; }
   }

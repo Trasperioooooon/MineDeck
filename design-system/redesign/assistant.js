@@ -989,7 +989,15 @@
     if (ok) {
       const okb = cardEl.querySelector('[data-a="ok"]');
       if (okb.getAttribute("aria-disabled") === "true") { // 拦下：没打开的开关晃一下
-        cardEl.querySelectorAll('.as-swr[aria-checked="false"]').forEach(shake); return;
+        // 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）：照规范第七节「反馈」补上描红（1.6 秒，样子同 kit.js 第 9 条）和光标落到第一个没开的开关上
+        const offs = [...cardEl.querySelectorAll('.as-swr[aria-checked="false"]')];
+        offs.forEach(sw => {
+          shake(sw);
+          sw.classList.remove("kit-held-bad"); void sw.offsetWidth; sw.classList.add("kit-held-bad");
+          clearTimeout(sw._heldT); sw._heldT = setTimeout(() => sw.classList.remove("kit-held-bad"), 1600);
+        });
+        offs[0]?.focus({ preventScroll: true });
+        return;
       }
       cardEl._busy = true;
       cardEl.querySelectorAll(".as-cf .as-pill, .as-swr").forEach(b => b.setAttribute("aria-disabled", "true"));

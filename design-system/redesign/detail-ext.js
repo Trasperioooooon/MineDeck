@@ -144,14 +144,16 @@
   }
   const spinOnce = b => { if (!b || b.classList.contains("ex-spin1")) return; b.classList.add("ex-spin1"); setTimeout(() => b.classList.remove("ex-spin1"), 600); };
 
-  // 开关：36 × 20，在字的左边（同向导第三步 EULA、「玩家」页白名单）；说明进悬停
-  const tgl = ({ key, on, label = "", tip = "", dis = false, cls = "", attrs = "" }) =>
-    `<button type="button" class="ex-tg${on ? " on" : ""}${cls ? " " + cls : ""}" role="switch" aria-checked="${on}" data-ex-tg="${key}"${dis ? ' aria-disabled="true"' : ""}${tip ? ` title="${esc(tip)}"` : ""}${attrs ? " " + attrs : ""}>`
+  // 开关：36 × 20，在字的左边（同向导第三步 EULA、「玩家」页白名单）；说明进悬停。
+  // hold：拨不动的原因。11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）——带 hold 的标 data-hold，点了在开关上弹出原因（kit.js 第 9 条）
+  const tgl = ({ key, on, label = "", tip = "", dis = false, hold = "", cls = "", attrs = "" }) =>
+    `<button type="button" class="ex-tg${on ? " on" : ""}${cls ? " " + cls : ""}" role="switch" aria-checked="${on}" data-ex-tg="${key}"${dis ? ` aria-disabled="true"${hold ? ` data-hold="${esc(hold)}"` : ""}` : ""}${tip ? ` title="${esc(tip)}"` : ""}${attrs ? " " + attrs : ""}>`
     + `<span class="ex-sw"></span>${label ? `<span class="ex-tl">${label}</span>` : ""}</button>`;
   const setTgl = (b, on) => { if (!b) return; b.classList.toggle("on", on); b.setAttribute("aria-checked", on); };
 
   // 分段：32 高胶囊「换着看什么」，选中块也是胶囊、滑过去；big 是表单里取值的 40 高、圆角 10（同向导第三步）
-  const segHTML = (key, items, cur, big = false, dis = "") => `<div class="ex-seg${big ? " big" : ""}" data-ex-seg="${key}" role="${big ? "radiogroup" : "tablist"}"${dis ? ` aria-disabled="true" title="${esc(dis)}"` : ""}><i class="ex-sgl"></i>`
+  // dis：用不了的原因。11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）——标 data-hold，点了在分段上弹出原因（kit.js 第 9 条）
+  const segHTML = (key, items, cur, big = false, dis = "") => `<div class="ex-seg${big ? " big" : ""}" data-ex-seg="${key}" role="${big ? "radiogroup" : "tablist"}"${dis ? ` aria-disabled="true" data-hold="${esc(dis)}" title="${esc(dis)}"` : ""}><i class="ex-sgl"></i>`
     + items.map(([v, l, extra = ""]) => `<span data-v="${v}" role="${big ? "radio" : "tab"}" aria-${big ? "checked" : "selected"}="${v === cur}" class="${v === cur ? "on" : ""}">${l}${extra}</span>`).join("") + `</div>`;
   function placeSeg(s, instant) {
     const hl = s && $(".ex-sgl", s), on = s && $("span.on", s); if (!hl || !on) return;
@@ -253,7 +255,7 @@
     const m = dd = Object.assign(document.createElement("div"), { className: "ex-dd enter" });
     m.setAttribute("role", "menu");
     m.innerHTML = items.map(it => it.sep ? `<div class="ex-dsep"></div>`
-      : `<div class="ex-di${it.v === cur ? " on" : ""}${it.dgr ? " dgr" : ""}" data-v="${esc(it.v)}" role="menuitem"${it.dis ? ` aria-disabled="true" title="${esc(it.dis)}"` : ""}>`
+      : `<div class="ex-di${it.v === cur ? " on" : ""}${it.dgr ? " dgr" : ""}" data-v="${esc(it.v)}" role="menuitem"${it.dis ? ` aria-disabled="true" data-hold="${esc(it.dis)}" title="${esc(it.dis)}"` : ""}>`
       + `${it.ic ? `<i data-ic="${it.ic}"></i>` : ""}<span>${esc(it.l)}</span>${it.v === cur ? `<i data-ic="check" class="ex-dck"></i>` : ""}</div>`).join("");
     document.body.appendChild(hy(m));
     const r = anchor.getBoundingClientRect();
@@ -941,7 +943,7 @@
   function cpHTML(ctx) {
     C = ctx; closeAll();
     const D = cp(), v = cpView(D), [tone, t, tip] = linkOf(D);
-    return `<div class="ex ex-cpn"><div class="ex-top">${tgl({ key: "cpOn", on: D.on, label: "AI 伙伴", tip: cpSwTip(D), cls: "big", dis: modMissing(D) && !D.on })}`
+    return `<div class="ex ex-cpn"><div class="ex-top">${tgl({ key: "cpOn", on: D.on, label: "AI 伙伴", tip: cpSwTip(D), cls: "big", dis: modMissing(D) && !D.on, hold: cpSwTip(D) })}`
       + `<span class="ex-pslot" data-k="link">${pill(tone, t, tip)}</span><span class="ex-gslot" data-k="gate">${cpGate(D)}</span><span class="ex-sp"></span>`
       + segHTML("cp", [["comp", "伙伴"], ["set", "设置"], ["inst", "安装", `<i class="ex-sdot"${needInstall(D) ? "" : " hidden"} title="有待安装或待更新的模组"></i>`]], D.seg) + `</div>`
       + `<div class="ex-pane ${v.cls}">${v.html}</div>${barHTML(CP_PG)}</div>`;
@@ -962,7 +964,8 @@
   function spawnBtn(D) {
     const live = isLive(D), full = D.comps.length >= D.base.max;
     const dis = !live ? "请先启动服务器、开启 AI 伙伴并等待连接模组。" : full ? `已达伙伴上限（${D.base.max} 个），请先移除现有伙伴或在「设置」中调高上限。` : "";
-    return `<button type="button" class="ex-btn big pri" data-ex-act="spawn"${dis ? ` aria-disabled="true" title="${esc(dis)}"` : ` title="伙伴不占用在线玩家名额，也不显示在 Tab 列表中。"`}><i data-ic="plus"></i>刷出伙伴</button>`;
+    // 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）：点了在键上弹出原因（kit.js 第 9 条，没有能当场改的）
+    return `<button type="button" class="ex-btn big pri" data-ex-act="spawn"${dis ? ` aria-disabled="true" data-hold="${esc(dis)}" title="${esc(dis)}"` : ` title="伙伴不占用在线玩家名额，也不显示在 Tab 列表中。"`}><i data-ic="plus"></i>刷出伙伴</button>`;
   }
   const num1 = x => Number.isInteger(+x) ? String(+x) : (+x).toFixed(1);
   function compRow(c) {
@@ -1023,7 +1026,7 @@
       ? `<div class="ex-strip warn" title="服务器运行期间安装的模组，需重启服务器后加载"><span class="ex-si">${ico("warn")}</span><span class="ex-stx"><b>安装完成，重启服务器后生效</b></span></div>`
       : `<div class="ex-strip ok" title="后续 MineDeck 更新伙伴模组时，此处会提示「需更新」"><span class="ex-si">${ico("check")}</span><span class="ex-stx"><b>所需模组均已安装</b></span></div>`;
     if (C.st !== "stopped" && replace) return `<div class="ex-strip warn"><span class="ex-si">${ico("warn")}</span><span class="ex-stx"><b>请先停止服务器再更新</b><small>服务器运行中无法替换已占用的旧版文件</small></span>`
-      + `<button type="button" class="ex-btn big pri" aria-disabled="true" title="服务器运行中无法替换已占用的旧版文件，请先停止服务器。">${ico("download")}更新</button></div>`;
+      + `<button type="button" class="ex-btn big pri" aria-disabled="true" data-hold="服务器运行中无法替换已占用的旧版文件，请先停止服务器。" title="服务器运行中无法替换已占用的旧版文件，请先停止服务器。">${ico("download")}更新</button></div>`; // 11-29：点了弹出原因（规范第九节）
     return `<div class="ex-strip"><span class="ex-si">${ico("download")}</span><span class="ex-stx"><b>安装缺少的模组</b><small>${dl ? `需从 Modrinth 下载约 ${mb(dl)}` : "无需下载"}</small></span>`
       + `<button type="button" class="ex-btn big pri" data-ex-act="install"${C.st !== "stopped" ? ` title="服务器运行中，安装完成后需重启服务器生效。"` : ""}>${ico("download")}${replace ? "更新" : "安装"}</button></div>`;
   }
@@ -1312,7 +1315,7 @@
         swapIn($("[data-k=mst]", row), tag(...[MOD_STATE.ok[1], MOD_STATE.ok[0]]), 1); swapIn($("[data-k=mver]", row), esc(`已安装 ${m.version}`), 1);
       });
       const dot = $(".ex-sdot", r); if (dot) dot.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(.4)" }], { duration: 180, easing: E_IN, fill: "forwards" }).finished.then(() => { dot.hidden = true; dot.getAnimations().forEach(a => a.cancel()); });
-      const sw = $("[data-ex-tg=cpOn]", r); sw.removeAttribute("aria-disabled"); setTip(sw, cpSwTip(D));
+      const sw = $("[data-ex-tg=cpOn]", r); sw.removeAttribute("aria-disabled"); delete sw.dataset.hold; setTip(sw, cpSwTip(D));
       paintLink(r);
     }, 1600);
   }
@@ -1436,7 +1439,7 @@
       ? row("bridge", st(true), "桥接模组", `<span class="ex-mono">${BRIDGE_VER}${M.bridge.variant === "javafml" ? "（备用）" : ""}</span>${M.restart.includes("桥接模组") ? restartTag() : ""}`,
         `<button type="button" class="ex-ib" data-ex-act="brMenu" title="更多"><i data-ic="more"></i></button>`, `已安装 MineDeck 桥接模组 ${BRIDGE_VER}${M.bridge.variant === "javafml" ? "（备用加载方式）" : ""}${running() && !M.restart.includes("桥接模组") ? "，SVC 已加载" : ""}。`)
       : row("bridge", st(false), "桥接模组", `<span class="faint">未安装</span>`, M.bridge.busy ? `<span class="ex-busy">${ico("spinner")}</span>`
-        : `<button type="button" class="ex-btn" data-ex-act="brInstall"${M.svc.installed ? "" : ` aria-disabled="true" title="请先安装 Simple Voice Chat：桥接模组依赖该模组，缺少会导致服务器无法启动。"`}>${ico("download")}安装</button>`,
+        : `<button type="button" class="ex-btn" data-ex-act="brInstall"${M.svc.installed ? "" : ` aria-disabled="true" data-hold="请先安装 Simple Voice Chat：桥接模组依赖该模组，缺少会导致服务器无法启动。" title="请先安装 Simple Voice Chat：桥接模组依赖该模组，缺少会导致服务器无法启动。"`}>${ico("download")}安装</button>`, // 11-29：点了弹出原因（规范第九节）
         M.svc.installed ? `MineDeck 内置 ${BRIDGE_VER}，安装至 mods 文件夹即可，无需联网。${runNote}` : "");
     const port = M.voice.found
       ? row("port", st(null, "plug"), "语音端口", `<span class="ex-mono">UDP ${M.voice.port}</span>`, "", "局域网玩家：请在 Windows 防火墙放行此 UDP 端口以连接语音。\nconfig/voicechat/voicechat-server.properties")
@@ -1585,7 +1588,20 @@
   }
   function startCast(r, btn) {
     const M = mu();
-    if (blockers(M).length) { shake($("[data-k=why]", r)); shake(btn); return; }
+    if (blockers(M).length) {
+      shake($("[data-k=why]", r)); shake(btn);
+      // 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）：左边那句是「请先在上方选择音频源程序」时，有当场能改的那一处——
+      // 音源列表描红 1.6 秒（样子同 kit.js 第 9 条）、晃一下、光标落到第一个音源上；别的原因（要先启动、要先装、要重启）没有能当场改的，照旧只晃那句话和键
+      if (blockers(M).find(x => !RESTART.test(x)) === "请先在上方选择音频源程序") {
+        const lw = $("[data-lw=srcs]", r);
+        if (lw) {
+          lw.classList.remove("kit-held-bad"); void lw.offsetWidth; lw.classList.add("kit-held-bad");
+          clearTimeout(lw._heldT); lw._heldT = setTimeout(() => lw.classList.remove("kit-held-bad"), 1600);
+          shake(lw); $(".ex-src", lw)?.focus({ preventScroll: true });
+        }
+      }
+      return;
+    }
     // 整机录音：开始前确认一次（每台电脑一次，确认过就记住；同 music.js）
     if (M.mode === "system" && !M.sysOK) {
       ask({ ic: "warn", tone: "dgr", title: "确认使用整机录音？", no: "取消", ok: "继续广播", w: 420,
@@ -1599,7 +1615,7 @@
       swapIn($("[data-k=last]", r), "", 1); swapIn($("[data-k=lpill]", r), livePill(M), 1);
       swapKids($("[data-k=mid]", r), liveHTML(M), 1, "Y");
       $("[data-ex-act=srcRefresh]", r).hidden = true;
-      const ms = $("[data-ex-seg=mode]", r); ms.setAttribute("aria-disabled", "true"); setTip(ms, "广播进行中不可切换，请先停止广播");
+      const ms = $("[data-ex-seg=mode]", r); ms.setAttribute("aria-disabled", "true"); ms.dataset.hold = "广播进行中不可切换，请先停止广播"; setTip(ms, "广播进行中不可切换，请先停止广播");
       const b = $("[data-ex-act=cast]", r); b.classList.replace("pri", "stop"); b.removeAttribute("aria-disabled"); swapIn(b, `${ico("stop")}停止广播`, 1);
       paintWhy(r);
       setTimeout(() => {
@@ -1614,7 +1630,7 @@
     swapIn($("[data-k=lpill]", r), "", 1); swapIn($("[data-k=last]", r), lastText(M), 1);
     swapKids($("[data-k=mid]", r), midHTML(M), -1, "Y", () => { bars(r); fitNames(r); placeSrc(r, true); });
     $("[data-ex-act=srcRefresh]", r).hidden = M.mode !== "process";
-    const ms = $("[data-ex-seg=mode]", r); ms.removeAttribute("aria-disabled"); setTip(ms, "");
+    const ms = $("[data-ex-seg=mode]", r); ms.removeAttribute("aria-disabled"); delete ms.dataset.hold; setTip(ms, "");
     const b = $("[data-ex-act=cast]", r); b.classList.replace("stop", "pri"); swapIn(b, `${ico("play")}${M.mode === "system" ? "开始广播（整机录音）" : "开始广播"}`, 1);
     paintWhy(r);
   }

@@ -36,13 +36,15 @@
 .netv .nb, .nmd .nb { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; padding: 0 16px; border-radius: 18px; box-sizing: border-box; flex: none;
                       border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer;
                       transition: background .2s, opacity .2s; }
-.netv .nb:hover:not(:disabled), .nmd .nb:hover { background: var(--control-hov); }
+.netv .nb:hover:not(:disabled):not([aria-disabled="true"]), .nmd .nb:hover { background: var(--control-hov); }
 .netv .nb .ico, .nmd .nb .ico { width: 15px; height: 15px; }
 .netv .nb.pri { background: var(--accent-solid); color: var(--on-accent); border-color: transparent; font-weight: 600; }
-.netv .nb.pri:hover:not(:disabled) { background: var(--accent-solid-hov); }
+.netv .nb.pri:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--accent-solid-hov); }
 .netv .nb.stop { background: var(--danger-subtle); color: var(--danger-text); border-color: transparent; }
 .netv .nb.go { background: var(--accent-subtle); color: var(--accent-text); border-color: transparent; }
 .netv .nb:disabled { opacity: .45; cursor: default; }
+/* 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）：没选节点 / 隧道时的主键，灰得同上一行，点了由 kit.js 第 9 条拦下 */
+.netv .nb[aria-disabled="true"] { opacity: .45; cursor: default; }
 .netv .nb.sm { height: 28px; padding: 0 12px; border-radius: 14px; font-size: 12px; }
 .netv .ntg, .nmd .ntg { display: inline-flex; align-items: center; gap: 10px; border: 0; padding: 0; background: none; font: inherit; font-size: 13px; color: var(--text); cursor: pointer; flex: none; }
 .netv .ntg .sw, .nmd .ntg .sw { position: relative; width: 36px; height: 20px; border-radius: 10px; flex: none; background: color-mix(in srgb, var(--text) 18%, transparent); transition: background .2s; }
@@ -115,9 +117,10 @@
 .netv .frpp:not(.on) { cursor: pointer; }
 .netv .frpp:not(.on) .lbody { pointer-events: none; }
 .netv .frpp:not(.on) .lbody > :not(.fsrv), .netv .frpp:not(.on) .lfoot { opacity: .7; pointer-events: none; }
-/* 设置里没配置：开关灰着拨不动（同向导里代理端的那块），整块悬停说去哪填；「前往设置」照常能点 */
+/* 设置里没配置：开关灰着拨不动（同向导里代理端的那块），整块悬停说去哪填；「前往设置」照常能点。
+   11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）：开关不再不接鼠标，点了在开关上弹出原因（kit.js 第 9 条） */
 .netv .frpp.off { cursor: default; }
-.netv .frpp.off .lh .ntg { pointer-events: none; opacity: .45; }
+.netv .frpp.off .lh .ntg { opacity: .45; cursor: not-allowed; }
 
 /* 隧道建好以后：游戏隧道一块；装了 Simple Voice Chat 的服务器旁边再一块语音隧道。排法同「局域网 / 自建 frps」那一页：
    标题一行（图标、名字、状态，右边「···」），往下是朋友要填的地址（大字、能复制），一道线下面是节点，最下面一行跟随启动的开关和开停 */
@@ -171,6 +174,7 @@
 .netv .ck .bx .ico { width: 10px; height: 10px; }
 .netv .ck.on .bx { background: var(--accent-solid); border-color: var(--accent-solid); color: var(--on-accent); }
 .netv .nlist { gap: 12px; }
+.netv .nwrap { border-radius: 10px; } /* 11-29：没选节点就点主键时这一块描红（kit.js 第 9 条），红框跟着这个圆角（栏里的块一律 10） */
 .netv .ngrp { display: flex; flex-direction: column; gap: 6px; flex: none; }
 .netv .ngh { display: flex; align-items: baseline; gap: 8px; }
 .netv .ngh h4 { margin: 0; font-size: 12.5px; font-weight: 600; color: var(--text); }
@@ -217,6 +221,7 @@
               font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .netv .kbtn .ico { width: 14px; height: 14px; }
 .netv .kbtn:disabled { opacity: .7; cursor: default; }
+.netv .kbtn[aria-disabled="true"] { opacity: .7; cursor: default; } /* 11-29：没粘密钥时「连接」灰着也能点，点了由 kit.js 第 9 条拦下（规范第九节）；灰得同上一行、同设置页 .stn-kb */
 .netv .keyb .ntg { margin-top: 4px; }
 .netv .tlink { flex: none; font-size: 12.5px; color: var(--accent-text); cursor: pointer; white-space: nowrap; }
 .netv .nph { flex: 1; min-height: 0; margin-top: 6px; border-radius: 10px; border: 1px dashed color-mix(in srgb, var(--text) 18%, transparent); display: grid; place-items: center;

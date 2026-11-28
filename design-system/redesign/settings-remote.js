@@ -88,6 +88,11 @@
   const pwTip = () => S.set ? "已设置访问密码；如需修改，输入新密码并保存即可" : "开启手机远程管理前必须先设置访问密码";
   const pwPh = () => S.set ? "已设置（输入新密码可修改）" : "设置访问密码（必填）";
   const tooLong = v => new TextEncoder().encode(v).length > 72; // 后端 bcrypt 的上限
+  // 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）。框里没字时「保存」灰着；没设过密码、框里也没字时总开关灰着（开不了）。
+  // 点了照旧由 savePw / toggle 就地拦下（框标红、晃一下、光标落过去、保存的位置换成一句红字），不标 data-hold（标了 kit.js 会截走这一下）。
+  // 悬停说原因：保存同拦下来那句，开关同拦下来那句的整句（NEED_PW）
+  const pwNeed = () => S.set ? "请输入新密码" : "请先输入访问密码";
+  const tgOff = () => !S.on && !S.set && !S.draft;
 
   // ================= 画 =================
   function underHTML(st) {
@@ -103,11 +108,11 @@
     seed(ctx); C = ctx;
     const st = state(), live = st === "live", qu = live ? url() : DUMMY;
     const left = `<section class="sr-col sr-set" aria-label="手机远程管理">`
-      + `<button type="button" class="sr-tg${S.on ? " on" : ""}" role="switch" aria-checked="${S.on}" data-sr-act="toggle" title="${esc(TIP_ON)}">`
+      + `<button type="button" class="sr-tg${S.on ? " on" : ""}" role="switch" aria-checked="${S.on}" data-sr-act="toggle"${tgOff() ? ` aria-disabled="true" title="${esc(NEED_PW)}"` : ` title="${esc(TIP_ON)}"`}>`
       + `<span class="sr-sw"></span><span class="sr-tl">开启手机远程管理</span></button>`
       + `<div class="sr-fld"><span class="sr-lb"><span data-sr-k="pwtip" title="${esc(pwTip())}">访问密码</span></span>`
       + `<label class="sr-in${S.draft ? " dirty" : ""}"><input type="password" value="${esc(S.draft)}" placeholder="${esc(pwPh())}" autocomplete="new-password" spellcheck="false" aria-label="访问密码">`
-      + `<span class="sr-msg"></span><button type="button" class="sr-ib sr-save" data-sr-act="save" title="保存"><i data-ic="save"></i></button></label></div>`
+      + `<span class="sr-msg"></span><button type="button" class="sr-ib sr-save" data-sr-act="save"${S.draft ? ` title="保存"` : ` aria-disabled="true" title="${esc(pwNeed())}"`}><i data-ic="save"></i></button></label></div>`
       + `<div class="sr-fld sr-fw"><span class="sr-lb"><span title="${esc(TIP_FW)}">放行防火墙</span></span>`
       + `<div class="sr-cmd">${esc(FW)}<button type="button" class="sr-ib" data-sr-act="fw" title="复制"><i data-ic="copy"></i></button></div></div></section>`;
     const right = `<section class="sr-col sr-scan" aria-label="手机扫码访问"><span class="sr-lb"><span title="${esc(TIP_QR)}">手机扫码访问</span></span>`
@@ -163,6 +168,13 @@
     if (inp.placeholder !== pwPh()) inp.placeholder = pwPh();
     setTip($('[data-sr-k="pwtip"]', r), pwTip());
     box.classList.toggle("dirty", !!inp.value);
+    paintHold(r);
+  }
+  // 保存、总开关灰不灰（见上面 pwNeed、tgOff）：只换这两样的 aria-disabled 和悬停
+  function paintHold(r) {
+    const sv = $(".sr-save", r), tg = $(".sr-tg", r);
+    if (S.draft) { sv.removeAttribute("aria-disabled"); setTip(sv, "保存"); } else { sv.setAttribute("aria-disabled", "true"); setTip(sv, pwNeed()); }
+    if (tgOff()) { tg.setAttribute("aria-disabled", "true"); setTip(tg, NEED_PW); } else { tg.removeAttribute("aria-disabled"); setTip(tg, TIP_ON); }
   }
   function paintRight() {
     const r = root(); if (!r) return;
@@ -282,6 +294,7 @@
     S.draft = e.target.value;
     box.classList.remove("bad"); box.classList.toggle("dirty", !!e.target.value);
     if (e.target.value) untick($(".sr-save", box)); // 勾还没收、又打了字：马上换回保存
+    paintHold(root());
   }
 
   // 离开前拦（kit.js 第 6 条）：只有访问密码是要点保存的，框里有字就算一项没存

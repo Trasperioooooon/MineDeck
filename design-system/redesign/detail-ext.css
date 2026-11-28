@@ -221,6 +221,7 @@
 
 /* ---- 列表：细滚动条（同「玩家」、向导那套）——系统滚动条藏掉，右边 4 像素的细条，移上去或在滚时才出来、能拖；上下还有没露出来的，那一头淡出 28 ---- */
 .ex-lw { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.ex-lw[data-lw="srcs"] { border-radius: 10px; } /* 11-29：没选音源就点「开始广播」时这一块描红（规范第九节），红框跟着这个圆角（栏里的块一律 10） */
 .ex-lw > .list { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; position: relative;
                  --ft: 0px; --fb: 0px; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%);
                  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%); }

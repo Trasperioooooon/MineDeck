@@ -89,8 +89,11 @@
     last: "隧道当前已停止，此处显示上次运行时获取的地址。樱花穿透与 OpenFrp 的地址通常保持不变，再次启动后将自动刷新。",
     broken: "凭据无法解密，请删除此隧道后在服务器「联机」页中重新配置。\n凭据加密绑定本机与当前 Windows 用户，更换电脑或用户后无法解密。",
     list: "此处为全部隧道总览，日常管理请前往各服务器的「联机」页；点击已绑定的隧道行可前往对应服务器。",
-    // 运行中、连接中被拦下的三样（程序后端的原话是「请先停止隧道再修改」「请先停止隧道再删除」）
+    // 运行中、连接中被拦下的三样（程序后端的原话是「请先停止隧道再修改」「请先停止隧道再删除」）。
+    // 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）：这三样标 data-hold，点了弹出原因（kit.js 第 9 条，没有能当场改的）
     busyRen: "请先停止隧道，再修改名称", busyBind: "请先停止隧道，再绑定到服务器", busyDel: "请先停止隧道，再删除",
+    // 11-29：没粘密钥时「连接」灰着（同拦下来时那句），点了照旧由 act("skconnect") 拦下（框标红、晃一下、光标落过去、一句红字），不标 data-hold
+    needKey: "请粘贴访问密钥",
     noRun: "凭据无法解密，无法启动此隧道",
     loadErr: "原有隧道与凭据仍保留在配置文件中，未被修改。在成功读取前无法添加、修改或删除隧道，以免覆盖原数据；处理后此处会自动刷新，也可点击「重试」。",
     // 程序 natfrpFrpcSteps 的几步（「回到这里点启动」改成了到联机里启动）；路径用存储位置那页的程序数据文件夹
@@ -245,7 +248,7 @@
       + (rep ? `<button type="button" class="stn-ib sm" data-a="unreplace" title="取消更换" aria-label="取消更换访问密钥"><i data-ic="x"></i></button>` : "") + `</div>`
       + `<div class="stn-kr"><div class="stn-iw${s.bad ? " bad" : ""}"><input class="stn-kin" type="password" placeholder="${rep ? "粘贴新的访问密钥" : "粘贴访问密钥"}" value="${esc(s.key)}"`
       + ` autocomplete="off" spellcheck="false" aria-label="樱花穿透访问密钥"${s.busy || ro ? " disabled" : ""}></div>`
-      + `<button type="button" class="stn-kb" data-a="skconnect"${ro ? roAttr() : s.busy ? ` aria-disabled="true"` : ""}>${s.busy ? `<i data-ic="spinner" class="stn-spin"></i>连接中` : "连接"}</button></div>`
+      + `<button type="button" class="stn-kb" data-a="skconnect"${ro ? roAttr() : s.busy ? ` aria-disabled="true"` : s.key.trim() ? "" : ` aria-disabled="true" title="${esc(TIP.needKey)}"`}>${s.busy ? `<i data-ic="spinner" class="stn-spin"></i>连接中` : "连接"}</button></div>`
       + (rep ? "" : `<div class="stn-frpc" title="${esc(TIP.frpc)}"><i data-ic="info"></i><span>首次使用需手动放置 frpc</span></div>`);
   }
   // 自建 frps：地址、端口、令牌，底下「保存」
@@ -288,7 +291,7 @@
   const runTip = t => (t.broken ? TIP.noRun : busy(t) ? "停止隧道" : "启动隧道");
   const runIb = t => `<button type="button" class="stn-ib" data-a="run" data-run="${busy(t) ? "stop" : "play"}" title="${esc(runTip(t))}"${t.broken ? ` aria-disabled="true"` : ""}`
     + ` aria-label="${esc(`${busy(t) ? "停止" : "启动"}隧道 ${t.name}`)}"><i data-ic="${busy(t) ? "stop" : "play"}"></i></button>`;
-  const nameAttrs = t => (busy(t) ? ` title="${esc(TIP.busyRen)}"` : ` data-a="ren" role="button" tabindex="0" title="单击以修改隧道名称"`);
+  const nameAttrs = t => (busy(t) ? ` aria-disabled="true" data-hold="${esc(TIP.busyRen)}" title="${esc(TIP.busyRen)}"` : ` data-a="ren" role="button" tabindex="0" title="单击以修改隧道名称"`);
   // 一行分四格：字、地址、状态、最右边；只换变了的那几格
   function cells(t) {
     const s = t.server && srv(t.server), [c, st, tip] = tunState(t), b = busy(t);
@@ -302,8 +305,8 @@
     const p = pillHTML([c, st, tip]);
     const x = s ? `<i data-ic="chevronRight" class="stn-go"></i>`
       : runIb(t) + `<button type="button" class="stn-ib" data-a="log" title="日志" aria-label="${esc(`查看隧道 ${t.name} 的日志`)}"><i data-ic="doc"></i></button>`
-        + `<button type="button" class="stn-bb" data-a="bind" aria-haspopup="menu"${b ? ` aria-disabled="true" title="${esc(TIP.busyBind)}"` : ""}>绑定到…</button>`
-        + `<button type="button" class="stn-ib" data-a="del" title="${esc(b ? TIP.busyDel : "删除")}"${b ? ` aria-disabled="true"` : ""} aria-label="${esc(`删除隧道 ${t.name}`)}"><i data-ic="trash"></i></button>`;
+        + `<button type="button" class="stn-bb" data-a="bind" aria-haspopup="menu"${b ? ` aria-disabled="true" data-hold="${esc(TIP.busyBind)}" title="${esc(TIP.busyBind)}"` : ""}>绑定到…</button>`
+        + `<button type="button" class="stn-ib" data-a="del" title="${esc(b ? TIP.busyDel : "删除")}"${b ? ` aria-disabled="true" data-hold="${esc(TIP.busyDel)}"` : ""} aria-label="${esc(`删除隧道 ${t.name}`)}"><i data-ic="trash"></i></button>`;
     return { m, a, p, x };
   }
   function rowAttrs(t) {
@@ -400,7 +403,9 @@
     const m = s.bad ? "请粘贴访问密钥" : ""; if (msg.textContent !== m) msg.textContent = m;
     const want = s.busy ? `${C.KIT.icon("spinner", "stn-spin")}连接中` : "连接";
     if (kb._h !== want) { kb._h = want; kb.innerHTML = want; }
-    setAttr(kb, "aria-disabled", s.busy);
+    if (data().ro) return; // 局域网里打开：照旧灰着（roAttr），不在这里动
+    const nokey = !s.busy && !s.key.trim();
+    setAttr(kb, "aria-disabled", s.busy || nokey); setTip(kb, nokey ? TIP.needKey : "");
   }
   function paintFrps() {
     const b = block("frps"); if (!b) return; const d = data(), f = d.frps;
@@ -458,8 +463,8 @@
   // 名字：运行中不能点（改名要先停），停了又能点
   function morphName(sp, t) {
     if (!sp || t.server) return;
-    if (busy(t)) { delete sp.dataset.a; sp.removeAttribute("role"); sp.removeAttribute("tabindex"); setTip(sp, TIP.busyRen); }
-    else { sp.dataset.a = "ren"; sp.setAttribute("role", "button"); sp.tabIndex = 0; setTip(sp, "单击以修改隧道名称"); }
+    if (busy(t)) { delete sp.dataset.a; sp.removeAttribute("role"); sp.removeAttribute("tabindex"); sp.setAttribute("aria-disabled", "true"); sp.dataset.hold = TIP.busyRen; setTip(sp, TIP.busyRen); }
+    else { sp.dataset.a = "ren"; sp.setAttribute("role", "button"); sp.tabIndex = 0; sp.removeAttribute("aria-disabled"); delete sp.dataset.hold; setTip(sp, "单击以修改隧道名称"); }
   }
   // 最右边：开停那颗换图标（旧的淡掉、新的淡进来），绑定和删除跟着灰不灰（透明度自己过渡）
   function morphActs(cell, t) {
@@ -477,8 +482,8 @@
     }
     setTip(run, runTip(t)); setAttr(run, "aria-label", `${b ? "停止" : "启动"}隧道 ${t.name}`);
     const bind = cell.querySelector('[data-a="bind"]'), del = cell.querySelector('[data-a="del"]');
-    if (bind) { setAttr(bind, "aria-disabled", b); setTip(bind, b ? TIP.busyBind : ""); }
-    if (del) { setAttr(del, "aria-disabled", b); setTip(del, b ? TIP.busyDel : "删除"); }
+    if (bind) { setAttr(bind, "aria-disabled", b); if (b) bind.dataset.hold = TIP.busyBind; else delete bind.dataset.hold; setTip(bind, b ? TIP.busyBind : ""); }
+    if (del) { setAttr(del, "aria-disabled", b); if (b) del.dataset.hold = TIP.busyDel; else delete del.dataset.hold; setTip(del, b ? TIP.busyDel : "删除"); }
     cell._h = cells(t).x; return true;
   }
   // 画出来的每一格记下它的源码（换了图标以后 innerHTML 和源码对不上），paintRow 只换源码变了的那几格
@@ -909,13 +914,15 @@
   // =====================================================================================================
   function onClick(e) {
     const b = e.target.closest("[data-a]");
-    if (b) { if (b.getAttribute("aria-disabled") === "true") return; act(b.dataset.a, b); return; }
+    // 灰着的一律不动；只有没粘密钥时的「连接」点了要拦一下（act 里框标红、晃一下），局域网里打开、正在连接时照旧不动
+    const keyGate = b && b.dataset.a === "skconnect" && !data().ro && !data().sakura.busy;
+    if (b) { if (b.getAttribute("aria-disabled") === "true" && !keyGate) return; act(b.dataset.a, b); return; }
     const iw = e.target.closest(".stn-iw"); if (iw && e.target === iw) { iw.querySelector("input")?.focus(); return; }
     const row = e.target.closest(".stn-row.go"); if (row && row.dataset.href) C.go(row.dataset.href); // 跳到别的页走外壳的 go：有没存的改动先问
   }
   function onInput(e) {
     const d = data(), t = e.target;
-    if (t.classList.contains("stn-kin")) { d.sakura.key = t.value; if (d.sakura.bad) { d.sakura.bad = false; paintSkForm(); } return; }
+    if (t.classList.contains("stn-kin")) { d.sakura.key = t.value; d.sakura.bad = false; paintSkForm(); return; } // 一改红字就收，「连接」跟着灰不灰（11-29）
     const f = t.dataset.f; if (!f) return;
     d.frps[f] = t.value; if (d.frps.bad && (f === "h" && d.frps.bad === "host" || f === "p" && d.frps.bad === "port")) { d.frps.bad = ""; d.frps.msg = ""; }
     paintFrps();

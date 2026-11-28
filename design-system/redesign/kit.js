@@ -187,7 +187,8 @@
     if (t) {
       t.classList.remove("kit-held-bad"); void t.offsetWidth; t.classList.add("kit-held-bad"); clearTimeout(t._heldT); t._heldT = setTimeout(() => t.classList.remove("kit-held-bad"), 1600);
       shakeEl(t);
-      const f = t.matches("input, textarea, select, [tabindex]") ? t : t.querySelector("input, textarea, select, [tabindex]:not([tabindex='-1'])");
+      // 光标落到那一处里第一个能聚焦的（11-29 加上按钮：要改的那一处是「AI 服务商」这种下拉按钮时也落得过去）
+      const f = t.matches("input, textarea, select, button, [tabindex]") ? t : t.querySelector("input:not([disabled]), textarea, select, button:not([disabled]), [tabindex]:not([tabindex='-1'])");
       f?.focus({ preventScroll: true });
     }
     if (why) tipNow(b, why);

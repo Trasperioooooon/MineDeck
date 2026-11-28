@@ -72,7 +72,8 @@
     return `<div class="pl-row" data-pl-name="${esc(n)}"><span class="pl-nm">${esc(n)}</span>`
       + `<button type="button" class="pl-ib pl-op${op ? " on" : ""}" title="${op ? "取消管理员" : "设为管理员"}" aria-pressed="${op}" aria-label="${esc(n)} 是管理员"><i data-ic="${op ? "crownOn" : "crown"}"></i></button>`
       + `<button type="button" class="pl-ib pl-ban" title="封禁玩家" aria-label="封禁 ${esc(n)}"><i data-ic="ban"></i></button>`
-      + `<button type="button" class="pl-ib pl-kick"${run ? "" : ' aria-disabled="true"'} title="${run ? "踢出玩家" : "仅服务器运行中可踢出玩家"}" aria-label="踢出 ${esc(n)}"><i data-ic="kick"></i></button></div>`;
+      // 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）：没开着时「踢出」灰着，点了在键上弹出原因（kit.js 第 9 条，没有能当场改的）
+      + `<button type="button" class="pl-ib pl-kick"${run ? "" : ' aria-disabled="true" data-hold="仅服务器运行中可踢出玩家"'} title="${run ? "踢出玩家" : "仅服务器运行中可踢出玩家"}" aria-label="踢出 ${esc(n)}"><i data-ic="kick"></i></button></div>`;
   }
   const listRow = (k, n) => `<div class="pl-row" data-pl-name="${esc(n)}"><span class="pl-nm">${esc(n)}</span>`
     + `<button type="button" class="pl-ib pl-x" data-pl-rm="${k}" title="${L[k].rm}" aria-label="${esc(L[k].rmLabel(n))}"><i data-ic="x"></i></button></div>`;

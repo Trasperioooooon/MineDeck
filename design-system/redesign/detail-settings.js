@@ -364,7 +364,8 @@
     const gr = p.mode === "gamerule", on = (gr ? D.gr[p.key] : D.cur[p.key]) === "true", off = gr && !live();
     const name = inWho ? WHO_NAME[p.key] : p.label, mod = !gr && D.cur[p.key] !== D.base[p.key];
     return `<button type="button" class="st-b${on ? " on" : ""}${mod ? " mod" : ""}" ${gr ? "data-gr" : "data-k"}="${esc(p.key)}" role="switch" aria-checked="${on}"`
-      + (inWho ? "" : ` data-search="${esc(p.label + " " + p.key)}"`) + `${off ? ' aria-disabled="true"' : ""} title="${esc(tipOf(D, p))}">`
+      // 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）：服务器没开着时游戏规则开关灰着，点了在开关上弹出悬停里那段（kit.js 第 9 条，没有能当场改的）
+      + (inWho ? "" : ` data-search="${esc(p.label + " " + p.key)}"`) + `${off ? ` aria-disabled="true" data-hold="${esc(tipOf(D, p))}"` : ""} title="${esc(tipOf(D, p))}">`
       + `<span class="st-sw"></span><span class="st-bl">${esc(name)}</span><i class="st-dot"></i></button>`;
   }
   function ctlHTML(D, p) {

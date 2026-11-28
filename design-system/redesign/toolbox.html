@@ -151,7 +151,10 @@ window.EXTRA_ICONS = {
           font: inherit; font-size: 13px; font-weight: 600; box-shadow: var(--elev-3); transition: transform .32s cubic-bezier(.4, 0, .2, 1), opacity .32s; }
   .wbtn .ico { width: 16px; height: 16px; }
   .wbtn.next { justify-content: center; overflow: hidden; white-space: nowrap; padding-right: 14px; border: 0; color: var(--on-accent); background: var(--accent-solid); }
-  .wbtn.next:hover { background: var(--accent-solid-hov); }
+  .wbtn.next:hover:not([aria-disabled="true"]) { background: var(--accent-solid-hov); }
+  /* 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）。生成不了、走不下去时右下主键灰着（同向导、引导页主键），点了照旧由 skinGo / mrpackGo 拦下 */
+  .wbtn.next[aria-disabled="true"] { background: var(--control); color: var(--muted); box-shadow: inset 0 0 0 1px var(--border); opacity: .6; cursor: not-allowed; }
+  body.hidden-nav .wbtn.next[aria-disabled="true"] { opacity: 0; }
   .wbtn.next.plain { padding-right: 18px; }
   .wbtn .lbl { display: inline-flex; align-items: center; gap: 6px; }
   .wbtn.next.busy { cursor: default; }
@@ -588,7 +591,20 @@ function nextLabel() {
   if (view === "mrpack") return mrpackNext();
   return "";
 }
+// 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）。生成不了、走不下去时右下主键看着是灰的、悬停说第一条原因（同点了以后底下那句）；
+// 点了照旧走 skinGo / mrpackGo 拦下（说一句、标红、晃一下、光标落过去），不标 data-hold（标了 kit.js 会截走这一下）。
+// 只管自己写上去的那句悬停：生成以后「下载」上的悬停（makeResult 写的）不动
+function paintNext() {
+  const b = document.getElementById("next"), why = (view === "skin" ? skinWhy?.() : view === "mrpack" ? mrpackWhy?.() : "") || "";
+  if (why) b.setAttribute("aria-disabled", "true"); else b.removeAttribute("aria-disabled");
+  const cur = b.hasAttribute("title") ? b.getAttribute("title") : b.dataset.tip || "", was = b.dataset.why || ""; // kit.js 悬停时会把 title 挪进 data-tip
+  b.dataset.why = why;
+  if (why) { if (cur !== why) { b.title = why; delete b.dataset.tip; } }
+  else if (was && cur === was) { b.removeAttribute("title"); delete b.dataset.tip; }
+}
+["click", "input"].forEach(t => document.getElementById("page").addEventListener(t, () => setTimeout(paintNext))); // 等两个工具自己的处理（接在后面的脚本里）做完再算
 function navLabel() {
+  paintNext();
   const b = document.getElementById("next"), want = nextLabel();
   if (b.dataset.label === want) return;
   const first = !b.dataset.label, tok = ++navTok;
@@ -737,9 +753,9 @@ function pathBox(dest) {
     + (dest ? `<b>${esc(dest)}</b><button class="ib" data-act="cleardir" title="清除保存路径"><i data-ic="x"></i></button>` : `<span class="ph">同时保存至本机文件夹（选填）</span>`) + `</div>`;
 }
 
-// 后面两个工具的代码接在这里
-var skinView, afterSkin, skinNext, skinSim, skinSimPick, skinClick, skinGo;
-var mrpackView, afterMrpack, mrpackNext, mrpackSim, mrpackSimPick, mrpackClick, mrpackBack, mrpackGo;
+// 后面两个工具的代码接在这里（skinWhy、mrpackWhy：右下主键现在为什么点不成，空串是点得成，见 paintNext）
+var skinView, afterSkin, skinNext, skinSim, skinSimPick, skinClick, skinGo, skinWhy;
+var mrpackView, afterMrpack, mrpackNext, mrpackSim, mrpackSimPick, mrpackClick, mrpackBack, mrpackGo, mrpackWhy;
 </script>
 <script>
 // ======================================================================
@@ -1118,6 +1134,20 @@ skinGo = () => {
   clearMsg();
   SK.busy = true; navLabel();
   setTimeout(() => { SK.busy = false; makeResult(true); }, 800);
+};
+// 11-29：「生成皮肤包」现在为什么点不成（空串是点得成）：和 skinGo 一样的顺序、一样的那句话，只看状态、不动页面；生成中、生成好了（「下载皮肤包」）不在这条里
+skinWhy = () => {
+  if (SK.busy || SK.result) return "";
+  const pv = preview();
+  if (pv.err) return pv.err;
+  const live = SK.rows.map((r, i) => [r, i]).filter(([r]) => !r.skip);
+  if (!live.length) return "请至少添加一张皮肤";
+  if (pv.conflicts.length) { const c = pv.conflicts[0]; return `${c.rows.map(i => SK.rows[i].player.trim() || `第 ${i + 1} 行`).join("、")} 命中同一默认皮肤槽位，请先选择保留项`; }
+  const full = live.find(([, i]) => pv.items[i]?.full); if (full) return `第 ${full[1] + 1} 行已无可用默认皮肤槽位`;
+  const badf = live.find(([r]) => r.file?.err); if (badf) return `第 ${badf[1] + 1} 行的 PNG 文件无效`;
+  const noname = SK.mode === "player" && live.find(([r]) => !r.player.trim()); if (noname) return `第 ${noname[1] + 1} 行未填写玩家名`;
+  const nofile = live.find(([r]) => !r.file); if (nofile) return `第 ${nofile[1] + 1} 行未选择皮肤 PNG`;
+  return "";
 };
 // 生成结果（假的）：文件名照程序（名称-MC版本-时间.zip），大小和 SHA-1 是编的
 function makeResult(animate) {
@@ -1531,6 +1561,13 @@ mrpackGo = () => {
   if (!MP.loaded) return; // 还在预览
   MP.busy = true; navLabel();
   setTimeout(() => { MP.busy = false; makeResult(true); }, 900);
+};
+// 11-29：右下主键现在为什么点不成（空串是点得成）：同 mrpackGo 的两处拦，只看状态、不动页面；生成中、最后一步还在预览（正在进行中）不在这条里
+mrpackWhy = () => {
+  if (MP.busy) return "";
+  if (MP.step === 0) return MP.src === "draft" && !parseMC(MP.mc) ? "无法识别版本号" : "";
+  if (!isLast()) return !picked.length && !locals.length ? "请至少选择一个模组" : "";
+  return "";
 };
 mrpackClick = e => {
   const t = e.target;

@@ -579,7 +579,8 @@ function head() {
   const a = S.tunnel || `192.168.1.5:${S.port}`, live = st === "running";
   const addr = `<span class="addr${live ? "" : " off"}"><span class="go" data-go="net" title="${live ? "前往「联机」查看全部地址" : "启动后可用此地址连接，前往「联机」查看全部地址"}"><i data-ic="${S.tunnel ? "globe" : "link"}"></i><span class="v">${a}</span></span>`
     + `<button class="rb" title="复制"><i data-ic="copy"></i></button></span>`;
-  const restart = `<button class="btn"${st === "running" ? "" : ` aria-disabled="true" title="服务器运行中才能重启"`}><i data-ic="refresh"></i>重启</button>`;
+  // 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）：没开着时「重启」灰着，点了在键上弹出原因（kit.js 第 9 条，没有能当场改的）
+  const restart = `<button class="btn"${st === "running" ? "" : ` aria-disabled="true" data-hold="服务器运行中才能重启" title="服务器运行中才能重启"`}><i data-ic="refresh"></i>重启</button>`;
   const main = st === "stopped" ? `<button class="btn go"><i data-ic="play"></i>启动</button>` : `<button class="btn stop"><i data-ic="stop"></i>停止</button>`;
   $("#dh").innerHTML = `<div class="cover" style="--c:${MDPixel16.CORE_COLORS[S.core]}">${av}<div class="title"><div class="nm">${S.name}</div><div class="meta">${S.label} · ${S.mc}</div></div>${blocks}${tools}</div>`
     + `<div class="acts">${stb}${restart}${main}${addr}<span id="ntc-slot" style="display:contents">${ntcPill()}</span><span class="sp"></span></div>`;
@@ -980,7 +981,8 @@ document.addEventListener("click", e => {
 let menu = null;
 function toggleMenu(anchor) {
   if (menu) return closeMenu();
-  const dis = st !== "stopped" ? ` aria-disabled="true" title="需先停止服务器"` : "";
+  // 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）：开着时导出、删除灰着，点了在那一项旁边弹出原因（kit.js 第 9 条）
+  const dis = st !== "stopped" ? ` aria-disabled="true" data-hold="需先停止服务器" title="需先停止服务器"` : "";
   menu = Object.assign(document.createElement("div"), { className: "dm enter" }); menu.setAttribute("role", "menu");
   menu.innerHTML = `<div class="it" role="menuitem"><i data-ic="folder"></i>打开服务器文件夹</div>`
     + `<div class="it" role="menuitem" data-m="export"${dis}><i data-ic="share"></i>导出交接包…</div><div class="sep"></div><div class="it dgr" role="menuitem"${dis}><i data-ic="trash"></i>删除服务器…</div>`;

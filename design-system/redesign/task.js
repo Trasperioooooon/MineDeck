@@ -528,6 +528,7 @@
     v.innerHTML = id === "pend" ? pendHTML() : warnHTML();
     $("#tk2-views").appendChild(hy(v));
     $$(".tk2-lw", v).forEach(thinBar);
+    if (id === "pend") paintApply();
   }
 
   // ---- 日志：只往后加 ----
@@ -599,6 +600,23 @@
     if (!n && !$$(".tk2-pnd", pv()).some(r => itemOf(r.dataset.pid)?.act === "trust")) pmsg("请先选择「信任站点并下载」，再确认风险", true);
   }
   let applying = false, trustFailed = false;
+  // 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）。「应用所选的处理」：还有没给路径的「用本地文件代替」、没勾风险的「信任站点并下载」，
+  // 或者一个都没选时灰着，悬停说第一条原因；点了照旧由 applyPending 拦下（框或勾标红、晃一下），不标 data-hold（标了 kit.js 会截走这一下）。
+  // applyWhy 只看状态、不动页面；正在处理时照旧灰着（applying）
+  function applyWhy() {
+    const root = pv(); if (!root) return "";
+    const rows = $$(".tk2-pnd", root).filter(r => !r.classList.contains("out")), xs = rows.map(r => itemOf(r.dataset.pid)).filter(Boolean);
+    if (xs.some(x => x.act === "local" && !x.path.trim())) return "请填写本地文件或文件夹的完整路径";
+    if (xs.some(x => x.act === "trust" && !x.ack)) return "请先确认信任该站点的下载";
+    if (!xs.some(x => x.act)) return "请至少为一个文件选择处理方式";
+    return "";
+  }
+  function paintApply() {
+    const b = pv() && $('[data-act="apply"]', pv()); if (!b || applying) return;
+    const why = applyWhy(), now = b.getAttribute("title") ?? b.dataset.tip ?? "";
+    if (why) b.setAttribute("aria-disabled", "true"); else b.removeAttribute("aria-disabled");
+    if (now !== why) { if (why) b.title = why; else b.removeAttribute("title"); delete b.dataset.tip; }
+  }
   async function applyPending() {
     if (applying) return;
     const root = pv(), rows = $$(".tk2-pnd", root).filter(r => !r.classList.contains("out"));
@@ -643,6 +661,7 @@
     if (!done.length) afterApply();
     applying = false;
     btn.removeAttribute("aria-disabled"); $(".tk2-pl", btn).textContent = "应用所选的处理";
+    paintApply(); // 11-29：处理完以后剩下的那几块还够不够条件
     paintLog(false); paintTabs(false);
   }
   // 处理以后：最后那一行的数、上面那排批量键（没有能信任下载的了就收起）、清单空了那一句
@@ -663,6 +682,7 @@
     const pb = $('[data-k="pbar"]', root), nb = pbarHTML(); if (pb._h !== nb) { pb.innerHTML = nb; hy(pb); pb._h = nb; }
     $('[data-act="apply"]', root).closest(".tk2-pfoot").hidden = !T.pending.length && !T.skipped.some(x => x.act);
     $('[data-k="plw"]', root)._paint?.();
+    paintApply();
   }
   function pndFold(b) {
     const open = b.classList.toggle("open"), l = b.parentElement;
@@ -810,7 +830,7 @@
     const ps = e.target.closest("[data-pseg] > span[data-v]"); if (ps) { pndPick(ps.parentElement, ps.dataset.v); return; }
     const a = e.target.closest("[data-act]"); if (!a) return;
     const act = a.dataset.act;
-    if (a.getAttribute("aria-disabled") === "true") return;
+    if (a.getAttribute("aria-disabled") === "true" && act !== "apply") return; // 灰着的「应用所选的处理」点了要拦一下（applyPending；正在处理时它自己不动）
     if (act === "cancel") askCancel();
     else if (act === "retry") retry();
     else if (act === "edit") { const [page, p] = T.K.edit; nav(link(page, p)); }
@@ -831,6 +851,8 @@
     if (e.target.dataset.k !== "lpath") return;
     const x = itemOf(e.target.closest(".tk2-pnd").dataset.pid); x.path = e.target.value; e.target.classList.remove("bad");
   });
+  // 11-29：「没装上的文件」里点了、填了以后（上面处理完），重算「应用所选的处理」灰不灰（见 applyWhy）
+  ["click", "input"].forEach(t => document.addEventListener(t, e => { if (e.target.closest?.('#tk2-views > [data-v="pend"]')) paintApply(); }));
 
   // ================= 自动往下走（?play=1、重试） =================
   // 照这一份过程一样一样走：一步一停、日志一行一行加、下载的那一项 0 到 100% 一格一格亮；走到这个 st 的结尾。

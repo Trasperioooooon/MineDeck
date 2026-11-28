@@ -114,7 +114,9 @@ const vlanNets = () => LAN_NETS.slice(0, [0, 2, 5][net().vlan]);
 const ib = (act, ic, tip, extra = "") => `<button class="nib" data-act="${act}" title="${esc(tip)}"${extra}><i data-ic="${ic}"></i></button>`;
 const vlanRows = () => vlanNets().map(([n, ip]) => `<div class="netrow" title="已加入同一${/^[A-Za-z0-9]/.test(n || "") ? " " : ""}${esc(n)}${/[A-Za-z0-9]$/.test(n || "") ? " " : ""}网络的玩家可使用此地址连接"><span class="nn">${esc(n)}</span><span class="mono">${ip}:${PORT()}</span>`
   + ib("copy", "copy", "复制", ` data-copy="${ip}:${PORT()}"`) + `</div>`).join("");
-const ntg = (key, t, on, tip = "", cls = "", dis = false) => `<button class="ntg${on ? " on" : ""}${cls ? " " + cls : ""}" data-ntg="${key}" role="switch" aria-checked="${on}"${dis ? " disabled" : ""}${tip ? ` title="${esc(tip)}"` : ""}><span class="sw"></span>${t}</button>`;
+// dis：拨不动的原因（空串是能拨）。11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）——拨不动时不用 disabled（收不到点击），
+// 标 aria-disabled 加 data-hold，点了在开关上弹出原因（kit.js 第 9 条），悬停也说原因
+const ntg = (key, t, on, tip = "", cls = "", dis = "") => `<button class="ntg${on ? " on" : ""}${cls ? " " + cls : ""}" data-ntg="${key}" role="switch" aria-checked="${on}"${dis ? ` aria-disabled="true" data-hold="${esc(dis)}"` : ""}${dis || tip ? ` title="${esc(dis || tip)}"` : ""}><span class="sw"></span>${t}</button>`;
 // 设置里存的自建 frps（11-29 作者定只在「设置 → 内网穿透」里填）：草图里 &frps=set 算存过，示例同设置页；没存过是 null
 const FRPS = () => C.QS.get("frps") === "set" ? { host: "frp.example.com", port: "7000" } : null;
 const FRPS_OFF = "适用于自有 frps 服务端，点击开启";
@@ -145,10 +147,10 @@ function lanPage() {
     + ib("vrefresh", "refresh", "重新检测") + `</div><div class="lwrap"><div class="list vrows" id="nvrows">${vlanRows()}</div><span class="thumb"></span></div></div>`
     + `<div class="vnone${vlanNets().length ? " gone" : ""}" id="nvnone"><i data-ic="info"></i><span>未检测到虚拟局域网，启动 Radmin、ZeroTier 等组网工具后将自动识别</span></div></div></div>`;
   const stt = N.frpsSaved && cfg ? (C.st === "running" ? `<span class="npill ok"><i></i>运行中</span>` : C.st === "starting" ? `<span class="npill warm"><i></i>连接中</span>` : `<span class="npill off"><i></i>已停止</span>`) : "";
-  // 没配置时整块 .off：开关灰着、拨不动（disabled，点哪儿都不打开），悬停整块说去哪填；公网端口框下面那一行和「前往设置」不淡
+  // 没配置时整块 .off：开关灰着、拨不动（点哪儿都不打开；点开关在开关上弹出原因，见 ntg），悬停整块说去哪填；公网端口框下面那一行和「前往设置」不淡
   const tip = !cfg ? FRPS_NONE : on ? "" : FRPS_OFF;
   const frp = `<div class="lanp frpp${on ? " on" : ""}${cfg ? "" : " off"}"${tip ? ` title="${esc(tip)}"` : ""}>`
-    + `<div class="lh">${ntg("frpsOn", "自建 frps", on, "由 MineDeck 启动 frpc 连接自有 frps，实现公网联机", "b", !cfg)}${stt}</div>`
+    + `<div class="lh">${ntg("frpsOn", "自建 frps", on, "由 MineDeck 启动 frpc 连接自有 frps，实现公网联机", "b", cfg ? "" : FRPS_NONE)}${stt}</div>`
     + `<div class="lbody"><span class="lb" title="公网玩家连接时使用此地址，由 frps 地址与公网端口组成（公网端口留空时默认与本地端口一致）">公网联机地址</span>`
     + `<div class="bigaddr" id="nfaddr">${frpsAddr()}</div>`
     + `<div class="frps"><input class="inp${N.frps.fbad ? " bad" : ""}" data-f="remote" placeholder="公网端口" value="${esc(N.frps.remote)}" inputmode="numeric" autocomplete="off" title="公网联机使用的端口，留空时默认与本地端口一致（${PORT()}）"${fd}>`
@@ -255,7 +257,10 @@ function mainBtn(k) {
   const tip = !ready ? (newTab ? "请先选择节点" : "请先选择隧道")
     : N.swap ? "将在新节点创建隧道并连接，完成后删除平台上的原隧道；公网联机地址将会变化"
     : other ? `${newTab ? "创建" : "绑定"}后将停止并解绑当前${platIn(N.game.plat)}隧道，但保留平台上的原隧道` : newTab ? `本地端口 ${PORT()}，公网端口${k === "openfrp" ? "在节点允许范围内自动分配" : "由樱花穿透自动分配"}，其余采用平台默认配置` : "";
-  return `<button class="nb pri" data-act="nmain"${ready && !N.busy ? "" : " disabled"}${tip ? ` title="${esc(tip)}"` : ""}>${label}</button>`;
+  // 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）：没选节点 / 隧道时灰着，点了节点（隧道）列表描红、晃一下，键上弹出原因（kit.js 第 9 条）；
+  // 正在创建、更换的那一下照旧 disabled、点了没反应
+  const hold = !ready && !N.busy ? ` aria-disabled="true" data-hold="${esc(tip)}" data-hold-target=".netv .nwrap"` : "";
+  return `<button class="nb pri" data-act="nmain"${N.busy ? " disabled" : hold}${tip ? ` title="${esc(tip)}"` : ""}>${label}</button>`;
 }
 function nodePanel(k) {
   const N = net(), on = v => N.tab[k] === v ? ` class="on"` : "", useTab = !N.swap && N.tab[k] === "use";
@@ -264,11 +269,23 @@ function nodePanel(k) {
   return `<div class="nbar">${head}<label class="nsearch"><i data-ic="search"></i><input id="nnq" placeholder="${useTab ? "搜索隧道" : "搜索节点"}" value="${esc(N.q)}" autocomplete="off" spellcheck="false"></label>`
     + ib("nrefresh", "refresh", useTab ? "刷新隧道列表" : "刷新节点列表") + `<span id="nmainslot" style="display:contents">${mainBtn(k)}</span></div><div class="nbody">${nodeBody(k)}</div>`;
 }
+// 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）：没粘密钥时「连接」灰着，点了密钥框描红、晃一下、光标落过去，键上弹出原因（kit.js 第 9 条；
+// 原来只把光标挪过去）。悬停的话同「设置 → 内网穿透」那一格
+const KEY_NEED = "请粘贴访问密钥";
+const keyHold = N => N.key.trim() ? "" : ` aria-disabled="true" data-hold="${KEY_NEED}" data-hold-target="#nskey" title="${KEY_NEED}"`;
+function paintConnect() {
+  const b = $(".netv .kbtn[data-act=connect]"); if (!b || b.disabled) return;
+  const off = !net().key.trim();
+  if (off) { b.setAttribute("aria-disabled", "true"); b.dataset.hold = KEY_NEED; b.dataset.holdTarget = "#nskey"; }
+  else { b.removeAttribute("aria-disabled"); delete b.dataset.hold; delete b.dataset.holdTarget; }
+  const now = b.getAttribute("title") ?? b.dataset.tip ?? "", want = off ? KEY_NEED : "";
+  if (now !== want) { if (want) b.title = want; else b.removeAttribute("title"); delete b.dataset.tip; }
+}
 function sakuraKey() {
   const N = net();
   return `<div class="keyb"><div class="lrow"><span class="lb">樱花访问密钥</span><a class="tlink" title="在浏览器中打开樱花穿透官网的用户信息页，复制「访问密钥」">去官网复制</a></div>`
     + `<div class="keyrow"><input class="inp" id="nskey" type="password" placeholder="粘贴访问密钥" value="${esc(N.key)}" autocomplete="off" spellcheck="false">`
-    + `<button class="kbtn" data-act="connect"${N.connecting ? " disabled" : ""}>${N.connecting ? `<i data-ic="spinner" class="spin"></i>连接中` : "连接"}</button></div>`
+    + `<button class="kbtn" data-act="connect"${N.connecting ? " disabled" : keyHold(N)}>${N.connecting ? `<i data-ic="spinner" class="spin"></i>连接中` : "连接"}</button></div>`
     + ntg("saveKey", "记住密钥", N.saveKey, "使用 Windows 加密保存在本机，后续配置其他服务器时无需重复粘贴；可在「设置 → 内网穿透」中更换或删除") + `</div>`
     + `<div class="nph">请先连接账号，以加载并选择可用节点</div>`;
 }
@@ -525,7 +542,7 @@ document.addEventListener("input", e => {
   if (!e.target.closest?.(".netv") || !C) return;
   const N = net();
   if (e.target.id === "nnq") { N.q = e.target.value; clearTimeout(qT); qT = setTimeout(() => regridNodes(0), 180); return; }
-  if (e.target.id === "nskey") { N.key = e.target.value; return; }
+  if (e.target.id === "nskey") { N.key = e.target.value; paintConnect(); return; }
   if (e.target.dataset.f === "remote") { // 公网端口：边填边拼大字，红框和那句红字一改就收
     N.frps.remote = e.target.value; if (N.frps.fbad) markRemote(false);
     const el = $("#nfaddr"); if (el) { el.innerHTML = frpsAddr(); C.KIT.hydrate(el); }

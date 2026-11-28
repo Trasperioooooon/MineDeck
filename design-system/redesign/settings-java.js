@@ -133,10 +133,12 @@
       + (job ? progHTML(job) : rd ? `<span class="sj-prog">${rd === "dl" ? "正在重新下载…" : "正在检查…"}</span>` : pathHTML(exeOf(m))) + `</div>`
       + useHTML(us, m)
       + `<button type="button" class="sj-ib sj-rd${broke && !rd ? " hot" : ""}${busy ? " busy" : ""}" data-sj-act="redl" data-m="${m}" aria-label="重新下载 MineDeck 下载的 Java ${m}"`
-      + (busy || job || rdWhy ? ` aria-disabled="true"` : "") + (busy ? "" : ` title="${esc(job ? "等待前一项下载完成后开始" : rdWhy || `重新下载 Java ${m}`)}"`) + `>`
+      // 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）：要先停服、要先换掉的灰键标 data-hold，点了在键上弹出原因（kit.js 第 9 条，没有能当场改的）；
+      // 正在下载、排队、正在检查的照旧灰着、点了没反应
+      + (busy || job || rdWhy ? ` aria-disabled="true"` : "") + (!busy && !job && rdWhy ? ` data-hold="${esc(rdWhy)}"` : "") + (busy ? "" : ` title="${esc(job ? "等待前一项下载完成后开始" : rdWhy || `重新下载 Java ${m}`)}"`) + `>`
       + `<i data-ic="${spin ? "spinner" : "download"}"${spin ? ' class="sj-chk"' : ""}></i></button>`
       + `<button type="button" class="sj-ib sj-rm" data-sj-act="rm" data-m="${m}" aria-label="卸载 MineDeck 下载的 Java ${m}"`
-      + (why ? ` aria-disabled="true" title="${esc(why)}"` : ` title="卸载"`) + `><i data-ic="trash"></i></button></div>`;
+      + (why ? ` aria-disabled="true"${!job && !rd ? ` data-hold="${esc(why)}"` : ""} title="${esc(why)}"` : ` title="卸载"`) + `><i data-ic="trash"></i></button></div>`;
   }
   const iRow = m => `<div class="sj-row inc" data-sj-k="i${m}"><div class="sj-main"><div class="sj-l1"><span class="sj-nm">Java ${m}</span><span class="sj-tg warn" title="${esc(TIP_INC)}">残留</span></div>`
     + `${pathHTML(`${RT}\\java-${m}`)}</div><button type="button" class="sj-ib sj-rm" data-sj-act="clean" data-m="${m}" title="清理" aria-label="清理 MineDeck 下载的 Java ${m} 的残留文件夹"><i data-ic="trash"></i></button></div>`;

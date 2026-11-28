@@ -84,6 +84,9 @@
   const CARDS = [{ v: 0, t: "不透明" }, { v: 15, t: "15%" }, { v: 30, t: "30%" }, { v: 45, t: "45%" }];
   const CARD_TIP = "铺着背景图时，面板与卡片的底色按此比例变透明，背景图可从卡片后面隐约透出；文字不透明，弹窗、提示与下拉菜单保持不透明。\n比例越高，图越明显，文字与底色的对比也越低。";
   const CARD_OFF = "选择背景图后可调整";
+  // 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）：没选背景图时点卡片透明度，「背景图」那一块描红、晃一下、光标落过去，
+  // 分段上弹出「选择背景图后可调整」（kit.js 第 9 条）
+  const CARD_HOLD = ` aria-disabled="true" data-hold="${CARD_OFF}" data-hold-target=".sa-bg"`;
 
   // ---- 改外壳：主题、方案、强调色挂在 <html> 上 ----
   // 整页一次换色：先停掉过渡，两帧后恢复（同程序 Appearance.set）；滑动的选中块（.sa-glide）不停
@@ -120,7 +123,7 @@
     : `<span class="sa-bge"><i data-ic="saImage"></i><span class="sa-bgb">选择背景图…</span></span>`);
   const bgTip = D => (D.bg ? `${BG_NAME}\n点击更换背景图` : "");
   const cardHTML = D => `<div class="sa-f sa-cardf${D.bg ? "" : " off"}"${D.bg ? "" : ` title="${CARD_OFF}"`}><div class="sa-lb"><span title="${esc(CARD_TIP)}">卡片透明度</span></div>`
-    + `<div class="sa-seg" role="radiogroup" aria-label="卡片透明度"${D.bg ? "" : ' aria-disabled="true"'}><i class="sa-sgl sa-glide"></i>${CARDS.map(c =>
+    + `<div class="sa-seg" role="radiogroup" aria-label="卡片透明度"${D.bg ? "" : CARD_HOLD}><i class="sa-sgl sa-glide"></i>${CARDS.map(c =>
       `<button type="button" role="radio" data-card="${c.v}" aria-checked="${D.card === c.v}" class="${D.card === c.v ? "on" : ""}"${D.bg ? "" : ' tabindex="-1"'}>${c.t}</button>`).join("")}</div></div>`;
   const tgHTML = D => `<div class="sa-tgs">${TOGGLES.map((g, i) => (i === 2 ? `<i class="sa-hr"></i>` : "")
     + `<button type="button" class="sa-tg${D[g.k] ? " on" : ""}" data-tg="${g.k}" role="switch" aria-checked="${D[g.k]}" title="${esc(g.tip)}"><span class="sa-swc"></span><span class="sa-tl">${esc(g.t)}</span></button>`).join("")}</div>`;
@@ -207,7 +210,8 @@
   function paintCard(r) {
     const D = data(), f = r.querySelector(".sa-cardf"), seg = f?.querySelector(".sa-seg"); if (!f) return;
     f.classList.toggle("off", !D.bg); setTip(f, D.bg ? "" : CARD_OFF);
-    if (D.bg) seg.removeAttribute("aria-disabled"); else seg.setAttribute("aria-disabled", "true");
+    if (D.bg) { seg.removeAttribute("aria-disabled"); delete seg.dataset.hold; delete seg.dataset.holdTarget; }
+    else { seg.setAttribute("aria-disabled", "true"); seg.dataset.hold = CARD_OFF; seg.dataset.holdTarget = ".sa-bg"; }
     seg.querySelectorAll("button").forEach(b => { if (D.bg) b.removeAttribute("tabindex"); else b.tabIndex = -1; });
   }
   function onKey(e) {

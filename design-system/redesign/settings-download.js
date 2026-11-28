@@ -98,11 +98,15 @@
     + `<div class="sd-seg" role="radiogroup" aria-label="${LINES[g].name}" data-g="${g}"><i class="sd-sgl"></i>${LINES[g].opts.map(o =>
       `<button type="button" role="radio" data-v="${o.v}" aria-checked="${d[g] === o.v}" class="${d[g] === o.v ? "on" : ""}" title="${esc(o.d)}">${esc(o.t)}</button>`).join("")}</div></div>`;
   const saveOff = d => !d.draft.trim() || d.saving;
+  // 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）：框里没字时保存键点了，Key 框描红、晃一下、光标落过去，键上弹出「请先粘贴 API Key」（kit.js 第 9 条）；
+  // 正在保存时照旧灰着、点了没反应
+  const KEY_NEED = "请先粘贴 API Key";
+  const keyHold = d => !d.saving && !d.draft.trim();
   const keyHTML = d => `<div class="sd-f"><div class="sd-lb"><span title="${esc(CF_TIP)}">CurseForge API Key（选填）</span>`
     + `<button type="button" class="sd-lk" data-sd="apply" title="免费申请（console.curseforge.com）" aria-label="免费申请 CurseForge API Key"><i data-ic="share"></i></button>`
     + `<span class="sd-sp"></span><span class="sd-warn"${d.broken ? "" : " hidden"} title="${esc(BROKEN_TIP)}"><i data-ic="warn"></i>密钥无法解密</span></div>`
     + `<label class="sd-iw${d.broken ? " warn" : ""}"><input class="sd-in" type="password" autocomplete="off" spellcheck="false" placeholder="${holder(d)}" value="${esc(d.draft)}" aria-label="CurseForge API Key">`
-    + `<button type="button" class="sd-ib" data-sd="save" data-icn="${d.saving ? "spinner" : "save"}" aria-label="保存 API Key" aria-disabled="${saveOff(d)}" title="${saveOff(d) ? "请先粘贴 API Key" : "保存"}"><i data-ic="${d.saving ? "spinner" : "save"}"${d.saving ? ' class="sd-spin"' : ""}></i></button>`
+    + `<button type="button" class="sd-ib" data-sd="save" data-icn="${d.saving ? "spinner" : "save"}" aria-label="保存 API Key" aria-disabled="${saveOff(d)}"${keyHold(d) ? ` data-hold="${KEY_NEED}" data-hold-target=".sd-iw"` : ""} title="${saveOff(d) ? KEY_NEED : "保存"}"><i data-ic="${d.saving ? "spinner" : "save"}"${d.saving ? ' class="sd-spin"' : ""}></i></button>`
     + `<button type="button" class="sd-ib" data-sd="clear" title="清除" aria-label="清除 CurseForge API Key"${d.set || d.broken ? "" : " hidden"}><i data-ic="trash"></i></button></label></div>`;
   const trustRow = t => `<div class="sd-tr" role="listitem" data-host="${esc(t.host)}"><b class="sd-th">${esc(t.host)}</b><span class="sd-td">${esc(t.at)} 确认</span>`
     + `<button type="button" class="sd-ib" data-sd="untrust" title="移除，下次遇到时重新询问" aria-label="移除 ${esc(t.host)}"><i data-ic="x"></i></button></div>`;
@@ -146,7 +150,8 @@
     if (inp.value !== d.draft) inp.value = d.draft;
     const off = saveOff(d);
     setAttr(sv, "aria-disabled", off);
-    setTip(sv, d.saving ? "" : off ? "请先粘贴 API Key" : "保存");
+    if (keyHold(d)) { sv.dataset.hold = KEY_NEED; sv.dataset.holdTarget = ".sd-iw"; } else { delete sv.dataset.hold; delete sv.dataset.holdTarget; }
+    setTip(sv, d.saving ? "" : off ? KEY_NEED : "保存");
     const ic = d.saving ? "spinner" : "save";
     if (sv.dataset.icn !== ic) { sv.dataset.icn = ic; sv.innerHTML = C.KIT.icon(ic, d.saving ? "sd-spin" : ""); }
     cl.hidden = !(d.set || d.broken); w.hidden = !d.broken; iw.classList.toggle("warn", d.broken);

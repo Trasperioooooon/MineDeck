@@ -194,6 +194,9 @@
 
   // ================= 左栏：已安装 =================
   const STOP_WHY = "请先停止服务器再启用、停用、更新或删除：运行中文件正被占用，且修改后需重启生效";
+  // 11-29 作者定：条件没满足的键灰着也能点，点了拦一下（规范第九节）：开着时的启用 / 停用、更新、删除，没有待装项时的「全部安装」，
+  // 标 aria-disabled 加 data-hold，点了在键上弹出原因（kit.js 第 9 条，没有能当场改的）。正在更新、正在安装的那一颗照旧灰着、点了没反应
+  const HOLD_STOP = ` aria-disabled="true" data-hold="${esc(STOP_WHY)}"`;
   const sortMods = list => list.sort((a, b) => a.n.localeCompare(b.n, "en", { sensitivity: "base" }));
   // ---- 更新（程序没有，11-28 作者定要加） ----
   // m 和要跟着它一起更新的那几个，顺着 need 往两头找到头。值是 [跟着谁, 哪种关系]：pre 是那一个要的前置（新版本要配套的前置版本），dep 是依赖那一个的（要换成配套版本）；m 自己是 null
@@ -216,13 +219,13 @@
     if (m.upping) return `<span class="ad-btn" aria-disabled="true"><i data-ic="spinner" class="ad-spin"></i>正在更新</span>`;
     const along = [...upGroup(m)].slice(1).map(([o, [, rel]]) => rel === "pre" ? `所需前置 ${o.n}` : `依赖它的 ${o.n}`);
     const tip = live() ? STOP_WHY : `更新至 ${m.up[1]}（旧文件移入 .minedeck\\已删除）` + (along.length ? `；${along.join("、")} 需版本配套，将一并更新` : "");
-    return `<button type="button" class="ad-btn" data-ad-act="up"${live() ? ' aria-disabled="true"' : ""} title="${esc(tip)}">更新</button>`;
+    return `<button type="button" class="ad-btn" data-ad-act="up"${live() ? HOLD_STOP : ""} title="${esc(tip)}">更新</button>`;
   }
   // 栏上的「全部更新 · N」：只在「已安装」那边、有可更新的才出；有哪一行正在更新时换成转圈，免得两头同时点
   function upAllBtn() {
     const list = upList(), n = list.length; if (!n) return "";
     if (list.some(m => m.upping)) return `<span class="ad-btn" aria-disabled="true"><i data-ic="spinner" class="ad-spin"></i>正在更新</span>`;
-    return `<button type="button" class="ad-btn" data-ad-act="upall"${live() ? ' aria-disabled="true"' : ""} title="${esc(live() ? STOP_WHY : `将全部 ${n} 项更新至最新版本`)}"><i data-ic="arrowUp"></i>全部更新 · ${n}</button>`;
+    return `<button type="button" class="ad-btn" data-ad-act="upall"${live() ? HOLD_STOP : ""} title="${esc(live() ? STOP_WHY : `将全部 ${n} 项更新至最新版本`)}"><i data-ic="arrowUp"></i>全部更新 · ${n}</button>`;
   }
   const refreshTip = () => `刷新已安装的${noun()}并检查更新`;
   // 更新完的标记：自己点的是「已更新」，被带上的写跟着谁、悬停写为什么带上它
@@ -244,10 +247,10 @@
     const dis = live(), tip = dis ? STOP_WHY : m.off ? "启用（移除 .disabled 后缀，下次启动生效）" : "停用（重命名为 .jar.disabled，服务器不再加载，可随时重新启用；下次启动生效）";
     const x = m.id && addonOf(m.id);
     return `<div class="ad-row${m.off ? " off" : ""}" data-ad-file="${esc(m.file)}">`
-      + `<button type="button" class="ad-tg${m.off ? "" : " on"}" data-ad-act="tg" role="switch" aria-checked="${!m.off}" aria-label="${esc(m.n)}"${dis ? ' aria-disabled="true"' : ""} title="${esc(tip)}"><span class="ad-sw"></span></button>`
+      + `<button type="button" class="ad-tg${m.off ? "" : " on"}" data-ad-act="tg" role="switch" aria-checked="${!m.off}" aria-label="${esc(m.n)}"${dis ? HOLD_STOP : ""} title="${esc(tip)}"><span class="ad-sw"></span></button>`
       + tile(m.n, m.id, x && x.icon) + `<div class="ad-m"><div class="ad-n"><span class="nm">${esc(m.n)}</span><span class="ad-tags" data-ad-k="tags">${tagsOf(m)}</span></div>`
       + `<div class="ad-f" data-ad-k="file">${esc(m.file)}</div></div><span class="ad-ups" data-ad-k="up">${upBtn(m)}</span>`
-      + `<button type="button" class="ad-ib ad-x" data-ad-act="del"${dis ? ' aria-disabled="true"' : ""} title="${esc(dis ? STOP_WHY : "删除（移入服务器文件夹中的 .minedeck\\已删除，需要时可移回原文件夹）")}"><i data-ic="trash"></i></button></div>`;
+      + `<button type="button" class="ad-ib ad-x" data-ad-act="del"${dis ? HOLD_STOP : ""} title="${esc(dis ? STOP_WHY : "删除（移入服务器文件夹中的 .minedeck\\已删除，需要时可移回原文件夹）")}"><i data-ic="trash"></i></button></div>`;
   }
   const pendRows = () => C.kind === "forge" && (+C.QS.get("notice") || 0) >= 3 ? PENDING.map(([f, why, full]) =>
     `<div class="ad-row pend"><span class="ad-pw" title="该整合包文件未安装"><i data-ic="warn"></i></span>${tile(f.replace(/[-_].*$/, ""), f)}`
@@ -380,7 +383,7 @@
   }
   const insBtn = () => { const D = dat(), n = D.picked.length;
     return D.installing ? `<button type="button" class="ad-ins" aria-disabled="true"><i data-ic="spinner" class="ad-spin"></i>正在安装</button>`
-      : `<button type="button" class="ad-ins" data-ad-act="install"${n ? (live() ? ` title="服务器运行中也可安装，重启后生效"` : "") : ` aria-disabled="true" title="请先添加待装项"`}><i data-ic="download"></i>全部安装${n ? ` · ${n}` : ""}</button>`; };
+      : `<button type="button" class="ad-ins" data-ad-act="install"${n ? (live() ? ` title="服务器运行中也可安装，重启后生效"` : "") : ` aria-disabled="true" data-hold="请先添加待装项" title="请先添加待装项"`}><i data-ic="download"></i>全部安装${n ? ` · ${n}` : ""}</button>`; };
   // 拖入框上面那几句：会改变结果的才写（要客户端也装、有冲突、有前置未找到），一句一行。冲突、未找到只是提醒，不拦「全部安装」（程序也照装）
   function cartNote() {
     const D = dat(), f = D.picked.filter(p => !p.local && addonOf(p.id)?.cs === "required").length;
