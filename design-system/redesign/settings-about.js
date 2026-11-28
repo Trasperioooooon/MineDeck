@@ -11,13 +11,14 @@
 //   · 左栏：Logo 48、名字和一句「Windows 本地 Minecraft 开服工具」；下面一块 64 高、圆角 10 的版本块——版本号只在这里写一次（程序页顶、「当前版本」两处都写了），
 //     下面一行是状态，右边是要做的那一步：检查更新 → 检查中 → 已是最新 / 发现新版本 vX（正式版）→ 下载更新 → 正在下载（块底一条细进度条和 MB 数）→
 //     vX 已下载，重启后完成更新 →「重启并更新」。换状态只换那一行字和右边那颗键（逐项换），进度只改数和条。
-//     再下面：更新渠道（40 高三段，各自的说明进悬停）、更新仓库（等宽框，框里一颗保存，同「通知与集成」）、启动时静默检查更新（开关在字的左边）。
+//     再下面：更新渠道（40 高三段，各自的说明进悬停）、启动时静默检查更新（开关在字的左边）。
+//     程序里的「更新仓库」框不在这里了：更新从哪里下载挪到了「下载与网络」的「软件更新」（11-28 作者问起）。
 //     最下面一颗「退出 MineDeck」（危险色浅底红字，同首页大卡的停止），点了是确认框，确认了整窗口一层「正在停止服务器并退出」（同共用件页的整页状态）。
 //   · 右栏「关于」：程序那段字一条一块，原文照留（字体许可、AGPL、Mojang 声明是义务，不收进悬停）；外链只放图标（规范第十节），地址在悬停里。
 // 任务单要的、程序没有的两种状态（要改后端，写进清单）：「正在下载」「下载好了等重启」。有服务器开着时点「重启并更新」：程序是拒绝，
 // 这里改成一个确认框列出要停的服务器，确认了先停服再更新（同「退出」的做法）；要不要这样等作者定。左边分类上的小点留到装好新版本才去掉（程序是点过「查看」就去掉）。
-// 离开前拦（作者 11-28 定，外壳统一拦，这里只登记 dirty / save / discard）：这一页只有「更新仓库」是先改、点保存才生效的；更新渠道、静默检查都是点了就生效，不在里面。
-// 示例数据：现在 v3.2.9 正式版（同 internal/app/app.go）；新版本 v3.3.0、38.6 MB 是草图编的；更新仓库是程序默认的 Trasperioooooon/MineDeck；静默检查开着；渠道没选过（跟随当前版本）。
+// 这一页没有先改、点保存才生效的项（更新渠道、静默检查都是点了就生效），不登记 dirty / save / discard，外壳的「离开前拦」在这一页不出。
+// 示例数据：现在 v3.2.9 正式版（同 internal/app/app.go）；新版本 v3.3.0、38.6 MB 是草图编的；静默检查开着；渠道没选过（跟随当前版本）。
 // 草图专用：外壳的 &update=1 是启动时查到新版本；&up=downloading 一打开就在下载，&up=ready 一打开就是下载好了等重启。外链在草图里不跳转（悬停看地址），两份许可原文能打开。
 (() => {
   window.SETTINGS_SECS = window.SETTINGS_SECS || {};
@@ -33,7 +34,6 @@
     latest: { l: "最新版", t: "最新版（含测试版）：同时接收正式版与测试版更新，优先提示最新版本。测试版可能存在未知问题。" },
   };
   const NEW = "3.3.0", SIZE = 38.6; // 草图编的
-  const REPO = "Trasperioooooon/MineDeck"; // 程序默认（internal/app/app.go DefaultUpdateRepo）
   let A = null, C = null;
   const effCh = () => A.ch || (/-/.test(A.ver) ? "latest" : "stable"); // 没选过：按正在用的版本定（同程序）
   const chName = c => ({ stable: "稳定版", latest: "最新版" })[c];
@@ -41,7 +41,7 @@
     if (A) return;
     const up = ctx.QS.get("up"), has = ctx.update || up === "downloading" || up === "ready";
     A = { ver: "3.2.9", has, st: !has ? "idle" : up === "downloading" ? "downloading" : up === "ready" ? "ready" : "found",
-      got: up === "downloading" ? 9.8 : 0, ch: "", silent: true, repo: REPO, draft: null };
+      got: up === "downloading" ? 9.8 : 0, ch: "", silent: true };
     if (A.st === "downloading") runDl();
   }
 
@@ -147,16 +147,12 @@
   const item = (body, link) => `<div class="sab-it"><p>${body}</p>${link ? `<button type="button" class="sab-lk" title="${link}" aria-label="打开 ${link}"><i data-ic="share"></i></button>` : ""}</div>`;
   function html(ctx) {
     C = ctx; seed(ctx);
-    const dirty = A.draft !== null && A.draft !== A.repo;
     return `<div class="sab">`
       + `<section class="sab-col sab-main" aria-label="版本与更新">`
       + `<div class="sab-brand"><img src="../../internal/web/ui/img/logo-48.png" alt=""><div><div class="sab-name">MineDeck</div><div class="sab-tag">Windows 本地 Minecraft 开服工具</div></div></div>`
       + `<div class="sab-up"><div class="sab-txt"><b class="sab-v">v${A.ver}</b><div class="sab-s"></div></div><div class="sab-act"></div><span class="sab-bar"><i></i></span></div>`
       + `<div class="sab-f"><div class="sab-lb"><span class="sab-cht" title="${esc(chTip())}">更新渠道</span></div>${segHTML()}</div>`
-      + `<div class="sab-f"><div class="sab-lb"><span title="从该 GitHub 仓库的 Releases 检查新版本（国内加速镜像兜底）">更新仓库</span></div>`
-      + `<label class="sab-in${dirty ? " dirty" : ""}"><input value="${esc(A.draft ?? A.repo)}" placeholder="GitHub 仓库，如 yourname/MineDeck" spellcheck="false" autocomplete="off" aria-label="更新仓库">`
-      + `<button type="button" class="sab-ib" data-sab="repo" title="保存"${dirty ? "" : " disabled"}><i data-ic="save"></i></button></label></div>`
-      + `<button type="button" class="sab-swr${A.silent ? " on" : ""}" data-sab="silent" role="switch" aria-checked="${A.silent}" title="程序启动后将在后台按所选更新渠道检查一次新版本（需先填写更新仓库）">`
+      + `<button type="button" class="sab-swr${A.silent ? " on" : ""}" data-sab="silent" role="switch" aria-checked="${A.silent}" title="程序启动后将在后台按所选更新渠道检查一次新版本">`
       + `<span class="sab-sw"></span><span>启动时静默检查更新</span></button>`
       + `<button type="button" class="sab-btn dgr sab-quit" data-sab="quit" title="先保存存档并停止正在运行的服务器，随后退出程序"><i data-ic="power"></i>退出 MineDeck</button>`
       + `</section>`
@@ -186,23 +182,6 @@
     setTip(root().querySelector(".sab-cht"), chTip());
     if (A.st === "latest" || A.st === "found") { A.st = "idle"; paintUp(); } // 同程序：换了渠道，上一次查出来的结果不再作数；在下载的、下载好的不动
   }
-  function saveRepo() {
-    const r = root(), box = r.querySelector(".sab-in"), inp = box.querySelector("input"), b = box.querySelector(".sab-ib");
-    if (A.draft === null || A.draft === A.repo) return;
-    A.repo = inp.value.trim(); A.draft = null; if (inp.value !== A.repo) inp.value = A.repo;
-    box.classList.remove("dirty"); b.disabled = true;
-    if (!b._done) { // 存好了：保存图标换成勾 1.2 秒（同「通知与集成」）
-      b._done = true; const old = b.innerHTML; b.classList.add("done"); b.innerHTML = C.KIT.icon("check");
-      setTimeout(() => { b.classList.remove("done"); b.innerHTML = old; b._done = false; }, 1200);
-    }
-  }
-  // 放弃没存的更新仓库：草稿丢掉，框里换回存过的
-  function discardRepo() {
-    if (!A) return; A.draft = null;
-    const box = root()?.querySelector(".sab-in"); if (!box) return;
-    box.querySelector("input").value = A.repo; box.classList.remove("dirty");
-    const b = box.querySelector(".sab-ib"); if (!b._done) b.disabled = true;
-  }
   function mount(ctx) {
     C = ctx; const r = root(); if (!r) return;
     ctx.thinBar(r.querySelector(".sab-lw"));
@@ -216,20 +195,12 @@
         case "check": check(); break;
         case "dl": A.st = "downloading"; A.got = 0; paintUp(); runDl(); break;
         case "restart": restart(); break;
-        case "repo": saveRepo(); break;
         case "silent": A.silent = !A.silent; b.classList.toggle("on", A.silent); b.setAttribute("aria-checked", A.silent); break;
         case "quit": quit(); break;
       }
     });
-    r.addEventListener("input", e => {
-      if (!e.target.closest(".sab-in")) return;
-      A.draft = e.target.value; const box = e.target.closest(".sab-in"), dirty = A.draft !== A.repo;
-      box.classList.toggle("dirty", dirty); const b = box.querySelector(".sab-ib"); if (!b._done) b.disabled = !dirty;
-    });
-    r.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.closest?.(".sab-in")) { e.preventDefault(); saveRepo(); } });
   }
   addEventListener("resize", () => { const r = root(); if (r) placeSeg(r.querySelector(".sab-seg"), false); });
 
-  // 离开前拦（kit.js 第 6 条）：只有更新仓库是要点保存的（没有会被拦下的填法，存了就算成）
-  window.SETTINGS_SECS.about = { html, mount, dirty: () => (A && A.draft !== null && A.draft !== A.repo ? 1 : 0), save: () => { saveRepo(); return true; }, discard: discardRepo };
+  window.SETTINGS_SECS.about = { html, mount };
 })();
