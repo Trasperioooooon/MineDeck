@@ -389,13 +389,14 @@
   const setText = (el, t) => { if (el && el.textContent !== t) el.textContent = t; };
 
   // ---- 标题和下面那行字 ----
-  function headModel() {
+  function headParts() {
     const K = T.K, tt = !T.ended ? K.T.title : T.cancelled ? (K.T.cx || "已取消") : T.err ? K.T.fail : K.T.done;
     // 程序页头下面那一行说明（K.sub、做完的 doneSub）进标题的悬停；页面上那一行只留会改变结果、要人记住的
     const val = v => typeof v === "function" ? v(T.srv, T) : v;
     const tip = !T.ended ? val(K.T.sub) : !T.err && !T.cancelled && !doneSubShown() ? val(K.T.doneSub) : "";
-    return `<span${tip ? ` title="${esc(tip)}"` : ""}>${esc(tt)}</span>`;
+    return { tt, tip };
   }
+  const headModel = (p = headParts()) => `<span${p.tip ? ` title="${esc(p.tip)}"` : ""}>${esc(p.tt)}</span>`;
   const doneSubShown = () => T.kind === "export" || T.kind === "map" || !!T.K.showDoneSub;
   function subModel() {
     const K = T.K;
@@ -411,8 +412,13 @@
     return "";
   }
   function paintHead(first) {
-    const h = headModel(), s = subModel(), q = $("#tk2-q"), qs = $("#tk2-qs");
-    if (V.h !== h) { if (first || V.h == null) { q.innerHTML = h; hy(q); } else swapIn(q, h); V.h = h; }
+    const p = headParts(), h = headModel(p), s = subModel(), q = $("#tk2-q"), qs = $("#tk2-qs"), sp = $(":scope > span", q);
+    if (V.h !== h) {
+      // 字没变、只换了悬停（整合包「没装上的文件」都处理完了，doneSub 跟着换）：只改悬停，标题不整句换
+      if (!first && V.h != null && V.tt === p.tt && sp) { if (p.tip) sp.title = p.tip; else sp.removeAttribute("title"); delete sp.dataset.tip; }
+      else if (first || V.h == null) { q.innerHTML = h; hy(q); } else swapIn(q, h);
+      V.h = h; V.tt = p.tt;
+    }
     if (V.s !== s) { if (first || V.s == null) { qs.innerHTML = s; hy(qs); } else swapIn(qs, s); V.s = s; }
   }
 
@@ -689,7 +695,7 @@
     applying = false;
     btn.removeAttribute("aria-disabled"); $(".tk2-pl", btn).textContent = "应用所选的处理";
     paintApply(); // 11-29：处理完以后剩下的那几块还够不够条件
-    paintLog(false); paintTabs(false);
+    paintHead(false); paintLog(false); paintTabs(false); // 标题的悬停看还有没有没装上的（T_PACK 的 doneSub）
   }
   // 处理以后：最后那一行的数、上面那排批量键（没有能信任下载的了就收起）、清单空了那一句
   function afterApply() {
