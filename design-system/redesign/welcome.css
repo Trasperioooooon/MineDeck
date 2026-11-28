@@ -40,6 +40,9 @@
 /* 正文：程序原文一字不改，只排版。加粗的是正文色，其余淡一档；条目前的序号是等宽淡字 */
 .wl-tx { font-size: 13px; line-height: 22px; color: var(--muted); }
 .wl-tx b { color: var(--text); font-weight: 600; }
+/* 新版协议（11-29）：开头那句同意的后果用提醒色；英文声明照原文斜体，字距略收 */
+.wl-tx b.wl-em { color: var(--warning-text); }
+.wl-tx i[lang="en"] { font-style: italic; color: var(--text); letter-spacing: .01em; }
 .wl-tx p { margin: 0 0 12px; }
 .wl-tx ol { margin: 0; padding: 0; list-style: none; counter-reset: wl; display: flex; flex-direction: column; gap: 10px; }
 .wl-tx li { counter-increment: wl; position: relative; padding-left: 22px; }
@@ -99,6 +102,20 @@
 .wl-b.back { padding-left: 14px; color: var(--text); border: 1px solid var(--border); background: color-mix(in srgb, var(--overlay) 86%, transparent); backdrop-filter: blur(16px) saturate(1.2); }
 .wl-b.back:hover { background: color-mix(in srgb, var(--overlay) 86%, var(--text) 6%); }
 .wl-b.back .ico { transform: rotate(180deg); }
+/* 「不同意并退出」（11-29 作者要加）：和「上一步」同一个位置、同一种次要样子；两颗都钉在左边，谁该出现谁浮上来 */
+.wl-in > .wl-b.back, .wl-in > .wl-b.quit { position: absolute; left: 0; }
+.wl-b.quit { color: var(--text); border: 1px solid var(--border); background: color-mix(in srgb, var(--overlay) 86%, transparent); backdrop-filter: blur(16px) saturate(1.2); }
+.wl-b.quit:hover { background: color-mix(in srgb, var(--overlay) 86%, var(--text) 6%); }
+.wl-b.quit.off { transform: translateY(180%); opacity: 0; pointer-events: none; }
+/* 点了「不同意并退出」：草图里盖一层整窗口（标题栏以下），说明程序已经退出；点一下回到引导页 */
+.wl-ov { position: fixed; left: 0; right: 0; top: 40px; bottom: 0; z-index: 70; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+         background: var(--bg); cursor: pointer; animation: wl-ov-in .26s cubic-bezier(.2, .7, .2, 1) both; }
+.wl-ov.leave { animation: wl-ov-out .2s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+@keyframes wl-ov-in { from { opacity: 0; } } @keyframes wl-ov-out { to { opacity: 0; } }
+.wl-ov img { width: 32px; height: 32px; image-rendering: pixelated; margin-bottom: 4px; }
+.wl-o1 { font-size: 16px; font-weight: 600; color: var(--text); }
+.wl-o2 { font-size: 13px; color: var(--muted); }
+.wl-o3 { margin-top: 18px; font-size: 12px; color: var(--faint); }
 .wl-b.next { border: 1px solid transparent; color: var(--on-accent); background: var(--accent-solid); }
 .wl-b.next.arrow { padding-right: 14px; }
 .wl-b.next:hover:not([aria-disabled="true"]) { background: var(--accent-solid-hov); }

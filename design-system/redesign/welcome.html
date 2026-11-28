@@ -30,6 +30,14 @@
     &src=mirror|official 配置里原来存的下载源（同「设置 → 下载与网络」的参数）
     &step=2             分两步时直接停在第二步（等于已经同意）
   主会话和作者看时：拨同意开关、点灰着的主键（同意那条描红、晃一下）、换下载源、滚正文、分两步时上一步下一步，都只动变了的那一处。
+
+  作者 11-29 定的：
+    · 一页放完（flow=one）。分两步的写法还留着能看（&flow=steps），不再用。
+    · 协议全文换成作者给的新版「用户服务协议与免责声明」（welcome.js 的 TERMS，逐字照抄；加粗、斜体照原文，开头那句同意的后果用提醒色）。正文在块里上下滚。
+    · 下载源这里选的一项同时应用到全部下载（「设置 → 下载与网络」的核心与 Java、模组与插件、软件更新三条一起设），之后在设置里可以分开调。
+    · 没同意时主键灰着、点了也拦一下、同意条晃一下：这种做法全程序统一（规范第九节）。
+    · 左下角加「不同意并退出」（程序原来只能关窗口）：点了直接退出，不保存任何设置，下次打开再出这一页；草图里盖一层「MineDeck 已退出」，点一下回来。
+      分两步时只在第一步有，第二步那个位置是「上一步」。
 -->
 <script>
 // 窗口三键（程序图标里没有，照 home.html、settings.html）
@@ -69,6 +77,7 @@ window.EXTRA_ICONS = {
 <main class="wl-page" id="wl-page"></main>
 <div class="wl-nav"><div class="wl-in">
   <button type="button" class="wl-b back off" id="wl-back"><i data-ic="chevronRight"></i>上一步</button>
+  <button type="button" class="wl-b quit" id="wl-quit" title="不同意本协议时直接退出 MineDeck，不保存任何设置；下次打开时将再次显示本协议">不同意并退出</button>
   <span class="wl-sp"></span><span class="wl-dots" id="wl-dots"></span><span class="wl-sp"></span>
   <button type="button" class="wl-b next" id="wl-next"></button>
 </div></div>

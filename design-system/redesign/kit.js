@@ -174,7 +174,25 @@
     el.addEventListener("click", open);
     el.addEventListener("keydown", e => { if ((e.key === "Enter" || e.key === " ") && e.target === el) { e.preventDefault(); open(); } });
   };
-  Object.assign(window.KIT, { confirm: confirmBox, leave, guardPage, numEdit });
+  // 9. 条件没满足的键（作者 11-29 定，全程序统一一种，规范第九节）：看着灰、还能点，点了拦一下。
+  //    页面把这种键标成 aria-disabled="true" 加 data-hold（值是原因，同悬停那句），要晃的那一处写在 data-hold-target（选择器，在整页里找第一个）。
+  //    点了（捕获阶段拦下，页面自己的点击不会再跑）：有 data-hold-target → 那一处描红 1.6 秒、晃一下、能聚焦就把光标落过去，键上同时弹出原因；
+  //    没有 → 只在键上马上弹出原因（同悬停）。键盘按回车、空格也一样（按钮的 click）。自己已经有一套拦法的页（引导页、向导第三步）不用标 data-hold。
+  const shakeEl = el => el?.animate([{ transform: "none" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "none" }],
+    { duration: 360, easing: "cubic-bezier(.3, .7, .2, 1)" });
+  document.addEventListener("click", e => {
+    const b = e.target.closest?.('[aria-disabled="true"][data-hold]'); if (!b) return;
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    const why = b.dataset.hold || b.dataset.tip || b.getAttribute("title") || "", sel = b.dataset.holdTarget, t = sel && document.querySelector(sel);
+    if (t) {
+      t.classList.remove("kit-held-bad"); void t.offsetWidth; t.classList.add("kit-held-bad"); clearTimeout(t._heldT); t._heldT = setTimeout(() => t.classList.remove("kit-held-bad"), 1600);
+      shakeEl(t);
+      const f = t.matches("input, textarea, select, [tabindex]") ? t : t.querySelector("input, textarea, select, [tabindex]:not([tabindex='-1'])");
+      f?.focus({ preventScroll: true });
+    }
+    if (why) tipNow(b, why);
+  }, true);
+  Object.assign(window.KIT, { confirm: confirmBox, leave, guardPage, numEdit, shake: shakeEl });
 
   // 8. 开关只认开关本身（作者 11-28 定；规范第九节）。草图里开关和它的名字写在一起、整块都能点：详情页和设置页是 role="switch" 的按钮，
   //    向导、导入、工具箱、联机页是 .tg，EULA 是整条 [data-eula]；里面类名是 sw 或「前缀-sw」的那一小块是开关。

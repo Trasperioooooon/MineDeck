@@ -28,6 +28,8 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
+/* 条件没满足的键被点了（kit.js 第 9 条）：要改的那一处描一圈红 1.6 秒（跟着它自己的圆角），同时晃一下 */
+.kit-held-bad { outline: 1.5px solid var(--danger); outline-offset: -1.5px; transition: outline-color .2s; }
 /* 背景图（外观页选了一张以后；草图里 ?bg=1，见 kit.js 开头）。照程序 body.has-bg 的做法：整页底下铺壁纸（铺满、居中、不跟着滚），
    上面盖一层页面底色；面板、底部胶囊、弹窗照旧是实底，字始终落在实色面上，所以只有面板外面那一圈（版心两边、顶上、胶囊那一排）看得到图。
    程序盖 88%，壁纸几乎看不出来；这里深色盖 72%、浅色盖 64%，看得出是一张图又不和面板抢。各页 body 的底色写在自己的 <style> 里，这里多一个 html.kit-bg 压过它 */

@@ -13,24 +13,28 @@
   };
   const EASE_IN = "cubic-bezier(.4, 0, 1, 1)", EASE_OUT = "cubic-bezier(.2, .7, .2, 1)", SLIDE = "cubic-bezier(.3, .7, .2, 1)";
 
-  // ---- 程序原文（app.js showOnboarding 约 6913–6923 行），一字不改，只把引言包进 <p>、去掉缩进 ----
-  const TERMS = `<p>MineDeck 是开源、免费的 Minecraft Java 版开服辅助工具。它只从 Mojang、PaperMC 等官方公开渠道下载服务端，并在你的电脑上配好运行环境。<b>不包含、也不分发游戏客户端，不修改游戏本身，也不破解正版验证</b>。</p>`
+  // ---- 协议全文：作者 11-29 给的新版（「用户服务协议与免责声明」），逐字照抄，只排版。原文里的加粗照样加粗（<b>），斜体照样斜体（<i>，那句英文声明）；
+  //      作者要「注意并适当处理斜体、加粗、醒目色彩文字提示」：开头「您点击同意或实际使用本软件……全部约束」是同意的后果，用醒目色（.wl-em，提醒色），
+  //      别的加粗只加粗。程序里的协议（app.js showOnboarding）和官网上的协议改程序时照这一份换。原来的旧版（719 字，五条）不再用。
+  const TERMS = `<p>在下载、安装或使用 MineDeck（以下简称“本软件”）前，请仔细阅读本协议。<b class="wl-em">您点击同意或实际使用本软件，即视为您已充分理解并同意接受本协议的全部约束。</b></p>`
+    + `<p>本软件为开源、免费的 Minecraft Java 版服务端部署与管理辅助工具，仅从 Mojang、PaperMC 等公开上游渠道获取服务端程序并在本地配置运行环境。<b>本软件不包含、不托管亦不分发任何游戏客户端，不修改游戏程序本体，亦不提供任何绕过或破解正版验证的功能。</b></p>`
     + `<ol>`
-    + `<li><b>非官方产品</b>：本工具为独立开源项目（由随迹提供维护支持），与 Mojang Studios、Microsoft 及网易（中国版《我的世界》运营方）均无任何隶属、合作或授权关系。NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT. "Minecraft" 及相关商标归 Mojang / Microsoft 所有。</li>`
-    + `<li><b>遵守官方条款</b>：使用本工具搭建与运行服务器，须遵守 <b>Minecraft EULA</b> 与 Microsoft 服务协议；如你使用网易代理的中国版《我的世界》账号或内容，请另行遵守网易的用户协议（两套账号体系互不相通，本工具仅面向国际 Java 版服务端）。</li>`
-    + `<li><b>正版建议</b>：建议使用正版 Mojang / Microsoft 账号并开启正版验证联机。是否使用离线模式由你自行决定并自行承担相应后果，本工具不提供任何绕过正版验证的功能。</li>`
-    + `<li><b>对外服务责任自负</b>：通过内网穿透等方式向他人开放服务器时，你是该服务器的运营者，须自行遵守所在地法律法规（含网络安全与未成年人保护相关规定），并对服务器内容与运营行为负责。</li>`
-    + `<li><b>开源免责</b>：本软件按 GNU AGPL-3.0 协议以「现状」提供，不作任何明示或默示担保。因使用或无法使用本软件导致的任何数据丢失、账号问题或其他损失，作者及贡献者不承担责任。</li>`
+    + `<li><b>非官方声明与主体说明</b>：本软件为独立开源项目，由个人作者发起并由开源社区贡献者共同参与开发与维护；随迹（杭州）信息技术有限公司仅为其提供官网托管、合规备案及相关基础设施支持，不改变本软件的社区开源属性。本项目及上述各方与 Mojang Studios、Microsoft 及网易公司（中国大陆地区《我的世界》运营方）均无任何隶属、合作、赞助或授权关系。<i lang="en">NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.</i> “Minecraft”及相关商标归其各自权利人所有。</li>`
+    + `<li><b>第三方协议遵守</b>：使用本软件搭建与运行服务端，您须严格遵守 <b>Minecraft 最终用户许可协议（EULA）</b>、Microsoft 服务协议及上游服务端项目的相关条款。本软件仅适配国际 Java 版服务端架构，与中国版《我的世界》账号体系互不相通；如涉及中国版相关服务，请另行遵守网易用户协议。</li>`
+    + `<li><b>正版合规与参数配置</b>：本项目强烈建议您使用正版授权账号并开启正版验证。本软件仅提供对服务端原生配置文件的标准参数管理接口，不对任何规避验证的行为提供支持或引导；是否调整离线模式等配置由您自行决定并独立承担全部法律与安全后果。</li>`
+    + `<li><b>第三方服务与对外运营责任</b>：本软件不对其引导下载或接入的第三方服务端核心、运行环境及内网穿透工具的可用性、合法性与安全性作任何担保。当您通过公网映射或内网穿透向他人开放服务器时，您即作为该服务器的实际运营者，须独立遵守所在地法律法规（含网络安全、数据合规及未成年人保护相关规定），并对服务器内容与运营行为承担全部责任。</li>`
+    + `<li><b>开源许可与责任限制</b>：本软件源代码遵循 <b>GNU AGPL-3.0</b> 协议按“现状（AS IS）”提供，不附带任何明示或默示担保；本协议不构成对 AGPL-3.0 所赋予源代码权利的额外限制。在法律允许的最大范围内，因使用或无法使用本软件引发的任何数据丢失、账号异常、设备故障或其他直接/间接损失，项目作者、全体社区贡献者及随迹（杭州）信息技术有限公司均不承担赔偿责任。</li>`
     + `</ol>`;
   // 同意那句（原文，链接照程序指向 aka.ms/MinecraftEULA；草图里点了不打开网页）
-  const AGREE = `我已阅读并同意上述《用户协议与免责声明》及 <a href="https://aka.ms/MinecraftEULA" target="_blank" rel="noopener noreferrer" title="在浏览器里打开 aka.ms/MinecraftEULA">Minecraft EULA</a>`;
-  // 下载源：三段的字和说明同「设置 → 下载与网络」（settings-download.js，照程序 setDownload）；程序引导卡里那三句说明是另一种写法，见返回的清单
+  const AGREE = `我已阅读并同意上述《用户服务协议与免责声明》及 <a href="https://aka.ms/MinecraftEULA" target="_blank" rel="noopener noreferrer" title="在浏览器里打开 aka.ms/MinecraftEULA">Minecraft EULA</a>`;
+  // 下载源（作者 11-29 定）：这里选的一项同时应用到全部下载——「设置 → 下载与网络」的三条线路一起设：服务端核心与 Java、模组与插件取同一项，
+  // 软件更新按「自动 → 自动、仅国内镜像 → 仅官网、仅官方源 → 仅 GitHub」对上。之后在设置里可以分开调。三段的字同设置页，说明改成管全部下载的说法
   const OPTS = [
-    { v: "auto", t: "自动（推荐）", d: "国内镜像（BMCLAPI / 清华）优先，失败自动切换官方源" },
-    { v: "mirror", t: "仅国内镜像", d: "仅使用 BMCLAPI 与清华镜像（Paper、Purpur、Leaves、Mohist 无国内镜像，仍从官方下载）" },
-    { v: "official", t: "仅官方源", d: "仅使用 Mojang / Forge / Adoptium 等官方源（海外网络适用）" },
+    { v: "auto", t: "自动（推荐）", d: "国内镜像优先，失败时自动切换官方源" },
+    { v: "mirror", t: "仅国内镜像", d: "仅使用国内镜像（BMCLAPI、清华镜像、MCIM、MineDeck 官网下载站）；Paper、Purpur、Leaves、Mohist 无国内镜像，仍从官方下载" },
+    { v: "official", t: "仅官方源", d: "仅使用官方源（Mojang、Forge、Adoptium、Modrinth、GitHub 等），海外网络适用" },
   ];
-  const SRC_TIP = "下载 Java 与服务端核心时的线路选择\n之后可在「设置 → 下载与网络」中随时更改";
+  const SRC_TIP = "下载服务端核心、Java、模组与插件以及 MineDeck 更新时使用的线路，此处的选择同时应用于全部下载。\n之后可在「设置 → 下载与网络」中分别调整。";
   // 存放位置：示例路径放在 C 盘（「设置 → 存储位置」草图用的是 D:\MineDeck，可那句说明说「想放到 D 盘……」，放 D 盘读着别扭）；
   // 说明是程序原话，「左下角软件」那个位置已经没有了，改指底部导航
   const PATH = { hd: "C:\\MineDeck\\", tl: "servers" };
@@ -58,8 +62,8 @@
   const headHTML = k => k === "setup"
     ? `<div class="wl-head"><h1 class="wl-q">确认下载源与存储位置</h1></div>`
     : `<div class="wl-head"><img class="wl-logo" src="../../internal/web/ui/img/logo-16.png" alt=""><div class="wl-ht"><h1>欢迎使用 MineDeck</h1><p>Minecraft 开服工具</p></div></div>`;
-  const termsHTML = () => `<div class="wl-col wl-terms"><h2 class="wl-h">用户协议与免责声明</h2>`
-    + `<div class="wl-lw"><div class="list wl-tx" tabindex="0" aria-label="用户协议与免责声明">${TERMS}</div><i class="thumb"></i></div></div>`;
+  const termsHTML = () => `<div class="wl-col wl-terms"><h2 class="wl-h">用户服务协议与免责声明</h2>`
+    + `<div class="wl-lw"><div class="list wl-tx" tabindex="0" aria-label="用户服务协议与免责声明">${TERMS}</div><i class="thumb"></i></div></div>`;
   const segHTML = () => `<div class="wl-seg" role="radiogroup" aria-label="下载源"><span class="wl-sgl"></span>${OPTS.map(o =>
     `<button type="button" role="radio" data-src="${o.v}" aria-checked="${S.src === o.v}" class="${S.src === o.v ? "on" : ""}" title="${esc(o.d)}">${esc(o.t)}</button>`).join("")}</div>`;
   const fieldsHTML = () => `<div class="wl-col wl-fields">`
@@ -72,7 +76,7 @@
   function pageHTML() {
     const k = kind();
     const body = k === "all" ? termsHTML() + fieldsHTML() + agreeHTML() : k === "terms" ? termsHTML() + agreeHTML() : fieldsHTML();
-    return headHTML(k) + `<section class="wl-pnl${k === "setup" ? " fit" : ""}" aria-label="${k === "setup" ? "下载源与存储位置" : "用户协议与免责声明"}">${body}</section>`;
+    return headHTML(k) + `<section class="wl-pnl${k === "setup" ? " fit" : ""}" aria-label="${k === "setup" ? "下载源与存储位置" : "用户服务协议与免责声明"}">${body}</section>`;
   }
   function mountPage() {
     const p = $("#wl-page");
@@ -156,11 +160,12 @@
   function paintNext() {
     const b = $("#wl-next"), off = needAgree();
     if (b.getAttribute("aria-disabled") !== String(off)) b.setAttribute("aria-disabled", off);
-    setTip(b, off ? "请先同意《用户协议与免责声明》及 Minecraft EULA" : "");
+    setTip(b, off ? "请先同意《用户服务协议与免责声明》及 Minecraft EULA" : "");
     navLabel();
   }
   function paintNav() {
     $("#wl-back").classList.toggle("off", S.step === 0); // 「上一步」只在分两步的第二步有，从下面浮上来
+    $("#wl-quit").classList.toggle("off", S.step !== 0); // 「不同意并退出」只在要同意的那一步有（同一个位置）
     paintNext();
   }
   function initDots() {
@@ -320,6 +325,15 @@
     save();
   });
   $("#wl-back").addEventListener("click", () => { if (!S.saving && !S.leaving) goStep(S.step - 1); });
+  // 不同意并退出（作者 11-29 要加）：程序里是直接退出、不写配置，下次打开还是这一页；草图里盖一层说明，点一下回来
+  $("#wl-quit").addEventListener("click", () => {
+    if (S.saving || S.leaving || document.querySelector(".wl-ov")) return;
+    const ov = document.createElement("div"); ov.className = "wl-ov";
+    ov.innerHTML = `<img src="../../internal/web/ui/img/logo-32.png" alt=""><div class="wl-o1">MineDeck 已退出</div>`
+      + `<div class="wl-o2">未同意协议，未保存任何设置。下次打开时将再次显示本协议。</div><div class="wl-o3">草图：点击任意处返回引导页</div>`;
+    document.body.appendChild(ov);
+    ov.addEventListener("click", () => { ov.classList.add("leave"); setTimeout(() => ov.remove(), 200); });
+  });
   addEventListener("resize", () => { placeSeg(false); $(".wl-lw")?._paint?.(); });
 
   // ---- 草图切换条 ----
