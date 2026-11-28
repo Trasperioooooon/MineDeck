@@ -17,7 +17,7 @@ func TestWorldChangeWaitsForRunningBackup(t *testing.T) {
 	t.Cleanup(func() { backupHook = nil })
 	done := make(chan error, 1)
 	go func() {
-		_, err := m.CreateBackup("s", "定时")
+		_, err := m.createScheduledBackup("s")
 		done <- err
 	}()
 	select {

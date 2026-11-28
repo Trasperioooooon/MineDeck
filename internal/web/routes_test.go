@@ -202,6 +202,7 @@ func TestRoutesKeepPathsAndSemantics(t *testing.T) {
 		{"POST", "/api/login", `{"password":"wrong"}`, 401, "密码错误", []reqOpt{fromLAN, noToken}},
 		{"POST", "/api/shutdown", "", 200, "", nil},
 		{"PUT", "/api/config", `{"backupKeep":5000}`, 200, "", nil},
+		{"PUT", "/api/config", `{"scheduledBackupKeep":5000}`, 200, "", nil},
 		{"PUT", "/api/config", `{"serversDir":""}`, 403, "存放文件夹仅支持在本机修改", []reqOpt{fromLAN}},
 		{"PUT", "/api/config", `{"webhookUrl":"ftp://x"}`, 400, "Webhook 地址需以 http(s):// 开头", nil},
 		{"PUT", "/api/config", `{"webhookUrl":"https://"}`, 400, "Webhook 地址的格式不对", nil},
@@ -241,6 +242,7 @@ func TestRoutesKeepPathsAndSemantics(t *testing.T) {
 		{"GET", "/api/tasks", "", 200, "", nil},
 		{"GET", ip + "/backups", "", 200, "", nil},
 		{"POST", ip + "/backups", "", 200, "", nil}, // 请求体可省略
+		{"POST", ip + "/backups", `{"label":"定时"}`, 400, "标签「定时」留给定时任务做的备份使用", nil},
 		{"POST", ip + "/backups/restore", `{}`, 400, "缺少备份文件名", nil},
 		{"DELETE", ip + "/backups", "", 400, "缺少备份文件名", nil},
 		{"DELETE", ip + "/backups?file=nope.zip", "", 400, "备份文件不存在", nil},
@@ -345,6 +347,9 @@ func TestRoutesKeepPathsAndSemantics(t *testing.T) {
 	}
 	if app.GetConfig().BackupKeep != 1000 {
 		t.Errorf("backupKeep 超出范围应按 1000 算：%d", app.GetConfig().BackupKeep)
+	}
+	if app.GetConfig().ScheduledBackupKeep != 1000 {
+		t.Errorf("scheduledBackupKeep 超出范围应按 1000 算：%d", app.GetConfig().ScheduledBackupKeep)
 	}
 	if b, _ := os.ReadFile(filepath.Join(app.ServersDir, "s1", "whitelist.json")); !strings.Contains(string(b), `"Steve"`) {
 		t.Errorf("白名单没写上：%s", b)

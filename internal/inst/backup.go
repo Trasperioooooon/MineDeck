@@ -53,6 +53,22 @@ func parseBackupName(file string) (t time.Time, label string, ok bool) {
 	return t, m[2], true
 }
 
+// scheduledLabel 定时任务做的备份带的标签，也是认一份备份是不是定时备份的唯一依据（见 isScheduledBackup）。
+// 老版本做的定时备份本来就带这个标签，不用改名就认得出；手动备份从此不许用它（见 CreateBackup），
+// 免得一份手动备份混进定时备份里、按定时备份的份数被清掉。
+const scheduledLabel = "定时"
+
+// errScheduledLabel 手动备份填了留给定时备份的标签。
+var errScheduledLabel = errors.New("标签「" + scheduledLabel + "」留给定时任务做的备份使用，请换一个标签")
+
+// isScheduledBackup 这份备份是不是定时任务做的：MineDeck 起的名字，标签恰好是「定时」。
+// 升级以前手动填「定时」做的备份分不出来，也算定时备份（那时手动备份还能用这个标签）。
+// 不是 MineDeck 起的名字（自己放进来的 zip）不算，和手动备份一起计数，同以前一样。
+func isScheduledBackup(file string) bool {
+	_, label, ok := parseBackupName(file)
+	return ok && label == scheduledLabel
+}
+
 // backupDirOf 返回实例在当前备份根下的备份目录（新备份只写这里）。filepath.Base 兜底：即便某个 instance.json
 // 携带带路径分隔符的异常 name（多根扫描可能拾取到），也不会让备份读写逃出备份根。
 func backupDirOf(name string) string { return filepath.Join(app.BackupsRoot(), filepath.Base(name)) }
@@ -168,7 +184,21 @@ func (m *Manager) ListBackups(name string) ([]BackupInfo, error) {
 }
 
 // CreateBackup 备份世界存档；运行中执行热备（save-off → save-all → 压缩 → save-on）。
+// 这是手动备份的入口（界面、AI 助手、MCP 都走这里），标签不能是留给定时备份的「定时」；定时任务走 createScheduledBackup。
 func (m *Manager) CreateBackup(name, label string) (string, error) {
+	if sanitizeLabel(label) == scheduledLabel {
+		return "", errScheduledLabel
+	}
+	return m.backupWorld(name, label)
+}
+
+// createScheduledBackup 定时任务做备份：标签是 scheduledLabel，清理时只和别的定时备份比、按定时备份的份数留（见 pruneBackups）。
+func (m *Manager) createScheduledBackup(name string) (string, error) {
+	return m.backupWorld(name, scheduledLabel)
+}
+
+// backupWorld 同 CreateBackup，不查标签。
+func (m *Manager) backupWorld(name, label string) (string, error) {
 	// 换地图到一半时世界目录正在被移来移去，打出来的备份是半截的（定时备份也走这里）。
 	// 不只是开头看一眼：备份的这段时间一直登记着，换地图要等它做完才占得上位。
 	// 还原备份是自己占着位再调下面的 createBackup，所以登记放在这里，不放在 createBackup 里
@@ -431,17 +461,26 @@ func (m *Manager) DeleteBackup(name, file string) error {
 }
 
 // pruneBackups 按保留份数滚动清理：与列表一致，跨全部已知备份根计数，超出的最旧备份不论在哪个根都删。
+// 定时备份（见 isScheduledBackup）和别的备份分开算，谁也挤不掉谁：定时备份按 app.ScheduledBackupKeep 留，
+// 别的（手动备份、「还原前自动」、自己放进来的 zip）按 app.BackupKeep 留。不管这次做的是哪种，两类都清一遍，
+// 改小了哪个份数，下一次备份时就生效。spare 见 createBackup：在哪一类里都不删，排在最新的那几份里时照样占一个名额（同以前）。
 func (m *Manager) pruneBackups(name, spare string) {
 	list, err := m.ListBackups(name)
 	if err != nil {
 		return
 	}
-	for i := app.BackupKeep(); i < len(list); i++ {
-		// 自动清理最旧的（保留手动标签“还原前自动”同样计入总数）；spare 见 createBackup
-		if list[i].File == spare {
+	var seen [2]int // 两类各数到了第几份（列表新的在前）：[0] 定时备份以外的，[1] 定时备份
+	keep := [2]int{app.BackupKeep(), app.ScheduledBackupKeep()}
+	for _, b := range list {
+		k := 0
+		if isScheduledBackup(b.File) {
+			k = 1
+		}
+		seen[k]++
+		if seen[k] <= keep[k] || b.File == spare {
 			continue
 		}
-		copies, _ := backupCopies(name, list[i].File)
+		copies, _ := backupCopies(name, b.File)
 		for _, p := range copies {
 			_ = os.Remove(p)
 		}

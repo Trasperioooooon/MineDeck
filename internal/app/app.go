@@ -47,10 +47,14 @@ type Config struct {
 	ServersDir  string   `json:"serversDir,omitempty"`  // 自定义实例存放根目录（空=内置 servers/），仅对新建生效
 	BackupsDir  string   `json:"backupsDir,omitempty"`  // 自定义备份根目录（空=内置 backups/）
 	Roots       []string `json:"roots,omitempty"`       // 曾放置实例或曾设为默认的根目录（多根扫描用，内置根除外）
-	BackupKeep  int      `json:"backupKeep,omitempty"`  // 每实例保留的备份份数（0=默认 10）
+	BackupKeep  int      `json:"backupKeep,omitempty"`  // 每实例保留的备份份数，不含定时备份（0=默认 10）
 	BackupRoots []string `json:"backupRoots,omitempty"` // 曾设为备份根的目录（旧备份照常列出、还原，内置根除外）
 	Onboarded   bool     `json:"onboarded,omitempty"`   // 首次运行引导卡是否已完成
 	TosAccepted bool     `json:"tosAccepted,omitempty"` // 用户协议与免责声明是否已同意（未同意则每次启动重新弹引导卡）
+
+	// ScheduledBackupKeep 每实例保留的定时备份份数（定时任务做的备份单独计数，不占 BackupKeep）。0 = 没设过，
+	// 生效的份数见 ScheduledBackupKeep()，不回填进配置。
+	ScheduledBackupKeep int `json:"scheduledBackupKeep,omitempty"`
 
 	// InstanceDirs 单独登记的服务器文件夹（接管进来的）。启动时直接读它里面的 instance.json，不扫它的上一层：
 	// 上一层是用户自己的目录，里面别的文件夹没经用户点头不该出现在列表里。
@@ -95,8 +99,19 @@ func ParseHexColor(s string) (string, bool) {
 	return strings.ToLower(s), true
 }
 
-// DefaultBackupKeep 未配置时每实例保留的备份份数。
+// DefaultBackupKeep 未配置时每实例保留的备份份数（不含定时备份）。
 const DefaultBackupKeep = 10
+
+// DefaultScheduledBackupKeep 未配置时每实例保留的定时备份份数：每小时一份正好留一天。
+const DefaultScheduledBackupKeep = 24
+
+// MaxBackupKeep 两种保留份数的上限（下限是 1）。
+const MaxBackupKeep = 1000
+
+// ClampBackupKeep 把保留份数限制在 1~MaxBackupKeep 之间（PUT /api/config 收到的超出范围的值按边界算）。
+func ClampBackupKeep(k int) int {
+	return min(max(k, 1), MaxBackupKeep)
+}
 
 // DefaultUpdateRepo 内置自动更新源：用户未在「设置 → 更新」另填时使用，
 // 让 GitHub 自动更新开箱即用（仍需用户手动点检查或开启启动时检查，不主动联网）。
@@ -319,16 +334,32 @@ func ServersRoot() string {
 	return ServersDir
 }
 
-// BackupKeep 返回每实例保留的备份份数（配置优先，缺省 DefaultBackupKeep，范围 1~1000）。
+// BackupKeep 返回每实例保留的备份份数，定时备份不算在内（配置优先，缺省 DefaultBackupKeep，范围 1~1000）。
 func BackupKeep() int {
-	k := GetConfig().BackupKeep
-	if k <= 0 {
+	return backupKeepOf(GetConfig())
+}
+
+func backupKeepOf(c Config) int {
+	if c.BackupKeep <= 0 {
 		return DefaultBackupKeep
 	}
-	if k > 1000 {
-		return 1000
+	return min(c.BackupKeep, MaxBackupKeep)
+}
+
+// ScheduledBackupKeep 返回每实例保留的定时备份份数（配置优先，范围 1~1000）。
+func ScheduledBackupKeep() int {
+	return ScheduledBackupKeepOf(GetConfig())
+}
+
+// ScheduledBackupKeepOf 同 ScheduledBackupKeep，按给的配置算。没设过时取 DefaultScheduledBackupKeep 和 BackupKeep 里大的：
+// 以前定时备份和别的备份合起来按 BackupKeep 留，把它调到 24 以上的人，定时备份本来能留那么多份，
+// 升级以后第一次备份不该因为缺省的 24 删掉其中几份。改 BackupKeep 时 app.config.set 会把这个值记进配置，
+// 以后两项互不牵连（不然把手动的份数调小，定时备份也会跟着被删）。
+func ScheduledBackupKeepOf(c Config) int {
+	if c.ScheduledBackupKeep <= 0 {
+		return max(DefaultScheduledBackupKeep, backupKeepOf(c))
 	}
-	return k
+	return min(c.ScheduledBackupKeep, MaxBackupKeep)
 }
 
 // BackupsRoot 返回备份根目录（配置优先，否则程序内置 backups/），新备份都写在这里。

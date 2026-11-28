@@ -92,6 +92,9 @@ type configPatch struct {
 	ListenLAN          *bool   `json:"listenLan"`
 	LanPassword        *string `json:"lanPassword"` // 明文仅在本次请求中出现，存储为 bcrypt 哈希
 	ChromeColor        *string `json:"chromeColor"` // 界面标题栏底色 #rrggbb（下次启动时 WebView2 的默认底色）；空串清除
+
+	// ScheduledBackupKeep 定时备份的保留份数（定时任务做的备份单独计数，不占 backupKeep）
+	ScheduledBackupKeep *int `json:"scheduledBackupKeep"`
 }
 
 // checkResult 检查更新的回包：查到的版本、有没有更新，加上按哪个渠道查的、查到的是不是测试版。
@@ -133,6 +136,9 @@ func (c *cat) appOps() {
 				"updateChannel": app.UpdateChannel(),
 				"autoStart":     autostart.Enabled(), // 开机自启真值以注册表为准
 				"ips":           localIPs(),
+
+				// 生效的定时备份保留份数：config.scheduledBackupKeep 没设过时没有那一项，份数按 app.ScheduledBackupKeepOf 算
+				"scheduledBackupKeep": app.ScheduledBackupKeep(),
 			}
 			if su := update.StartupUpdate(); su != nil {
 				out["startupUpdate"] = su
@@ -153,7 +159,7 @@ func (c *cat) appOps() {
 			"updateChannel":      ops.String("更新渠道：空串（跟随当前版本）、stable（稳定版，只收正式版）、latest（最新版，包括测试版）").OneOf("", app.UpdateStable, app.UpdateLatest),
 			"serversDir":         ops.String("新实例的默认存放目录（仅本机；空串恢复默认）"),
 			"backupsDir":         ops.String("备份目录（仅本机；空串恢复默认）"),
-			"backupKeep":         ops.Integer("每个实例保留的备份份数，1–1000（超出按边界算）"),
+			"backupKeep":         ops.Integer("每个实例保留的备份份数（手动备份和「还原前自动」，定时任务做的备份不算在内），1–1000（超出按边界算）"),
 			"onboarded":          ops.Boolean("首次运行的引导已完成"),
 			"tosAccepted":        ops.Boolean("已同意用户协议与免责声明"),
 			"minimizeToTray":     ops.Boolean("关窗时最小化到托盘"),
@@ -161,6 +167,8 @@ func (c *cat) appOps() {
 			"listenLan":          ops.Boolean("允许局域网访问（要先设访问密码，重启生效）"),
 			"lanPassword":        ops.String("局域网访问密码（只写不读）"),
 			"chromeColor":        ops.String("界面标题栏底色 #rrggbb；空串清除"),
+
+			"scheduledBackupKeep": ops.Integer("每个实例保留的定时备份份数（只算定时任务做的备份），1–1000（超出按边界算）；没设过时取 24 和 backupKeep 里大的"),
 		}),
 		Run: func(_ context.Context, caller ops.Caller, a ops.Args) (any, error) {
 			body, err := bind[configPatch](a)
@@ -241,13 +249,15 @@ func (c *cat) appOps() {
 					c.BackupsDir = strings.TrimSpace(*body.BackupsDir) // 旧值由 UpdateConfig 并入 BackupRoots，旧备份照常可用
 				}
 				if body.BackupKeep != nil {
-					k := *body.BackupKeep
-					if k < 1 {
-						k = 1
-					} else if k > 1000 {
-						k = 1000
+					// 定时备份的份数没设过时跟着 backupKeep 算（见 app.ScheduledBackupKeepOf）：改 backupKeep 之前先把它
+					// 现在的值记下来，免得把手动的份数调小，定时备份也跟着被删
+					if c.ScheduledBackupKeep <= 0 && body.ScheduledBackupKeep == nil {
+						c.ScheduledBackupKeep = app.ScheduledBackupKeepOf(*c)
 					}
-					c.BackupKeep = k
+					c.BackupKeep = app.ClampBackupKeep(*body.BackupKeep)
+				}
+				if body.ScheduledBackupKeep != nil {
+					c.ScheduledBackupKeep = app.ClampBackupKeep(*body.ScheduledBackupKeep)
 				}
 				if body.Onboarded != nil {
 					c.Onboarded = *body.Onboarded

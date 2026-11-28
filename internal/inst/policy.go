@@ -523,7 +523,7 @@ func (m *Manager) execSchedule(i *Instance, s Schedule) {
 			note("instance.command", map[string]any{"cmd": s.Args}, err)
 		}
 	case "backup":
-		_, err := m.CreateBackup(i.Name, "定时")
+		_, err := m.createScheduledBackup(i.Name)
 		// 撞上服务器启动、停止或重启的，等它稳定下来再试，最多再试两次。
 		// 不试的话：备份和重启定在同一分钟（世界大到一分钟压不完，压到一半服务器被重启，这份作废），
 		// 或者备份排在重启后一两分钟（服务器还在启动，直接被拒），这一天就没有备份，而且天天如此，
@@ -535,14 +535,14 @@ func (m *Manager) execSchedule(i *Instance, s Schedule) {
 			if !m.waitSettled(i) {
 				break
 			}
-			_, err = m.CreateBackup(i.Name, "定时")
+			_, err = m.createScheduledBackup(i.Name)
 		}
 		if err != nil {
 			i.Console.Append("[MineDeck] 定时备份失败: " + err.Error())
 		} else {
 			i.Console.Append("[MineDeck] 定时备份完成")
 		}
-		note("instance.backup.create", map[string]any{"label": "定时"}, err)
+		note("instance.backup.create", map[string]any{"label": scheduledLabel}, err)
 	case "restart":
 		if i.Status() != "running" {
 			return
