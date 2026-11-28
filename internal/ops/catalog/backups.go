@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"minedeck/internal/inst"
 	"minedeck/internal/ops"
 )
 
@@ -17,7 +18,7 @@ type backupArgs struct {
 func (c *cat) backupOps() {
 	c.reg.Register(&ops.Op{
 		Name: "instance.backups.list", Title: "查看备份列表", Level: ops.Read,
-		Desc:   "实例的全部备份（文件名、大小、时间，做备份时填了标签的带 label），新的在前。",
+		Desc:   "实例的全部备份（文件名、大小、时间，做备份时填了标签的带 label；label 为「定时」的是定时任务做的），新的在前。",
 		Params: withInst(nil),
 		Run: func(_ context.Context, _ ops.Caller, a ops.Args) (any, error) {
 			p, err := bind[instArgs](a)
@@ -30,14 +31,18 @@ func (c *cat) backupOps() {
 
 	c.reg.Register(&ops.Op{
 		Name: "instance.backup.create", Title: "立即备份", Level: ops.Write,
-		Desc:   "备份世界存档；服务器运行中做热备（暂停自动保存 → 保存 → 压缩 → 恢复）。超出保留份数时删掉最旧的。",
-		Params: withInst(map[string]*ops.Schema{"label": ops.String("备注，会写进文件名（最多 20 个字）")}),
+		Desc: "备份世界存档；服务器运行中做热备（暂停自动保存 → 保存 → 压缩 → 恢复）。" +
+			"手动备份和定时任务做的备份分开计数，超出各自的保留份数时删掉同一类里最旧的。",
+		Params: withInst(map[string]*ops.Schema{"label": ops.String("备注，会写进文件名（最多 20 个字）；「定时」留给定时任务做的备份，不能用")}),
 		Preview: func(_ context.Context, _ ops.Caller, a ops.Args) (*ops.Plan, error) {
 			p, err := bind[backupArgs](a)
 			if err != nil {
 				return nil, err
 			}
 			if _, err := c.get(p.Inst); err != nil {
+				return nil, err
+			}
+			if err := inst.CheckBackupLabel(p.Label); err != nil { // 「定时」留给定时任务：出确认卡片之前就拒，不等点了确认
 				return nil, err
 			}
 			return &ops.Plan{Summary: fmt.Sprintf("立即备份「%s」的世界", p.Inst)}, nil

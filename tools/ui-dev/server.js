@@ -18,6 +18,8 @@ const err = (res, code, msg, hint, extra) => { res.writeHead(code, { "Content-Ty
 const readBody = req => req._bodyPromise || (req._bodyPromise = new Promise(r => { let b = ""; req.on("data", c => b += c); req.on("end", () => { try { r(JSON.parse(b || "{}")); } catch { r({}); } }); }));
 // 同 ops/catalog 的 maskWebhook：只留协议和主机（含端口），后面常带着令牌，换成 ***；解析不了的整个遮掉，空串还是空串
 const maskWebhook = u => { if (!u) return ""; try { const x = new URL(u); return x.host ? `${x.protocol}//${x.host}/***` : "***"; } catch { return "***"; } };
+// 生效的定时备份保留份数（同 app.ScheduledBackupKeepOf）：设过就按设的；没设过取 24 和 backupKeep 里大的
+const schedKeepOf = c => Math.min(1000, c.scheduledBackupKeep > 0 ? c.scheduledBackupKeep : Math.max(24, c.backupKeep > 0 ? c.backupKeep : 10));
 // 同 publicConfig：从局域网打开时（state.local 为 false）Webhook 地址只给遮掉的
 const publicCfg = state => (state.local ? state.config : { ...state.config, webhookUrl: maskWebhook(state.config.webhookUrl) });
 
@@ -3085,7 +3087,7 @@ function handler(state, ui, portOf) {
           clearTimeout(timer);
         }
       }
-      if (p === "/api/app") return ok(res, { version: state.version, updateChannel: updateChannelOf(state), ...(state.startupUpdate ? { startupUpdate: state.startupUpdate } : {}), base: "D:\\MineDeck", ramMb: 16384, availRamMb: 9216, port: portOf(), serversRoot: state.config.serversDir || "D:\\MineDeck\\servers", backupsRoot: state.config.backupsDir || "D:\\MineDeck\\backups", config: publicCfg(state), local: state.local, lanSet: state.lanSet, lanActive: state.lanActive, cfKeySet: !!state.cfKey && !state.cfKeyBroken, cfKeyBroken: state.cfKeyBroken, autoStart: state.autoStart, ips: ["172.22.48.1", "192.168.1.23", "10.0.0.5"] });
+      if (p === "/api/app") return ok(res, { version: state.version, updateChannel: updateChannelOf(state), ...(state.startupUpdate ? { startupUpdate: state.startupUpdate } : {}), base: "D:\\MineDeck", ramMb: 16384, availRamMb: 9216, port: portOf(), serversRoot: state.config.serversDir || "D:\\MineDeck\\servers", backupsRoot: state.config.backupsDir || "D:\\MineDeck\\backups", config: publicCfg(state), scheduledBackupKeep: schedKeepOf(state.config), local: state.local, lanSet: state.lanSet, lanActive: state.lanActive, cfKeySet: !!state.cfKey && !state.cfKeyBroken, cfKeyBroken: state.cfKeyBroken, autoStart: state.autoStart, ips: ["172.22.48.1", "192.168.1.23", "10.0.0.5"] });
       if (p === "/api/bg") return ok(res, { images: [] });
       if (p === "/api/ops/log") {
         const q = u.searchParams, lim = Math.min(+q.get("limit") || 100, 1000);
@@ -3122,6 +3124,14 @@ function handler(state, ui, portOf) {
           else if (v && !(/^https?:\/\/[^/?#]/.test(v) && (() => { try { return !!new URL(v).hostname; } catch { return false; } })())) return err(res, 400, "Webhook 地址的格式不对，要写成 https://主机名/路径 这样");
           else b.webhookUrl = v;
         }
+        // 同 appops.go：两种保留份数超出 1~1000 按边界算；改 backupKeep 时定时备份的份数还没设过，先把它现在的值记下来
+        const clampKeep = k => Math.min(1000, Math.max(1, Math.round(+k) || 1));
+        // 记进 b、随整次一起合并（后面还有整次拒绝的检查，拒了 config 不能被改到一半）；null 同 Go 的 *int 为 nil，当没带（复审建议）
+        if (b.backupKeep != null) {
+          if (!(state.config.scheduledBackupKeep > 0) && b.scheduledBackupKeep == null) b.scheduledBackupKeep = schedKeepOf(state.config);
+          b.backupKeep = clampKeep(b.backupKeep);
+        } else delete b.backupKeep;
+        if (b.scheduledBackupKeep != null) b.scheduledBackupKeep = clampKeep(b.scheduledBackupKeep); else delete b.scheduledBackupKeep;
         if ("autoStart" in b) state.autoStart = !!b.autoStart;
         // 同 appops.go：局域网访问密码只存哈希、不进 config；开启局域网访问前必须已有密码（同一次请求里带上也算），否则整次拒绝
         const lanSetNow = state.lanSet || !!b.lanPassword;
@@ -3550,6 +3560,8 @@ function handler(state, ui, portOf) {
         // 还原以后实例的 worldFrom 记下这一份，state.lastRestore 是请求）
         if (sub === "backups" && !seg[5] && m === "POST") {
           const b = await readBody(req), label = String(b.label || "").trim();
+          // 同 inst.CreateBackup：「定时」留给定时任务做的备份，手动备份用它整次拒绝
+          if (label === "定时") return err(res, 400, "标签「定时」留给定时任务做的备份使用，请换一个标签");
           state.lastBackup = { inst: name, label };
           const it = { file: "20261115-210000.000000000" + (label ? "-" + label : "") + ".zip", sizeMb: 420.0, time: "2026-11-15 21:00:00", ...(label ? { label } : {}) };
           backupsOf(i).unshift(it);
@@ -3690,28 +3702,46 @@ function handler(state, ui, portOf) {
         if (sub === "backups" && m === "GET") return ok(res, backupsOf(i).map(b => ({ dir: i.backupDir ?? "D:\\MineDeck\\backups\\" + i.name, ...b })));
         // 崩溃重启与定时任务（同 instance.policies.get / set）：存在这台服务器上（instReset 时回到这两条）。
         // 改的时候同真后端 inst.PolicyPatch：crashRestart 给了才改；schedules 给了整张替换；removeSchedules 每项删一条完全一样的
-        // （时间规整成 HH:MM 再比，找不到不算错）；addSchedules 按条加
+        // （时间规整成 HH:MM 再比，间隔、命令、文件夹也要一样，找不到不算错）；addSchedules 按条加。
+        // 每条任务填 at（每天几点）或 every（每隔多少分钟，命令最短 5、备份 30、重启 60，最长 720）；group 是文件夹名（2026-11-27）
         if (sub === "policies") {
           const pol = i.policies || (i.policies = { crashRestart: true, schedules: [{ type: "restart", at: "04:00", args: "" }, { type: "command", at: "20:00", args: "say 今晚 8 点打龙集合！" }] });
           if (m === "GET") return ok(res, { crashRestart: pol.crashRestart, schedules: pol.schedules.map(s => ({ ...s })) });
           if (m === "PUT") {
             const b = await readBody(req);
             const hm = s => { const x = String(s || "").trim().match(/^(\d{1,2}):(\d{1,2})$/); return x && +x[1] < 24 && +x[2] < 60 ? String(+x[1]).padStart(2, "0") + ":" + String(+x[2]).padStart(2, "0") : ""; };
+            const TITLE = { restart: "定时重启", command: "定时命令", backup: "定时备份" }, LO = { command: 5, backup: 30, restart: 60 };
             const check = list => {
               for (const s of list) {
                 if (!["restart", "command", "backup"].includes(s.type)) return `未知任务类型: ${s.type}`;
-                if (!hm(s.at)) return `时间格式应为 HH:MM: ${s.at}`;
+                const every = +s.every || 0;
+                if (every && String(s.at || "").trim()) return "每天几点（at）和每隔多久（every）只能填一样";
+                if (!every && !String(s.at || "").trim()) return "每天几点（at）和每隔多久（every）要填一样";
+                if (every < 0) return `间隔应为正整数（分钟）: ${every}`;
+                if (every && every < LO[s.type]) return `${TITLE[s.type]}最短每隔 ${LO[s.type]} 分钟一次: ${every}`;
+                if (every > 720) return `间隔最长 720 分钟（12 小时），更长的请用每天定时: ${every}`;
+                if (!every && !hm(s.at)) return `时间格式应为 HH:MM: ${s.at}`;
                 if (s.type === "command" && !s.args) return "定时命令不能为空";
+                if ([...String(s.group || "").trim()].length > 32) return `文件夹名最多 32 个字: ${String(s.group).trim()}`;
               }
               return "";
             };
             const why = check([...(Array.isArray(b.schedules) ? b.schedules : []), ...(b.addSchedules || [])]);
             if (why) return err(res, 400, why);
-            const norm = s => ({ type: s.type, at: hm(s.at), args: s.args || "" });
+            // 存成真后端 JSON 的样子：每隔多久的没有 at，不放文件夹的没有 group
+            const norm = s => {
+              const o = { type: s.type }, g = String(s.group || "").trim();
+              if (+s.every) o.every = +s.every; else o.at = hm(s.at);
+              o.args = s.args || "";
+              if (g) o.group = g;
+              return o;
+            };
+            const same = (r, s) => r.type === s.type && (+r.every || 0) === (+s.every || 0) && (r.args || "") === (s.args || "") &&
+              String(r.group || "").trim() === String(s.group || "").trim() &&
+              (+r.every && !String(r.at || "").trim() ? !String(s.at || "").trim() : !!hm(r.at) && hm(r.at) === hm(s.at));
             let next = Array.isArray(b.schedules) ? b.schedules.map(norm) : pol.schedules.map(s => ({ ...s }));
             for (const r of b.removeSchedules || []) {
-              const rt = hm(r.at);
-              const k = rt ? next.findIndex(s => s.type === r.type && hm(s.at) === rt && (s.args || "") === (r.args || "")) : -1;
+              const k = next.findIndex(s => same(r, s));
               if (k >= 0) next.splice(k, 1);
             }
             next = next.concat((b.addSchedules || []).map(norm));

@@ -23,7 +23,7 @@ func tempInstance(t *testing.T) (*Manager, string) {
 	app.Base = t.TempDir()
 	app.ServersDir = filepath.Join(app.Base, "servers")
 	app.BackupsDir = filepath.Join(app.Base, "backups")
-	setConfig(t, func(c *app.Config) { c.BackupsDir, c.BackupKeep = "", 0 })
+	setConfig(t, func(c *app.Config) { c.BackupsDir, c.BackupKeep, c.ScheduledBackupKeep = "", 0, 0 })
 	dir := filepath.Join(app.ServersDir, "s")
 	writeLevel(t, dir, "current")
 	m := &Manager{insts: map[string]*Instance{}, creating: map[string]bool{}}
