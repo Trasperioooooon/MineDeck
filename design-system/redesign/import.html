@@ -58,6 +58,9 @@
        接管：名称用建议的；内存用原启动脚本里的；存储路径就是那个文件夹，不能改（灰底，悬停说接管只写哪几个文件）；
          端口改得和原来不一样时右边的勾换成黄色的笔（会改 server.properties，悬停说清）；右栏「Java」（默认「自动」）。EULA 原来同意过就没有那一条。
      第四步「配置联机与访问」：整合包、地图两条照抄向导第四步，一点没改。
+       11-29 作者定：自建 frps 的地址、端口、令牌只在「设置 → 内网穿透」里填，这里同向导只留开关和公网端口（服务端从设置里读，没配置时开关灰着拨不动，
+       块里一句「尚未配置自建 frps」，去哪填写在悬停里，不放跳转）。草图参数 &frps=set 表示设置里存过（示例同设置页：frp.example.com、7000、令牌已设置）；
+       走到这一步时，顶上的草图切换条多一组「自建 frps：未配置 / 已配置」，点了就地换。
 
      和程序现在不一样、要后端补的：
        1. 导入整合包现在是上传、解析、开建一个请求（/api/import/modpack），看不到包里是什么就开建了。要拆成先上传识别（同交接包的 /api/transfer/upload，
@@ -490,7 +493,9 @@
        「用已有的」→「已有隧道」，「自己的 frps」→「自建 frps」、「自建服务器」→「连接自有服务端」，「搜节点」→「搜索节点」；
        底部拿掉 online-mode、white-list 两个代码名，正版验证那块缩到只包住开关和字，「白名单只认名字」那句拿掉；名单框的提示只在一个名字都没有时出现，
        名单多了框两头淡出，鼠标移到两头自动往那边滑。上面写的「朋友怎么连」「自己的 frps」「正版验证那块说……」都是改之前的样子。
-     11-26 作者又说局域网和自建 frps 两页都太空：并成一张卡「局域网 / 自建 frps」，四张卡变三张；那一页左右两块，左边局域网的地址，右边自建 frps，用开关打开（默认关） */
+     11-26 作者又说局域网和自建 frps 两页都太空：并成一张卡「局域网 / 自建 frps」，四张卡变三张；那一页左右两块，左边局域网的地址，右边自建 frps，用开关打开（默认关）。
+     11-29 作者定：自建 frps 的地址、端口、令牌只在「设置 → 内网穿透」里填，这里只留开关和公网端口。右边那块线下面只剩一个公网端口框，框下面一行淡字写用的是哪个服务端；
+       设置里没存过时开关灰着拨不动，那一行换成「尚未配置自建 frps」，去哪填写在悬停里（向导里不放跳转，中途离开会丢掉填了一半的向导） */
   .setp.link { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; height: 540px; }
   .setp.link .col { padding: 18px 20px; gap: 12px; min-height: 0; } /* 11-26 拿掉了「朋友怎么连」，四张卡贴到块的顶上，间距 14 收成 12，下面的节点多露一截 */
   /* 叠三层：最下面四块底色（.vslot），中间滑动的高亮框（.vhl），最上面卡片的字（.vcard，本身透明）。
@@ -516,7 +521,7 @@
   .addr .mono { font-size: 14px; }
   .addr .unk { margin-left: 2px; font-size: 12.5px; color: var(--faint); }
   .addr .sp { flex: 1; }
-  /* 「局域网 / 自建 frps」那一页：左右两块一样高，占满卡片下面的地方。左边局域网（地址大字、能复制），右边自建 frps（开关在字的左边，关着时四个框淡着、点哪儿都是打开）。
+  /* 「局域网 / 自建 frps」那一页：左右两块一样高，占满卡片下面的地方。左边局域网（地址大字、能复制），右边自建 frps（开关在字的左边，关着时公网端口框淡着、点哪儿都是打开）。
      两块直接放在 .vdet 里，换卡时同别的页一样逐项换；圆角同上面卡片的底色（12，离外框够远，不受同心圆角的限制） */
   .vdet:has(> .lanp) { flex-direction: row; gap: 10px; }
   .lanp { flex: 1; min-width: 0; border-radius: 10px; background: color-mix(in srgb, var(--surface) 70%, transparent); padding: 16px 20px 20px; box-sizing: border-box;
@@ -550,10 +555,12 @@
   .netrow { display: flex; align-items: center; height: 32px; gap: 6px; min-width: 0; flex: none; }
   .netrow .nn { width: 96px; flex: none; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .netrow .mono { font-size: 14px; white-space: nowrap; }
-  .frpp .lbody { transition: opacity .2s; }
+  .frpp .lbody > * { transition: opacity .2s; }
   .frpp:not(.on) { cursor: pointer; }
-  /* 关着时拼好的地址和四个框一起淡（11-26 作者要了拼好的地址：打开以后边填边拼出朋友要填的那串） */
-  .frpp:not(.on) .lbody { opacity: .7; pointer-events: none; }
+  /* 关着时拼好的地址和公网端口框一起淡（11-26 作者要了拼好的地址：打开以后边填边拼出朋友要填的那串）；框下面那行淡字本来就淡，不再淡 */
+  .frpp:not(.on) .lbody { pointer-events: none; }
+  .frpp:not(.on) .lbody > :not(.fsrv) { opacity: .7; }
+  /* 代理端、设置里没配置自建 frps：开关灰着拨不动，整块悬停说原因 */
   .frpp.off { cursor: default; }
   .frpp.off .lh .tg { pointer-events: none; opacity: .45; }
   .ib { width: 28px; height: 28px; border-radius: 4px; border: 0; background: none; color: var(--muted); display: grid; place-items: center; cursor: pointer; padding: 0; transition: background .2s, color .2s; }
@@ -645,8 +652,14 @@
   .nph { flex: 1; min-height: 0; margin-top: 6px; border-radius: 10px; border: 1px dashed color-mix(in srgb, var(--text) 18%, transparent); display: grid; place-items: center; font-size: 12.5px; color: var(--faint); }
   .spin { animation: spin .9s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .frps { display: grid; grid-template-columns: minmax(0, 1fr) 132px; gap: 10px; }
-  .frps .inp { min-width: 0; font-size: 13px; }
+  /* 自建 frps 线下面：公网端口框（宽同原来右边那一列），填错时右边一句红字；框下面一行淡字写用的是哪个服务端，没配置时是「尚未配置自建 frps」（11-29） */
+  .frps { display: flex; align-items: center; gap: 10px; }
+  .frps .inp { width: 132px; flex: none; font-size: 13px; }
+  .fmsg { font-size: 12px; color: var(--danger-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .fsrv { display: flex; align-items: center; gap: 6px; min-width: 0; margin-top: 2px; font-size: 12px; line-height: 18px; color: var(--faint); white-space: nowrap; pointer-events: auto; } /* 开关关着时也能悬停看它自己的提示 */
+  .fsrv .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .fsrv .mono { font-size: 12px; }
+  .fsrv > .ico { width: 14px; height: 14px; flex: none; }
   /* 底部「谁能进」 */
   /* 11-26 作者：拿掉 online-mode、white-list 两个代码名，正版验证那块缩到只包住开关和字，「白名单只认名字」那句不要了 */
   .who { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; }
@@ -901,6 +914,9 @@
   .sk span[data-sk].on { background: var(--accent-subtle); color: var(--accent-text); }
   .sk .st { display: contents; }
   body:not(.on-s0) .sk .st { display: none; }
+  /* 走到「配置联机与访问」时多一组：设置里有没有存过自建 frps（11-29，同地址参数 &frps=set） */
+  .sk .fx { display: contents; }
+  body:not(.on-link) .sk .fx { display: none; }
 </style>
 </head>
 <body>
@@ -1419,9 +1435,13 @@ function checkSettings() {
 // 平台账户、节点、平台上的隧道都是假的：OpenFrp 已连接（账户 steve，VIP 用户，已实名），樱花没连（粘任意一串字点「连接」，假装 1.2 秒连上），本机局域网 IP 192.168.1.5。
 // 代理端（Velocity、Waterfall）的端口写在它自己的配置文件里，第一次启动才生成，程序不拿猜的数冒充（inst.ConnectPort），
 // 所以地址那里照程序说「端口启动后才知道」，三个穿透选项灰掉，要等那之后在「联机」里开；「谁能进」换成一句说明
+// 11-29 作者定：自建 frps 的地址、端口、令牌只在「设置 → 内网穿透」里填，这里只留开关和公网端口（LINK.frps 只剩 remote），服务端从设置里读（FRPS）。
+// 草图参数 &frps=set 表示设置里存过（示例同设置页：frp.example.com、7000、令牌已设置），不带就是没配置；这一步顶上的草图条「自建 frps」就地换，地址栏跟着改
 const LINK = { via: "lan", sakura: false, connecting: false, key: "", saveKey: true, pub: false, tab: { openfrp: "new", sakura: "new" }, filter: "all", q: "",
   show: { full: false, off: false, perm: false }, node: { openfrp: "", sakura: "" }, use: { openfrp: "", sakura: "" },
-  frpsOn: false, frps: { host: "", port: "7000", token: "", remote: "" }, names: [] };
+  frpsOn: false, frps: { remote: "" }, names: [] };
+const FRPS_SET = { host: "frp.example.com", port: "7000" };
+let FRPS = new URLSearchParams(location.search).get("frps") === "set" ? FRPS_SET : null;
 const LAN_IP = "192.168.1.5";
 // 本机的虚拟局域网地址（假的）：Radmin VPN 的网段是 26.x，ZeroTier 常见 10.147.x。程序的 /api/app 已经把本机所有 IPv4 都给了（localIPs），
 // 前端按网段排（lanIPRank）；要画成这样还差两样：网卡名（Go 的 net.Interfaces 有），认出哪块是 Radmin、ZeroTier、Tailscale、蒲公英这类软件的网卡，
@@ -1511,7 +1531,7 @@ const PLAT_TUNS = {
   sakura: [{ n: "survival_01", t: "TCP", node: "浙江移动PLUS1", lp: 25565 }, { n: "voice_01", t: "UDP", node: "浙江移动PLUS1", lp: 24454 }],
 };
 const nodesOf = k => k === "openfrp" ? OF_NODES : SK_NODES;
-const ltg = (key, t, tip, on = LINK[key]) => `<div class="tg sm${on ? " on" : ""}" data-ltg="${key}" title="${esc(tip)}"><div class="m"><div class="t">${t}</div></div><span class="sw"></span></div>`;
+const ltg = (key, t, tip, on = LINK[key], dis = false) => `<div class="tg sm${on ? " on" : ""}" data-ltg="${key}"${dis ? ` aria-disabled="true"` : ""} title="${esc(tip)}"><div class="m"><div class="t">${t}</div></div><span class="sw"></span></div>`;
 const nchip = n => `<span class="nchip" data-name="${esc(n)}">${esc(n)}<span class="nx" data-unname="${esc(n)}" title="移除"><i data-ic="x"></i></span></span>`;
 const shakeEl = el => el?.animate([{ transform: "none" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "none" }],
   { duration: 360, easing: "cubic-bezier(.3, .7, .2, 1)" });
@@ -1612,9 +1632,14 @@ function viaDetail() {
   return nodePanel(v);
 }
 // 「局域网 / 自建 frps」那一页：左边局域网的地址，右边自建 frps（开关打开才用）。原来是两张卡、两页，各自只有一行东西，太空（作者 11-26）。
-// 代理端的端口第一次启动才知道，自建 frps 同另外两个穿透一样灰着，等启动过以后在「联机」里开
+// 代理端的端口第一次启动才知道，自建 frps 同另外两个穿透一样灰着，等启动过以后在「联机」里开。
+// 11-29：设置里没存过自建 frps 时同样灰着（.off），整块悬停说去「设置 → 内网穿透」填；向导里不放跳转，中途离开会丢掉填了一半的向导
+const FRPS_OFF = "适用于自有 frps 服务端，点击开启";
+const FRPS_NONE = "需先在「设置 → 内网穿透」中填写自建 frps 的地址、端口与令牌";
+const FRPS_PROXY = "代理端端口需在首次启动生成配置文件后确定，启动后可在服务器的「联机」页开启自建 frps";
+const remoteOk = s => { s = s.trim(); return !s || (/^\d+$/.test(s) && +s >= 1 && +s <= 65535); }; // 公网端口：空着算对（用本地端口），填了要是 1～65535 的整数
 function lanPage() {
-  const proxy = isProxyCore(), on = LINK.frpsOn && !proxy, fd = on ? "" : " tabindex=\"-1\"";
+  const proxy = isProxyCore(), on = LINK.frpsOn && !proxy && !!FRPS, fd = on ? "" : " tabindex=\"-1\"";
   const lan = `<div class="lanp"><div class="lh"><i data-ic="wifi"></i><span class="t">局域网</span></div>`
     + `<div class="lbody"><span class="lb" title="同一局域网内的玩家在多人游戏中添加服务器时使用此地址">局域网联机地址</span>`
     + `<div class="bigaddr"><span class="mono">${LAN_IP}:${proxy ? "" : esc(SET.port)}</span>`
@@ -1624,31 +1649,38 @@ function lanPage() {
       + `<button class="ib" data-act="vrefresh" title="重新检测"><i data-ic="refresh"></i></button></div><div class="lwrap vwrap"><div class="list vrows" id="vrows">${vlanRows()}</div><i class="thumb"></i></div></div>`
     + `<div class="vnone${vlanNets().length ? " gone" : ""}" id="vnone"><i data-ic="info"></i><span>未检测到虚拟局域网，启动 Radmin、ZeroTier 等组网工具后将自动识别</span></div>`
     + `</div></div>`;
-  const frp = `<div class="lanp frpp${on ? " on" : ""}${proxy ? " off" : ""}" title="${esc(proxy ? "代理端端口需在首次启动生成配置文件后确定，启动后可在服务器的「联机」页开启自建 frps" : on ? "" : "适用于自有 frps 服务端，点击开启")}">`
-    + `<div class="lh">${ltg("frpsOn", "自建 frps", "由 MineDeck 启动 frpc 连接自有 frps，实现公网联机", on)}</div>`
+  const frp = `<div class="lanp frpp${on ? " on" : ""}${proxy || !FRPS ? " off" : ""}" title="${esc(proxy ? FRPS_PROXY : !FRPS ? FRPS_NONE : on ? "" : FRPS_OFF)}">`
+    + `<div class="lh">${ltg("frpsOn", "自建 frps", "由 MineDeck 启动 frpc 连接自有 frps，实现公网联机", on, proxy || !FRPS)}</div>`
     + `<div class="lbody"><span class="lb" title="公网玩家连接时使用此地址，由 frps 地址与公网端口组成（公网端口留空时默认与本地端口一致）">公网联机地址</span>`
     + `<div class="bigaddr" id="faddr">${frpsAddr()}</div>`
-    + `<div class="frps" title="本地端口 ${esc(SET.port)}">`
-    + `<input class="inp" id="fhost" placeholder="frps 地址" value="${esc(LINK.frps.host)}" autocomplete="off" spellcheck="false"${fd}>`
-    + `<input class="inp" id="fport" placeholder="frps 端口" value="${esc(LINK.frps.port)}" inputmode="numeric"${fd}>`
-    + `<input class="inp" id="ftoken" type="password" placeholder="认证令牌（选填）" value="${esc(LINK.frps.token)}"${fd}>`
-    + `<input class="inp" id="fremote" placeholder="公网端口" value="${esc(LINK.frps.remote)}" inputmode="numeric" title="公网联机使用的端口，留空时默认与本地端口一致（${esc(SET.port)}）"${fd}></div></div></div>`;
+    + `<div class="frps"><input class="inp" id="fremote" placeholder="公网端口" value="${esc(LINK.frps.remote)}" inputmode="numeric" autocomplete="off" title="公网联机使用的端口，留空时默认与本地端口一致（${esc(SET.port)}）"${fd}>`
+    + `<span class="fmsg" id="fmsg"></span></div>${frpsSrv()}</div></div>`;
   return lan + frp;
 }
-// 自建 frps 那块的大字：服务器地址加公网端口（空着用本地端口），边填边拼；地址没填时用淡字占着位置，复制灰着。
-// 服务器地址在上面大字和下面框里各出现一次，和「一个值只说一次」有出入，作者 11-26 定保持：这一行是为了把朋友要填的整串地址呈现出来、给人复制
+// 公网端口框下面一行淡字：设置里存过时写用的是哪个服务端（悬停说去哪改），没存过时一句「尚未配置自建 frps」（悬停是整块的，说去哪填）
+const frpsSrv = () => FRPS
+  ? `<div class="fsrv" title="在「设置 → 内网穿透」中修改"><span class="t">frps 服务端：<span class="mono">${esc(FRPS.host)}:${esc(FRPS.port)}</span></span></div>`
+  : `<div class="fsrv"><i data-ic="info"></i><span class="t">尚未配置自建 frps</span></div>`;
+// 自建 frps 那块的大字：设置里存的服务端地址加公网端口（空着用本地端口），边填边拼；设置里没存过时用淡字占着位置，复制灰着。
+// 服务端地址在上面大字和下面那行淡字里各出现一次，和「一个值只说一次」有出入：作者 11-26 定保持的是大字和原来的地址框各一次（这一行是为了把朋友要填的整串地址呈现出来、给人复制），
+// 11-29 地址框挪去设置以后换成了这行淡字，作者还没单独看过
 function frpsAddr() {
-  const h = LINK.frps.host.trim(), port = LINK.frps.remote.trim() || (isProxyCore() ? "" : SET.port); // 代理端的本地端口启动后才知道，只写到冒号（同局域网那行）
+  const h = FRPS ? FRPS.host : "", port = LINK.frps.remote.trim() || (isProxyCore() ? "" : SET.port); // 代理端的本地端口启动后才知道，只写到冒号（同局域网那行）
   return (h ? `<span class="mono" title="${esc(h)}:${esc(port)}">${esc(h)}:${esc(port)}</span>` : `<span class="ph">frps 地址</span><span class="mono">:${esc(port)}</span>`)
     + `<button class="ib" data-act="copy" data-copy="${esc(h)}:${esc(port)}" title="复制"${h && port ? "" : " disabled"}><i data-ic="copy"></i></button>`;
 }
 function paintFrpsAddr() { const el = document.getElementById("faddr"); if (el) { el.innerHTML = frpsAddr(); KIT.hydrate(el); } }
-// 自建 frps 开关一动：四个框淡进淡出，打开时光标落在服务器地址
+// 自建 frps 开关一动：大字和公网端口框淡进淡出。公网端口是选填的，打开时不把光标塞进去（原来落在服务器地址，那个框挪去设置了）
 function afterFrps() {
   const p = document.querySelector(".frpp"); if (!p) return;
-  p.classList.toggle("on", LINK.frpsOn); p.title = LINK.frpsOn ? "" : "适用于自有 frps 服务端，点击开启";
-  p.querySelectorAll(".frps .inp").forEach(i => { if (LINK.frpsOn) i.removeAttribute("tabindex"); else { i.tabIndex = -1; i.classList.remove("bad"); } });
-  if (LINK.frpsOn) document.getElementById("fhost")?.focus({ preventScroll: true });
+  p.classList.toggle("on", LINK.frpsOn); p.title = LINK.frpsOn ? "" : FRPS_OFF;
+  const i = document.getElementById("fremote"); if (!i) return;
+  if (LINK.frpsOn) i.removeAttribute("tabindex"); else { i.tabIndex = -1; markRemote(false); }
+}
+// 公网端口填错：框标红、右边一句红字（一改就收，见输入事件）
+function markRemote(bad) {
+  document.getElementById("fremote")?.classList.toggle("bad", bad);
+  const m = document.getElementById("fmsg"); if (m) m.textContent = bad ? "请输入 1～65535 之间的整数" : "";
 }
 const WL_PH = "输入玩家名，回车添加";
 // 底部两块的开关：只有字（不写 online-mode、white-list），开关在字的左边
@@ -1842,12 +1874,13 @@ function afterWho(k) {
     if (SET.wl) setTimeout(() => document.getElementById("wlname")?.focus({ preventScroll: true }), 220);
   }
 }
-// 点「创建服务器」前：穿透平台要能用——樱花得先连上；OpenFrp、樱花得选好节点（或挑好一条已有的隧道）；打开了自建 frps 就得填地址
+// 点「创建服务器」前：穿透平台要能用——樱花得先连上；OpenFrp、樱花得选好节点（或挑好一条已有的隧道）；
+// 打开了自建 frps 时公网端口要么空着、要么是 1～65535 的整数（11-29 起服务端地址从设置里取，不用再查地址）
 function checkLink() {
   const v = viaOf();
   if (v === "lan") {
-    if (!LINK.frpsOn || isProxyCore() || LINK.frps.host.trim()) return true;
-    const h = document.getElementById("fhost"); h?.classList.add("bad"); h?.focus(); shakeEl(h); return false;
+    if (!LINK.frpsOn || isProxyCore() || !FRPS || remoteOk(LINK.frps.remote)) return true;
+    const h = document.getElementById("fremote"); markRemote(true); h?.focus(); shakeEl(h); return false;
   }
   if (v === "sakura" && !LINK.sakura) { const inp = document.getElementById("skey"); inp?.classList.add("bad"); inp?.focus(); shakeEl(inp); return false; }
   if (isTun(v)) {
@@ -2148,7 +2181,10 @@ document.getElementById("page").addEventListener("click", e => {
   const vo = e.target.closest("[data-via]"), lt = e.target.closest("[data-ltg]"), rn = e.target.closest("[data-unname]");
   const nd = e.target.closest("[data-node]"), us = e.target.closest("[data-use]"), nf = e.target.closest("[data-nfil]");
   if (vo) { if (!vo.classList.contains("on") && !vo.classList.contains("off")) pickVia(vo.dataset.via); return; }
-  if (lt) { LINK[lt.dataset.ltg] = !LINK[lt.dataset.ltg]; lt.classList.toggle("on", LINK[lt.dataset.ltg]); if (lt.dataset.ltg === "pub") afterPub(); if (lt.dataset.ltg === "frpsOn") afterFrps(); return; }
+  if (lt) {
+    if (lt.getAttribute("aria-disabled") === "true") return; // 代理端、设置里没配置自建 frps：拨不动（脚本点到的也不算）
+    LINK[lt.dataset.ltg] = !LINK[lt.dataset.ltg]; lt.classList.toggle("on", LINK[lt.dataset.ltg]); if (lt.dataset.ltg === "pub") afterPub(); if (lt.dataset.ltg === "frpsOn") afterFrps(); return;
+  }
   const fp = e.target.closest(".frpp:not(.on):not(.off)"); // 自建 frps 关着时点那一块哪儿都是打开
   if (fp) { LINK.frpsOn = true; fp.querySelector("[data-ltg]")?.classList.add("on"); afterFrps(); return; }
   if (rn) { removeName(rn.dataset.unname); return; }
@@ -2199,7 +2235,7 @@ document.getElementById("page").addEventListener("input", e => {
     const st = document.getElementById("pst"); st.innerHTML = portState(); KIT.hydrate(st);
   }
   else if (t.id === "smotd") SET.motd = t.value;
-  else if (t.id === "fhost" || t.id === "fport" || t.id === "ftoken" || t.id === "fremote") { LINK.frps[{ fhost: "host", fport: "port", ftoken: "token", fremote: "remote" }[t.id]] = t.value; t.classList.remove("bad"); if (t.id === "fhost" || t.id === "fremote") paintFrpsAddr(); }
+  else if (t.id === "fremote") { LINK.frps.remote = t.value; markRemote(false); paintFrpsAddr(); }
   else if (t.id === "skey") { LINK.key = t.value; t.classList.remove("bad"); }
   else if (t.id === "nq") { LINK.q = t.value; clearTimeout(nqTimer); nqTimer = setTimeout(() => regridNodes(0), 180); }
   else if (t.id === "wlname") {
@@ -2746,6 +2782,7 @@ function render() {
   paintMapCheck(false);
   const jl = document.getElementById("jlist"); if (jl) { placeHL(jl, false); scrollbar(jl.closest(".lwrap")); }
   document.body.classList.toggle("on-s0", step === 0);
+  document.body.classList.toggle("on-link", nm === "配置联机与访问");
   paintSk();
 }
 // 照 wizard.html 的 navLabel：最后一步的字换成这条路的动作名
@@ -2980,12 +3017,19 @@ function paintSk() {
   const states = [["empty", "空着"], ["busy", FLOW === "adopt" ? "识别中" : "上传中"], ["done", "识别好"], ["error", "出错"],
     ...(FLOW === "modpack" ? [["cf", "CurseForge 没配 Key"]] : FLOW === "adopt" ? [["unknown", "认不出核心"]] : [])];
   sk.innerHTML = `<span class="k">草图</span>` + Object.entries(FLOW_NAMES).map(([k, n]) => `<span data-sk="flow:${k}" class="${k === FLOW ? "on" : ""}">${n}</span>`).join("")
-    + `<span class="st"><i class="sep"></i>` + states.map(([k, n]) => `<span data-sk="st:${k}" class="${k === cur ? "on" : ""}">${n}</span>`).join("") + `</span>`;
+    + `<span class="st"><i class="sep"></i>` + states.map(([k, n]) => `<span data-sk="st:${k}" class="${k === cur ? "on" : ""}">${n}</span>`).join("") + `</span>`
+    + `<span class="fx"><i class="sep"></i><span class="k">自建 frps</span>` + [["none", "未配置"], ["set", "已配置"]].map(([k, n]) => `<span data-sk="frps:${k}" class="${(k === "set") === !!FRPS ? "on" : ""}">${n}</span>`).join("") + `</span>`;
 }
 document.getElementById("sk").addEventListener("click", e => {
   const x = e.target.closest("[data-sk]"); if (!x || stepping) return;
   const [k, v] = x.dataset.sk.split(":");
   if (k === "flow") { if (v !== FLOW) switchFlow(v); return; }
+  if (k === "frps") { // 设置里有没有存过自建 frps：就地重画这一步（不走 jump，免得回到第一步、填过的都清掉），地址栏跟着改；换成没配置时开关跟着关
+    if ((v === "set") === !!FRPS) return;
+    FRPS = v === "set" ? FRPS_SET : null; if (!FRPS) LINK.frpsOn = false;
+    const q = new URLSearchParams(location.search); if (FRPS) q.set("frps", "set"); else q.delete("frps");
+    history.replaceState(null, "", "?" + q); render(); return;
+  }
   if (v === "cf" || v === "unknown") jump(FLOW, 0, "done", v); else jump(FLOW, 0, v);
 });
 window.SKETCH = { jump, get state() { return { FLOW, step, SRC, core, play, ver, SET }; } };

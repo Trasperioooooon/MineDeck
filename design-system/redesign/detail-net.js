@@ -7,6 +7,11 @@
 //   · 没有隧道的平台照向导的节点面板，右上角一颗主键：新建隧道时「建隧道」，已有隧道时「用这条」；节点、隧道没选时灰着。
 //     游戏隧道在别的平台上时，这颗键叫「换到 樱花穿透」：建好以后原来那条停掉、解绑，平台上的不删（悬停里说）。
 //   · 「谁能进」不在这一页：白名单在「玩家」，正版验证在「设置 → 常用」（一个值只在一处改）。
+//   · 11-29 作者定：自建 frps 的地址、端口、令牌只在「设置 → 内网穿透」里填，这里只留开关和公网端口。设置里存过时，开关打开后大字拼出公网地址、
+//     下面一个「公网端口」框；框下面一行淡字写用的是哪个服务端，后面一颗齿轮去设置。没存过时开关灰着拨不动，框下面一句「尚未配置自建 frps」和「前往设置」。
+//     「保存并连接」照旧在右下角，只管开关和公网端口：第一次存之前开着就亮，存过以后公网端口改了才亮；公网端口填错（不是 1～65535 的整数）就地拦下。
+//     去设置走 ctx.go（经过外壳的离开前拦），地址带上配色参数和 frps，设置页看到的是同一个状态。
+// 草图参数（左下角第二条「自建 frps」切换）：&frps=set 表示设置里存过（示例同设置页：frp.example.com、7000、令牌已设置）；不带就是没配置。
 // 平台账户、节点、平台上的隧道、公网地址都是假的（节点名照两家官网抄，同向导）；Paper 那台有一条 OpenFrp 的游戏隧道，和页头的地址对得上。
 (() => {
 Object.assign(window.EXTRA_ICONS = window.EXTRA_ICONS || {}, {
@@ -68,7 +73,8 @@ function net() {
   if (!NETS[k]) {
     const st = C.st, paper = k === "paper";
     NETS[k] = {
-      via: paper ? "openfrp" : "lan", vlan: 0, frpsOn: false, frps: { host: "", port: "7000", token: "", remote: "" }, frpsSaved: false,
+      // 自建 frps：服务端（地址、端口、令牌）从设置里读（FRPS()），这里只记开关和公网端口；saved 是上次点「保存」时的公网端口，fbad 是公网端口填错被拦着
+      via: paper ? "openfrp" : "lan", vlan: 0, frpsOn: false, frps: { remote: "", saved: "", fbad: false }, frpsSaved: false,
       sakura: false, connecting: false, key: "", saveKey: true, tab: { openfrp: "new", sakura: "new" }, filter: "all", q: "", show: { full: false, off: false, perm: false },
       pick: { openfrp: "", sakura: "" }, use: { openfrp: "", sakura: "" }, swap: false, busy: false,
       // Paper 这台：一条 OpenFrp 的游戏隧道（和页头的地址对得上），装了 Simple Voice Chat、语音隧道还没建
@@ -108,31 +114,46 @@ const vlanNets = () => LAN_NETS.slice(0, [0, 2, 5][net().vlan]);
 const ib = (act, ic, tip, extra = "") => `<button class="nib" data-act="${act}" title="${esc(tip)}"${extra}><i data-ic="${ic}"></i></button>`;
 const vlanRows = () => vlanNets().map(([n, ip]) => `<div class="netrow" title="已加入同一${/^[A-Za-z0-9]/.test(n || "") ? " " : ""}${esc(n)}${/[A-Za-z0-9]$/.test(n || "") ? " " : ""}网络的玩家可使用此地址连接"><span class="nn">${esc(n)}</span><span class="mono">${ip}:${PORT()}</span>`
   + ib("copy", "copy", "复制", ` data-copy="${ip}:${PORT()}"`) + `</div>`).join("");
-const ntg = (key, t, on, tip = "", cls = "") => `<button class="ntg${on ? " on" : ""}${cls ? " " + cls : ""}" data-ntg="${key}" role="switch" aria-checked="${on}"${tip ? ` title="${esc(tip)}"` : ""}><span class="sw"></span>${t}</button>`;
+const ntg = (key, t, on, tip = "", cls = "", dis = false) => `<button class="ntg${on ? " on" : ""}${cls ? " " + cls : ""}" data-ntg="${key}" role="switch" aria-checked="${on}"${dis ? " disabled" : ""}${tip ? ` title="${esc(tip)}"` : ""}><span class="sw"></span>${t}</button>`;
+// 设置里存的自建 frps（11-29 作者定只在「设置 → 内网穿透」里填）：草图里 &frps=set 算存过，示例同设置页；没存过是 null
+const FRPS = () => C.QS.get("frps") === "set" ? { host: "frp.example.com", port: "7000" } : null;
+const FRPS_OFF = "适用于自有 frps 服务端，点击开启";
+const FRPS_NONE = "需先在「设置 → 内网穿透」中填写自建 frps 的地址、端口与令牌";
+const FRPS_BAD = "请输入 1～65535 之间的整数";
+const remoteOk = s => { s = s.trim(); return !s || (/^\d+$/.test(s) && +s >= 1 && +s <= 65535); }; // 公网端口：空着算对（用本地端口），填了要是 1～65535 的整数
 function frpsAddr() {
-  const N = net(), h = N.frps.host.trim(), port = N.frps.remote.trim() || PORT();
+  const N = net(), cfg = FRPS(), h = cfg ? cfg.host : "", port = N.frps.remote.trim() || PORT();
   return (h ? `<span class="mono" title="${esc(h)}:${esc(port)}">${esc(h)}:${esc(port)}</span>` : `<span class="ph">frps 地址</span><span class="mono">:${esc(port)}</span>`)
     + ib("copy", "copy", "复制", ` data-copy="${esc(h)}:${esc(port)}"${h ? "" : " disabled"}`);
 }
+// 「保存并连接」/「保存」：第一次存之前开着就亮；存过以后公网端口改了才亮（同设置页的「保存」）
+const frpsLit = () => { const N = net(); return !!FRPS() && N.frpsOn && (!N.frpsSaved || N.frps.remote.trim() !== N.frps.saved); };
+const saveBtn = () => `<button class="nb pri" data-act="frpsave"${frpsLit() ? "" : " disabled"} title="保存配置，并跟随服务器启动">${net().frpsSaved ? "保存" : "保存并连接"}</button>`;
+// 公网端口框下面一行淡字：存过时写用的是哪个服务端，后面一颗齿轮去设置；没存过时一句「尚未配置自建 frps」，后面一颗「前往设置」。开关关着时这一行不淡、照常能点
+function frpsSrv() {
+  const cfg = FRPS();
+  if (!cfg) return `<div class="fsrv"><i data-ic="info"></i><span class="t">尚未配置自建 frps</span><button class="nb sm" data-act="tosettings"><i data-ic="gear"></i>前往设置</button></div>`;
+  return `<div class="fsrv" title="在「设置 → 内网穿透」中修改"><span class="t">frps 服务端：<span class="mono">${esc(cfg.host)}:${esc(cfg.port)}</span></span>`
+    + ib("tosettings", "gear", "前往「设置 → 内网穿透」") + `</div>`;
+}
 function lanPage() {
-  const N = net(), on = N.frpsOn, fd = on ? "" : ` tabindex="-1"`;
+  const N = net(), cfg = FRPS(), on = N.frpsOn && !!cfg, fd = on ? "" : ` tabindex="-1"`;
   const lan = `<div class="lanp"><div class="lh"><i data-ic="wifi"></i><span class="t">局域网</span></div>`
     + `<div class="lbody"><span class="lb" title="同一局域网内的玩家在多人游戏中添加服务器时使用此地址">局域网联机地址</span>`
     + `<div class="bigaddr"><span class="mono">${LAN_IP}:${PORT()}</span>${ib("copy", "copy", "复制", ` data-copy="${LAN_IP}:${PORT()}"`)}</div>`
     + `<div class="vlan"><div class="vlh"><span class="lb" title="已启动并加入同一虚拟局域网（如 Radmin VPN、ZeroTier）时，使用对应地址联机；MineDeck 仅自动列出本机网卡地址">虚拟局域网</span>`
     + ib("vrefresh", "refresh", "重新检测") + `</div><div class="lwrap"><div class="list vrows" id="nvrows">${vlanRows()}</div><span class="thumb"></span></div></div>`
     + `<div class="vnone${vlanNets().length ? " gone" : ""}" id="nvnone"><i data-ic="info"></i><span>未检测到虚拟局域网，启动 Radmin、ZeroTier 等组网工具后将自动识别</span></div></div></div>`;
-  const stt = N.frpsSaved ? (C.st === "running" ? `<span class="npill ok"><i></i>运行中</span>` : C.st === "starting" ? `<span class="npill warm"><i></i>连接中</span>` : `<span class="npill off"><i></i>已停止</span>`) : "";
-  const frp = `<div class="lanp frpp${on ? " on" : ""}"${on ? "" : ` title="适用于自有 frps 服务端，点击开启"`}>`
-    + `<div class="lh">${ntg("frpsOn", "自建 frps", on, "由 MineDeck 启动 frpc 连接自有 frps，实现公网联机", "b")}${stt}</div>`
+  const stt = N.frpsSaved && cfg ? (C.st === "running" ? `<span class="npill ok"><i></i>运行中</span>` : C.st === "starting" ? `<span class="npill warm"><i></i>连接中</span>` : `<span class="npill off"><i></i>已停止</span>`) : "";
+  // 没配置时整块 .off：开关灰着、拨不动（disabled，点哪儿都不打开），悬停整块说去哪填；公网端口框下面那一行和「前往设置」不淡
+  const tip = !cfg ? FRPS_NONE : on ? "" : FRPS_OFF;
+  const frp = `<div class="lanp frpp${on ? " on" : ""}${cfg ? "" : " off"}"${tip ? ` title="${esc(tip)}"` : ""}>`
+    + `<div class="lh">${ntg("frpsOn", "自建 frps", on, "由 MineDeck 启动 frpc 连接自有 frps，实现公网联机", "b", !cfg)}${stt}</div>`
     + `<div class="lbody"><span class="lb" title="公网玩家连接时使用此地址，由 frps 地址与公网端口组成（公网端口留空时默认与本地端口一致）">公网联机地址</span>`
     + `<div class="bigaddr" id="nfaddr">${frpsAddr()}</div>`
-    + `<div class="frps" title="本地端口 ${PORT()}">`
-    + `<input class="inp" data-f="host" placeholder="frps 地址" value="${esc(N.frps.host)}" autocomplete="off" spellcheck="false"${fd}>`
-    + `<input class="inp" data-f="port" placeholder="frps 端口" value="${esc(N.frps.port)}" inputmode="numeric"${fd}>`
-    + `<input class="inp" data-f="token" type="password" placeholder="认证令牌（选填）" value="${esc(N.frps.token)}"${fd}>`
-    + `<input class="inp" data-f="remote" placeholder="公网端口" value="${esc(N.frps.remote)}" inputmode="numeric" title="公网联机使用的端口，留空时默认与本地端口一致（${PORT()}）"${fd}></div>`
-    + `<div class="lfoot"><button class="nb pri" data-act="frpsave"${N.frps.host.trim() ? "" : " disabled"} title="保存配置，并跟随服务器启动">${N.frpsSaved ? "保存" : "保存并连接"}</button></div></div></div>`;
+    + `<div class="frps"><input class="inp${N.frps.fbad ? " bad" : ""}" data-f="remote" placeholder="公网端口" value="${esc(N.frps.remote)}" inputmode="numeric" autocomplete="off" title="公网联机使用的端口，留空时默认与本地端口一致（${PORT()}）"${fd}>`
+    + `<span class="fmsg">${N.frps.fbad ? FRPS_BAD : ""}</span></div>${frpsSrv()}</div>`
+    + (cfg ? `<div class="lfoot">${saveBtn()}</div>` : "") + `</div>`;
   return lan + frp;
 }
 
@@ -341,6 +362,35 @@ function nmain() {
     if (live) setTimeout(() => connectTun(N.game, "game"), 400);
   }, 1200);
 }
+// 自建 frps 的「保存并连接」/「保存」：公网端口填错就地拦下（框标红、晃一下、光标落过去、右边一句红字），存好了标题那一行多一颗状态（只加这一颗，别的不动），
+// 按钮的字换成「保存」、灰到下次改了公网端口
+const shake = el => el?.animate([{ transform: "none" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "none" }],
+  { duration: 360, easing: "cubic-bezier(.3, .7, .2, 1)" });
+function markRemote(bad) {
+  net().frps.fbad = bad;
+  const i = $(".netv [data-f=remote]"), m = $(".netv .frps .fmsg"); if (!i) return;
+  i.classList.toggle("bad", bad); m.textContent = bad ? FRPS_BAD : "";
+}
+function paintSave() {
+  const b = $(".netv [data-act=frpsave]"); if (!b) return;
+  b.disabled = !frpsLit(); b.textContent = net().frpsSaved ? "保存" : "保存并连接";
+}
+function saveFrps() {
+  const N = net(); if (!frpsLit()) return;
+  if (!remoteOk(N.frps.remote)) { markRemote(true); const i = $(".netv [data-f=remote]"); shake(i); i?.focus(); return; }
+  const first = !N.frpsSaved; N.frpsSaved = true; N.frps.saved = N.frps.remote.trim(); paintSave();
+  if (first) {
+    $(".netv .frpp .lh").insertAdjacentHTML("beforeend", C.st === "running" ? `<span class="npill ok"><i></i>运行中</span>` : C.st === "starting" ? `<span class="npill warm"><i></i>连接中</span>` : `<span class="npill off"><i></i>已停止</span>`);
+    $(".netv .frpp .lh .npill").animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: "cubic-bezier(.2, .7, .2, 1)" });
+    paintMeta();
+  }
+}
+// 去「设置 → 内网穿透」：走外壳的 ctx.go（有没保存的先问）；带上配色参数和 frps，设置页看到的是同一个状态
+function toSettings() {
+  const q = new URLSearchParams({ sec: "tunnels" });
+  ["theme", "scheme", "accent", "frps"].forEach(k => C.QS.get(k) && q.set(k, C.QS.get(k)));
+  C.go("settings.html?" + q);
+}
 // 删除隧道：确认框（同共用件页的危险确认框），默认连平台上的一起删
 let mask = null;
 function confirmDelete(which) {
@@ -396,24 +446,17 @@ document.addEventListener("click", e => {
     }, 600);
     return;
   }
-  if (a === "frpsave") { // 存好：标题那一行多一颗状态（只加这一颗，别的不动），按钮的字换成「保存」
-    const first = !N.frpsSaved; N.frpsSaved = true;
-    e.target.closest("[data-act]").textContent = "保存";
-    if (first) {
-      $(".netv .frpp .lh").insertAdjacentHTML("beforeend", C.st === "running" ? `<span class="npill ok"><i></i>运行中</span>` : C.st === "starting" ? `<span class="npill warm"><i></i>连接中</span>` : `<span class="npill off"><i></i>已停止</span>`);
-      $(".netv .frpp .lh .npill").animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: "cubic-bezier(.2, .7, .2, 1)" });
-      paintMeta();
-    }
-    return;
-  }
-  const fr = e.target.closest(".frpp:not(.on)"); const tgl = e.target.closest("[data-ntg]");
+  if (a === "frpsave") { saveFrps(); return; }
+  if (a === "tosettings") { toSettings(); return; }
+  const fr = e.target.closest(".frpp:not(.on):not(.off)"); const tgl = e.target.closest("[data-ntg]");
   if (tgl || fr) {
     const key = tgl ? tgl.dataset.ntg : "frpsOn";
     if (key === "frpsOn") {
-      N.frpsOn = !N.frpsOn; const p = $(".netv .frpp"); p.classList.toggle("on", N.frpsOn); p.title = N.frpsOn ? "" : "适用于自有 frps 服务端，点击开启";
+      if (!FRPS()) return; // 设置里没配置：拨不动（键盘、脚本点到的也不算）
+      N.frpsOn = !N.frpsOn; const p = $(".netv .frpp"); p.classList.toggle("on", N.frpsOn); p.title = N.frpsOn ? "" : FRPS_OFF;
       const t = $("[data-ntg=frpsOn]", p); t.classList.toggle("on", N.frpsOn); t.setAttribute("aria-checked", N.frpsOn);
-      $$(".frps .inp", p).forEach(i => { if (N.frpsOn) i.removeAttribute("tabindex"); else i.tabIndex = -1; });
-      if (N.frpsOn) $("[data-f=host]", p).focus({ preventScroll: true });
+      const i = $("[data-f=remote]", p); if (N.frpsOn) i.removeAttribute("tabindex"); else { i.tabIndex = -1; markRemote(false); }
+      paintSave(); // 公网端口是选填的，打开时不把光标塞进去
       return;
     }
     if (key === "follow") { const w = tgl.closest(".tunp").dataset.tun, t = w === "voice" ? N.voice : N.game; t.follow = !t.follow; tgl.classList.toggle("on", t.follow); tgl.setAttribute("aria-checked", t.follow); return; }
@@ -483,15 +526,21 @@ document.addEventListener("input", e => {
   const N = net();
   if (e.target.id === "nnq") { N.q = e.target.value; clearTimeout(qT); qT = setTimeout(() => regridNodes(0), 180); return; }
   if (e.target.id === "nskey") { N.key = e.target.value; return; }
-  const f = e.target.dataset.f; if (f) {
-    N.frps[f] = e.target.value; const el = $("#nfaddr"); if (el) { el.innerHTML = frpsAddr(); C.KIT.hydrate(el); }
-    const s = $(".netv [data-act=frpsave]"); if (s) s.disabled = !N.frps.host.trim();
+  if (e.target.dataset.f === "remote") { // 公网端口：边填边拼大字，红框和那句红字一改就收
+    N.frps.remote = e.target.value; if (N.frps.fbad) markRemote(false);
+    const el = $("#nfaddr"); if (el) { el.innerHTML = frpsAddr(); C.KIT.hydrate(el); }
+    paintSave();
   }
 });
-document.addEventListener("keydown", e => { if (e.key === "Escape") { closeMenu(); closeMask(); } });
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") { closeMenu(); closeMask(); }
+  if (e.key === "Enter" && !e.isComposing && e.target.dataset?.f === "remote" && e.target.closest(".netv")) { e.preventDefault(); saveFrps(); } // 公网端口框里回车同点「保存」
+});
 addEventListener("resize", () => { if (C?.tab === "net") { placeVias(false); placeSeg(false); placeNfil(false); } });
 
 window.DETAIL_TABS.net = {
+  // 草图切换条（外壳左下角第二条）：设置里有没有存过自建 frps
+  sk: [{ t: "自建 frps", k: "frps", opts: [[null, "未配置", "设置里没有存过自建 frps"], ["set", "已配置", "设置里存过 frp.example.com:7000（同设置页 &frps=set）"]] }],
   html(ctx) { C = ctx; return `<div class="netv">${cards()}<div class="vdet">${detail()}</div></div>`; },
   mount(ctx) { C = ctx; placeVias(false); after(); },
 };
