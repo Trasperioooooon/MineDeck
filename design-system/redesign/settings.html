@@ -174,7 +174,7 @@ function skBar() {
 // 各分类的内容在各自的文件里，登记在 window.SETTINGS_SECS[分类] = { html(ctx), mount(ctx) }。
 // html 返回内容面板里的那一块（外层自己定，通常是 flex: 1 的一栏）；mount 在内容换上去、图标换好以后跑一次。
 window.SETTINGS_SECS = window.SETTINGS_SECS || {};
-const secCtx = () => ({ sec, QS, $, $$, esc, thinBar, KIT, servers: SERVERS, update: UPDATE, setTheme, setCapAI, goSec });
+const secCtx = () => ({ sec, QS, $, $$, esc, thinBar, KIT, servers: SERVERS, update: UPDATE, setTheme, setCapAI, goSec, go: href => GUARD.go(href) }); // go：用脚本跳到别的页时走它，有没保存的改动先问
 function content() {
   const v = SETTINGS_SECS[sec];
   return v ? v.html(secCtx()) : `<div class="empty"></div>`;
@@ -193,8 +193,11 @@ function swapContent() {
   [...cp.children].forEach(c => c.classList.add("fade-out"));
   swapT = setTimeout(() => { cp.innerHTML = content(); KIT.hydrate(cp); mountSec(); [...cp.children].forEach(c => c.classList.add("fade-in")); }, 90);
 }
-function goSec(id) {
+// 换分类、刷新、点胶囊上的链接跳走之前，先问这一类有没有没保存的改动（kit.js 第 6 条；作者 11-28 定所有要点保存的页面都这样）
+const GUARD = KIT.guardPage(() => SETTINGS_SECS[sec]);
+async function goSec(id) {
   if (id === sec || !SECS.some(s => s.id === id)) return;
+  if (!(await KIT.leave(SETTINGS_SECS[sec]))) return;
   sec = id;
   const q = new URLSearchParams(location.search); q.set("sec", sec); history.replaceState(null, "", "?" + q);
   $$("#snav > button").forEach(b => b.classList.toggle("on", b.dataset.sec === id)); placeNav();

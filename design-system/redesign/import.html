@@ -1440,8 +1440,8 @@ function refreshVlan(b) {
 const VIAS = [["lan", "局域网 / 自建 frps"], ["openfrp", "OpenFrp"], ["sakura", "樱花穿透"]];
 const VIA_TIP = {
   lan: "同一局域网内可直接联机；如有自有 frps，开启「自建 frps」即可公网联机",
-  openfrp: "通过 OpenFrp 实现公网联机；MineDeck 将在平台创建隧道并随服务器一同启动",
-  sakura: "通过樱花穿透实现公网联机；MineDeck 将在平台创建隧道并随服务器一同启动",
+  openfrp: "通过 OpenFrp 实现公网联机；MineDeck 将在平台创建隧道并绑定到该服务器",
+  sakura: "通过樱花穿透实现公网联机；MineDeck 将在平台创建隧道并绑定到该服务器",
 };
 const isTun = k => k === "openfrp" || k === "sakura";
 const tabOf = k => LINK.tab[k] || "new"; // 「新建隧道 / 用已有的」两个平台各记各的
@@ -1558,7 +1558,7 @@ function tunRows(k) {
   return list.map(t => {
     const bad = t.t !== "TCP" ? "此为 UDP 隧道（通常用于语音），游戏联机需使用 TCP 隧道；语音隧道可在创建服务器后于「联机」页添加"
       : t.lp !== +SET.port ? `本地端口为 ${t.lp}，与当前服务器端口 ${SET.port} 不一致；请先在平台将本地端口修改为 ${SET.port}` : "";
-    return `<div class="trow${LINK.use[k] === t.n ? " on" : ""}${bad ? " off" : ""}" data-use="${esc(t.n)}" title="${esc(bad || "使用此隧道，并随服务器一同启动")}">`
+    return `<div class="trow${LINK.use[k] === t.n ? " on" : ""}${bad ? " off" : ""}" data-use="${esc(t.n)}" title="${esc(bad || "使用此隧道")}">`
       + `<span class="n">${esc(t.n)}</span><span class="tag plain">${t.t}</span><span class="sp"></span><span class="k">${esc(t.node)} · 本地端口 ${t.lp}</span></div>`;
   }).join("");
 }
@@ -1572,8 +1572,8 @@ function nodeBody(k) {
   return top + `<div class="lwrap nwrap"><div class="list nlist" id="nlist">${tabOf(k) === "new" ? nodeCards(k) : tunRows(k)}</div><i class="thumb"></i></div>`;
 }
 function nodePanel(k) {
-  const tip = k === "openfrp" ? `在 OpenFrp 自动创建隧道：本地端口 ${SET.port}，公网端口将在节点允许范围内自动分配，其余保持平台默认，并随服务器一同启动`
-    : `在樱花穿透自动创建隧道：本地端口 ${SET.port}，公网端口由平台自动分配，其余保持平台默认，并随服务器一同启动`;
+  const tip = k === "openfrp" ? `在 OpenFrp 自动创建隧道：本地端口 ${SET.port}，公网端口将在节点允许范围内自动分配，其余保持平台默认`
+    : `在樱花穿透自动创建隧道：本地端口 ${SET.port}，公网端口由平台自动分配，其余保持平台默认`;
   const on = v => tabOf(k) === v ? ` class="on"` : "", use = tabOf(k) === "use";
   return `<div class="nbar"><div class="seg sm" data-lseg="tab"><i class="sgl"></i><span data-v="new"${on("new")} title="${esc(tip)}">新建隧道</span>`
     + `<span data-v="use"${on("use")} title="从平台已创建的隧道中选择一条绑定到当前服务器">已有隧道</span></div><span class="nmsg" id="nmsg"></span>`

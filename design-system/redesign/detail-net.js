@@ -332,7 +332,8 @@ function nmain() {
     if (N.swap) { N.game.node = N.pick[k]; N.game.port = 30000 + (nodeBy(k, N.pick[k]).id || 7) * 131 % 9000; N.swap = false; }
     else {
       const use = N.tab[k] === "use" ? PLAT_TUNS[k].find(t => t.n === N.use[k]) : null;
-      N.game = { plat: k, name: use ? use.n : "survival_" + PORT(), node: use ? use.node : N.pick[k], port: use ? 31502 : 32000 + PORT() % 1000, follow: true, on: false, wait: false };
+      // 新建的隧道「跟随服务器启动」默认关（作者 11-28 定，同程序 A62：开着的话每次开服都自动映射到公网，要人自己打开）；语音隧道同
+      N.game = { plat: k, name: use ? use.n : "survival_" + PORT(), node: use ? use.node : N.pick[k], port: use ? 31502 : 32000 + PORT() % 1000, follow: false, on: false, wait: false };
       N.voice = null;
     }
     N.pick[k] = ""; N.use[k] = "";
@@ -428,7 +429,7 @@ document.addEventListener("click", e => {
   if (a === "vadd") {
     N.busy = true; swapItems($(".netv .tunp.empty .vadd"), `<button class="nb pri" disabled><i data-ic="spinner" class="spin"></i>创建中</button>`, 0, "Y");
     setTimeout(() => {
-      N.busy = false; N.voice = { kind: "voice", plat: N.game.plat, name: N.game.name + "_voice", node: N.game.node, port: N.game.port + 7, follow: true, on: false, wait: false };
+      N.busy = false; N.voice = { kind: "voice", plat: N.game.plat, name: N.game.name + "_voice", node: N.game.node, port: N.game.port + 7, follow: false, on: false, wait: false };
       const old = $(".netv .tunp.empty"); if (!old) return;
       old.animate([{ opacity: 1 }, { opacity: 0, transform: "translateY(-5px)" }], { duration: 90, easing: "cubic-bezier(.4, 0, 1, 1)", fill: "forwards" }).onfinish = () => {
         old.outerHTML = tunBlock(N.voice); const nw = $(`.netv .tunp[data-tun="voice"]`); C.KIT.hydrate(nw);

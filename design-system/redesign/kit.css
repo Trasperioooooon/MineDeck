@@ -42,3 +42,39 @@ button { font: inherit; color: inherit; }
 .kit-tip.side-r { transform: translateX(-4px); }
 .kit-tip.side-l { transform: translateX(4px); }
 .kit-tip.on { opacity: 1; transform: none; }
+
+/* 确认框（kit.js 第 5 条，各页共用）：数值同共用件页的确认框和各页原来各自的那份（.ex-mask 一类）。遮罩从标题栏下面（40）盖起 */
+.kit-mask { --kit-scrim: rgb(var(--shadow-rgb) / .32); --kit-elev4: 0 28px 64px -16px rgb(var(--shadow-rgb) / .32), 0 8px 20px -4px rgb(var(--shadow-rgb) / .10);
+  position: fixed; left: 0; right: 0; top: 40px; bottom: 0; z-index: 900; display: grid; place-items: center; background: var(--kit-scrim); backdrop-filter: blur(2px); }
+[data-theme="dark"] .kit-mask { --kit-scrim: rgb(0 0 0 / .56); --kit-elev4: 0 32px 72px -16px rgb(0 0 0 / .72), 0 8px 24px -4px rgb(0 0 0 / .40); }
+.kit-mask.enter { animation: kit-mk-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+.kit-mask.enter > .kit-md { animation: kit-md-in .26s cubic-bezier(.2, .7, .2, 1) both; }
+.kit-mask.leave { animation: kit-mk-out .14s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+.kit-mask.leave > .kit-md { animation: kit-md-out .14s cubic-bezier(.4, 0, 1, 1) both; }
+@keyframes kit-mk-in { from { opacity: 0; } } @keyframes kit-mk-out { to { opacity: 0; } }
+@keyframes kit-md-in { from { opacity: 0; transform: translateY(10px); } } @keyframes kit-md-out { to { opacity: 0; transform: translateY(6px); } }
+.kit-md { width: var(--w, 400px); border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--kit-elev4); display: flex; flex-direction: column; gap: 8px; }
+.kit-mc { border-radius: 18px; padding: 18px 20px 20px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); display: flex; flex-direction: column; gap: 12px; }
+.kit-mh { display: flex; align-items: center; gap: 12px; margin: -10px 0 0 -12px; }
+.kit-mi { width: 40px; height: 40px; border-radius: 10px; flex: none; display: grid; place-items: center; background: var(--accent-subtle); color: var(--accent-text); }
+.kit-mi.dgr { background: var(--danger-subtle); color: var(--danger-text); }
+.kit-mi .ico { width: 20px; height: 20px; }
+.kit-md h3 { flex: 1; min-width: 0; margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; }
+.kit-mb { font-size: 13px; line-height: 21px; color: var(--muted); }
+.kit-ma { display: flex; gap: 8px; }
+.kit-b { flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center; height: 36px; padding: 0 14px; border-radius: 18px;
+  border: 1px solid var(--border); background: var(--control); color: var(--text); font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer; transition: background-color .2s; outline: none; }
+.kit-b:hover { background: var(--control-hov); }
+.kit-b.acc { background: var(--accent-solid); color: var(--on-accent); border-color: transparent; font-weight: 600; }
+.kit-b.acc:hover { background: var(--accent-solid-hov); }
+.kit-b.dgr { background: var(--danger-solid); color: var(--on-danger); border-color: transparent; font-weight: 600; }
+.kit-b.dgr:hover { background: var(--danger-solid-hov); }
+.kit-b:focus-visible, .kit-b.fk { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px color-mix(in srgb, var(--accent) 70%, transparent); }
+
+/* 步进中间的数字就地打字（kit.js 第 7 条）：平时悬停有一层淡底，表示点得进去；打字时整个步进框描一圈强调色，填错了描危险色（规范第六节） */
+.kit-numt { cursor: text; border-radius: 6px; transition: background-color .15s; }
+.kit-numt:hover { background: var(--hover); }
+.kit-numt:has(.kit-num) { background: none; }
+.kit-num { width: 100%; min-width: 0; height: 100%; border: 0; padding: 0; margin: 0; background: transparent; color: inherit; font: inherit; text-align: center; outline: none; }
+.kit-num-on { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 65%, transparent); }
+.kit-num-bad { box-shadow: inset 0 0 0 1px var(--danger); }

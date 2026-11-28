@@ -890,7 +890,9 @@ document.addEventListener("click", e => {
 // 别的标签的内容在各自的文件里（detail-players.js、detail-net.js……），登记在 window.DETAIL_TABS[标签编号] = { html(ctx), mount(ctx) }。
 // html 返回内容面板里的那一块（外层自己定，通常是 flex: 1 的一栏）；mount 在内容换上去、图标换好以后跑一次。ctx 里是这台服务器的样子和几个共用的小工具。
 window.DETAIL_TABS = window.DETAIL_TABS || {};
-const tabCtx = () => ({ S, kind, st, tab, sub: subPick[tab], QS, $, $$, esc, thinBar, KIT, online: ONLINE(), setOnline, folders: folderList(), goTab });
+// 刷新、点胶囊上的链接跳走之前也问一句（kit.js 第 6 条）；控制台没有要保存的东西
+const GUARD = KIT.guardPage(() => tab === "console" ? null : tabView());
+const tabCtx = () => ({ S, kind, st, tab, sub: subPick[tab], QS, $, $$, esc, thinBar, KIT, online: ONLINE(), setOnline, folders: folderList(), goTab, go: href => GUARD.go(href) }); // go：用脚本跳到别的页时走它，有没保存的改动先问
 function content() {
   if (tab === "console") return consoleHTML();
   const v = tabView();
@@ -921,8 +923,11 @@ function swapContent() {
   swapT = setTimeout(() => { cp.innerHTML = content(); KIT.hydrate(cp); mountTab(); [...cp.children].forEach(c => c.classList.add("fade-in")); }, 90);
 }
 function syncURL() { const q = new URLSearchParams(location.search); q.set("tab", tab); if (subsOf(tab)) q.set("sub", subPick[tab]); else q.delete("sub"); history.replaceState(null, "", "?" + q); }
-function goTab(id) {
+// 换标签、换子页之前先问这一页有没有没保存的改动（kit.js 第 6 条；作者 11-28 定所有要点保存的页面都这样）
+const leaveOK = () => tab === "console" || KIT.leave(tabView());
+async function goTab(id) {
   if (id === tab || !TABS.some(x => x.id === id)) return;
+  if (!(await leaveOK())) return;
   tab = id; syncURL();
   // 子页跟着展开到新的标签下面，选中块从原来那行滑到新的一行
   const from = $("#snav > button.on").offsetTop;
@@ -935,9 +940,13 @@ document.addEventListener("click", e => {
   if (t || g) { goTab((t || g).dataset.t || g.dataset.go); return; }
   if (s) {
     const id = s.dataset.s; if (subPick[tab] === id) return;
-    subPick[tab] = id; syncURL();
-    const box = s.parentElement; $$("button", box).forEach(b => b.classList.toggle("on", b.dataset.s === id));
-    swapContent(); return;
+    Promise.resolve(leaveOK()).then(ok => {
+      if (!ok) return;
+      subPick[tab] = id; syncURL();
+      const box = s.parentElement; $$("button", box).forEach(b => b.classList.toggle("on", b.dataset.s === id));
+      swapContent();
+    });
+    return;
   }
   const cl = e.target.closest("[data-close]"); if (cl) { dismiss(cl.dataset.close); return; }
   if (e.target.closest("[data-ntp]")) { openNtp(); return; }
@@ -949,7 +958,7 @@ document.addEventListener("click", e => {
     if (ex.getAttribute("aria-disabled") === "true") return;
     const q = new URLSearchParams({ kind: "export", play: "1" });
     ["theme", "scheme", "accent"].forEach(k => QS.get(k) && q.set(k, QS.get(k)));
-    closeMenu(); location.href = "task.html?" + q; return;
+    closeMenu(); GUARD.go("task.html?" + q); return;
   }
   if (!e.target.closest(".dm")) closeMenu();
 });
