@@ -11,8 +11,8 @@
 // 这里：内容面板里一栏（圆角 18 = 26 − 8），从上到下：
 //   · 顶上一行 28 高（同「玩家」各栏）：「备份」和份数「9 / 10」（后面那个数是保留份数，所有服务器共用；说明和到哪改进悬停，一个值只说一次）；
 //     接着是「自动备份」开关（36 × 20，在字的左边）和一颗 28 高的胶囊「每天 04:00」（定时备份，点了去「定时任务」）。作者 11-28 定要加这颗开关：
-//     自动备份就是「定时任务」里的定时备份，有一条就算开着。开 = 加一条（照定时任务页的预设「每小时存档」：每隔 1 小时），关 = 把定时备份都拿掉、胶囊跟着收起；
-//     点了就生效，不进草稿。不止一条时胶囊写第一条、后面跟「+1」（同控制台报错横幅两个以上的问题），全部列在悬停里。
+//     自动备份就是「定时任务」里的定时备份，有一条就算开着。开 = 加一条每天 04:00 的（见下面 AUTO），关 = 把定时备份都拿掉、胶囊跟着收起；
+//     点了就生效，不进草稿；要拿掉的不只是开关自己加的那一条时先确认。不止一条时胶囊写第一条、后面跟「+1」（同控制台报错横幅两个以上的问题），全部列在悬停里。
 //     开关和胶囊靠左放：胶囊出来、收起时开关不挪地方（原来胶囊在右边，开关放它旁边的话一关就会从鼠标底下跑开）。
 //     右边是「当前世界」那句（只在现在的世界不是列表里某一份时才出，比如导入的地图、换回过的、随交接包带来的、换地图还没走完的；
 //     从列表里某一份还原的，就在那一行标「现在的世界」，不再另说一遍），最右边贴栏角是「打开备份文件夹」（外壳给的 ctx.folders）。
@@ -82,8 +82,9 @@
   // 备份文件名：时间（20060102-150405）加可选的「-标签」，同 inst/backup.go 的 parseBackupName
   const parse = f => { const x = f.match(/^(\d{4})(\d\d)(\d\d)-(\d\d)(\d\d)(\d\d)(?:\.\d+)?(?:-(.+))?\.zip$/); return x ? { time: `${x[1]}-${x[2]}-${x[3]} ${x[4]}:${x[5]}`, label: x[7] || "" } : { time: "", label: "" }; };
   const bk = (file, mb, old) => ({ file, mb, ...parse(file), old: old || "" }); // old：改存放位置以前的旧文件夹（程序的 elsewhere + dir）
-  // 「自动备份」开关打开时加的那一条定时备份：照「定时任务」的预设「每小时存档」（detail-tasks.js 的 PRESETS：每隔 1 小时、放进「存档」文件夹）
-  const AUTO = { every: 60 };
+  // 「自动备份」开关打开时加的那一条定时备份：每天 04:00（主会话 11-28 改的：子代理先照「定时任务」的预设「每小时存档」画，
+  // 但保留份数和手动备份共用，每小时一份 10 个小时就把手动的挤掉；每天一份是程序原来就有的定时备份，也同示例里 Paper 那条）
+  const AUTO = { at: "04:00" };
   const SEED = {
     // scheds：这台服务器的定时备份（「定时任务」里类型是备份的那几条：at 每天几点，every 每隔几分钟）。Paper：天天 04:00 定时备份；11-22 从「开荒第一周」还原过一次（那时自动做了一份「还原前自动」）；最旧那份还在改存放位置以前的文件夹里
     paper: { dir: "D:\\MineDeck\\backups\\生存服 · 朋友", scheds: [{ at: "04:00" }], worldMb: 823, worlds: ["world", "world_nether", "world_the_end"],
@@ -138,7 +139,7 @@
   // 草图专用的地址参数（见文件开头）：只在头一次建这台服务器的数据时套用。外壳换子页时地址里的参数还在，放在 html() 里的话换回来又被重置
   function seedFromQS(D) {
     const F = D.flow, map = C.QS.get("map"), cd = D.src.cands[0];
-    if (C.QS.get("sched") === "multi") D.scheds = [{ at: "04:00" }, { ...AUTO }];
+    if (C.QS.get("sched") === "multi") D.scheds = [{ at: "04:00" }, { every: 60 }]; // 每天 04:00 加一条在「定时任务」里另配的每小时一份
     // 随交接包带来的（inst.WorldFrom 的 Carried）：还原是在原来那台电脑上做的，那份备份不在这台的列表里
     if (C.QS.get("from") === "carried") D.wf = { backup: "20261114-221500-交接前.zip", at: "2026-11-14 22:16", carried: true };
     if (map === "unreadable") Object.assign(F, { phase: "error", err: "zip", fileName: D.src.file });
@@ -282,7 +283,7 @@
   const countHTML = () => `${dat().backups.length}<small> / ${KEEP}</small>`;
   // 「自动备份」开关：有定时备份就是开着。开 = 照预设加一条，关 = 定时备份都拿掉（程序没有「停用」，只能增删）；说明进悬停
   const autoTip = n => n ? `关闭后移除${n > 1 ? `全部 ${n} 条` : ""}定时备份，已有的备份不受影响`
-    : `开启后${whenText(AUTO)}自动备份一次存档（同「定时任务」的预设「每小时存档」），服务器未运行时不执行。每台服务器保留最近 ${KEEP} 份（含手动备份），超出时自动清理最旧的备份`;
+    : `开启后${whenText(AUTO)}自动备份一次存档，服务器未运行时不执行；时刻可在「定时任务」中修改。每台服务器保留最近 ${KEEP} 份（含手动备份），超出时自动清理最旧的备份`;
   function autoSw() {
     const n = dat().scheds.length;
     return `<button type="button" class="wd-tg${n ? " on" : ""}" data-wd-act="auto" role="switch" aria-checked="${n > 0}" title="${esc(autoTip(n))}"><span class="wd-sw"></span><span class="t">自动备份</span></button>`;
@@ -408,8 +409,16 @@
       } });
   }
   // 开关自己滑过去（没变的不动），胶囊从开关那一侧淡进来、关的时候朝开关那一侧淡掉
-  function toggleAuto() {
-    const D = dat(), r = bkRoot(), on = !D.scheds.length;
+  // 关掉时要拿掉的不只是开关自己加的那一条（不止一条，或是在「定时任务」里另配的）就先确认，免得一下删掉别处配好的任务（主会话 11-28 加的）
+  async function toggleAuto() {
+    const D = dat(), on = !D.scheds.length;
+    if (!on && (D.scheds.length > 1 || whenText(D.scheds[0]) !== whenText(AUTO))) {
+      const L = D.scheds.map(whenText).join("、");
+      const k = await KIT.confirm({ ic: "clock", tone: "dgr", title: "关闭自动备份", body: `将移除「定时任务」中的 ${D.scheds.length} 条定时备份（${L}），已有的备份不受影响。`,
+        btns: [{ k: "cancel", label: "取消" }, { k: "ok", label: "关闭", tone: "dgr" }] });
+      if (k !== "ok" || !D.scheds.length) return;
+    }
+    const r = bkRoot(); if (!r) return;
     D.scheds = on ? [{ ...AUTO }] : [];
     const sw = $("[data-wd-act=auto]", r);
     sw.classList.toggle("on", on); sw.setAttribute("aria-checked", on); sw.title = autoTip(D.scheds.length); delete sw.dataset.tip;
