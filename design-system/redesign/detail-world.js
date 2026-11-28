@@ -146,7 +146,7 @@
     // hold：这台服务器的存档现在动不了（程序 /world 的 busy、blocked）。busy 等它做完；stuck 换地图没走完、自动恢复也没成功，要人处理
     if (map === "busy" || map === "stuck") {
       D.hold = map;
-      if (map === "stuck") D.wf = null; // 换到一半、没退回去：现在的存档说不清还是不是那份备份了，程序这时会清掉 worldFrom（inst/worldhold.go 放掉占位时）
+      if (map === "stuck") D.wf = null; // 换到一半、没退回去：现在的存档说不清还是不是那份备份了，程序放掉占位时会清掉 worldFrom（inst/worldintent.go 的 Release）
       D.points.unshift({ id: "h1", name: cd.name, state: map === "busy" ? "committing" : "stuck", created: "2026-11-27 20:12", source: D.src.file, oldMb: 0, hasOld: false,
         error: map === "stuck" ? failCause() : "" });
     }
