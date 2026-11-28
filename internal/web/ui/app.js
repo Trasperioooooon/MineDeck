@@ -4877,12 +4877,14 @@ async function renderPolicyTab(body, name, gen, appInfo) {
   };
   const HINT = $("#sc-hint").textContent;
   const everyMode = () => $("#sc-mode").value === "every";
-  // keep 份定时备份大约能覆盖多久（份数 × 间隔）：每小时一份、留 24 份就是最近 1 天
-  const fmtSpan = m => (m % 1440 === 0 ? `${m / 1440} 天` : m % 60 === 0 ? `${m / 60} 小时` : `${m} 分钟`);
+  // keep 份定时备份大约能覆盖多久（份数 × 间隔）：每小时一份、留 24 份就是最近 1 天。满一天按天、满一小时按小时，
+  // 最多留一位小数（30 分钟留 25 份是 12.5 小时，每小时留 1000 份是 41.7 天，不写成 750 分钟、1000 小时；复审建议）
+  const fmtSpan = m => { const r = x => +x.toFixed(1); return m >= 1440 ? `${r(m / 1440)} 天` : m >= 60 ? `${r(m / 60)} 小时` : `${m} 分钟`; };
   const everyHint = () => {
     const base = "从每天 0 点起算，每隔 1 小时就是每个整点执行。";
     if ($("#sc-type").value !== "backup") return base;
-    const n = +$("#sc-every").value, step = Number.isInteger(n) && n > 0 ? n * +$("#sc-unit").value : 0;
+    // 间隔不在备份允许的 30~720 分钟里（添加时会被拦下）就不算「约为最近多久」，免得看着像是能用的间隔
+    const n = +$("#sc-every").value, m = Number.isInteger(n) && n > 0 ? n * +$("#sc-unit").value : 0, step = m >= 30 && m <= 720 ? m : 0;
     return base + `定时备份只留最近 ${keep} 份${step ? `（按这个间隔约为最近 ${fmtSpan(keep * step)}）` : ""}，更早的定时备份会删掉；手动备份另行计数，不受影响。`;
   };
   // 每天 / 每隔：换一种就换一组输入框。快捷时间只对「每天」有用：「每隔」时收起那几个按钮，这一行只剩说明，

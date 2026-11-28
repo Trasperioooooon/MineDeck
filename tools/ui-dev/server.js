@@ -3126,11 +3126,12 @@ function handler(state, ui, portOf) {
         }
         // 同 appops.go：两种保留份数超出 1~1000 按边界算；改 backupKeep 时定时备份的份数还没设过，先把它现在的值记下来
         const clampKeep = k => Math.min(1000, Math.max(1, Math.round(+k) || 1));
-        if ("backupKeep" in b) {
-          if (!state.config.scheduledBackupKeep && !("scheduledBackupKeep" in b)) state.config.scheduledBackupKeep = schedKeepOf(state.config);
+        // 记进 b、随整次一起合并（后面还有整次拒绝的检查，拒了 config 不能被改到一半）；null 同 Go 的 *int 为 nil，当没带（复审建议）
+        if (b.backupKeep != null) {
+          if (!(state.config.scheduledBackupKeep > 0) && b.scheduledBackupKeep == null) b.scheduledBackupKeep = schedKeepOf(state.config);
           b.backupKeep = clampKeep(b.backupKeep);
-        }
-        if ("scheduledBackupKeep" in b) b.scheduledBackupKeep = clampKeep(b.scheduledBackupKeep);
+        } else delete b.backupKeep;
+        if (b.scheduledBackupKeep != null) b.scheduledBackupKeep = clampKeep(b.scheduledBackupKeep); else delete b.scheduledBackupKeep;
         if ("autoStart" in b) state.autoStart = !!b.autoStart;
         // 同 appops.go：局域网访问密码只存哈希、不进 config；开启局域网访问前必须已有密码（同一次请求里带上也算），否则整次拒绝
         const lanSetNow = state.lanSet || !!b.lanPassword;
