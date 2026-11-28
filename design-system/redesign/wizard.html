@@ -1054,10 +1054,11 @@ function paintMem() {
   const st = document.getElementById("smemf"), num = document.getElementById("smemv"), big = v > 16384, gc = "分配内存过大可能加剧 Java 垃圾回收（GC）停顿，导致游戏周期性掉帧。";
   if (!num.querySelector(".kit-num")) num.textContent = memTxt(v); // 正在框里打字时不动它（打完由 numEdit 放回去，再重画）
   st.querySelector('[data-mstep="-1"]').disabled = v <= 512; st.querySelector('[data-mstep="1"]').disabled = v >= MEM_CAP;
-  st.classList.toggle("warn", big); st.title = big ? gc : "";
+  st.classList.toggle("warn", big);
   // 数字点进去就地打字：这一页每次重画（换步、换本机内存）数字那个元素都是新的，所以放在这里，每画一次接一次（已经接过的只换参数）。
-  // 数字有了自己的悬停，会盖住步进框上那句，超过 16 GB 的原因在数字上再写一遍
-  num.title = (big ? gc + "\n" : "") + "点击输入数值";
+  // 超过 16 GB 的原因原来写在步进框的 title 上，现在数字有自己的悬停，挪到数字上（留在框上的话，停在数字、加减上时框的 title 没人收，会冒出浏览器自带的提示）。
+  // 写 data-tip（同 numEdit 自己的写法）不写 title：鼠标正停在数字上时重画（点进去、打字、回车都会），title 同样会留在元素上
+  num.dataset.tip = (big ? gc + "\n" : "") + "点击输入数值";
   KIT.numEdit(num, { get: () => SET.mem, set: setMem, min: 512, max: MEM_CAP, parse: memParse, text: mb => (mb % 512 ? `${mb} MB` : String(mb / 1024)), label: "内存分配",
     hint: `请输入 0.5～${MEM_CAP / 1024} GB 之间的数值；以 MB 填写时需带单位（512～${MEM_CAP} MB）` });
   // 图例：系统已占、分配（只有颜色，数在步进里）、剩余（= 可用 − 分配，和格子上淡的那一截一样长）
