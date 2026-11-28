@@ -29,6 +29,8 @@
                 transition: background .15s, color .15s; }
 .wd-fd button:hover { background: var(--hover); color: var(--text); }
 .wd-fd button .ico { width: 16px; height: 16px; }
+.wd-fd button[aria-disabled="true"] { opacity: .45; cursor: not-allowed; } /* 从别的设备打开：本机的文件夹打不开，灰掉、悬停说原因 */
+.wd-fd button[aria-disabled="true"]:hover { background: none; color: var(--muted); }
 
 /* 小零件：图标按钮 28 见方（行里离边 4，圆角 6 = 10 − 4；框里离边 6，圆角 4）、28 高的小胶囊按钮、36 高胶囊、开关 36 × 20 在字的左边 */
 .wd-ib { width: 28px; height: 28px; border-radius: 6px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer;
@@ -39,6 +41,7 @@
 .wd-ib.sm .ico { width: 14px; height: 14px; }
 .wd-ib[aria-disabled="true"], .wd-btn[aria-disabled="true"], .wd-nb[aria-disabled="true"], .wd-go[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
 .wd-ib[aria-disabled="true"]:hover { background: none; color: var(--muted); }
+.wd-ib.ok, .wd-ib.ok:hover { color: var(--success-text); } /* 复制、下载做完：图标换成勾 1.2 秒 */
 .wd-btn { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 11px 0 9px; border-radius: 14px; box-sizing: border-box; flex: none;
           border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 12.5px; font-weight: 500; white-space: nowrap; cursor: pointer;
           transition: background .15s, opacity .15s; }
@@ -75,7 +78,12 @@ button.wd-tag { cursor: pointer; } button.wd-tag:hover { color: var(--text); bac
 .wd-out { pointer-events: none; }
 
 /* ================= 备份 ================= */
-/* 顶上一行右边：当前世界那句（只在现在的世界不是列表里某一份时出来）、定时备份的胶囊 */
+/* 顶上一行：份数后面是「自动备份」开关（36 × 20，在字的左边）和定时备份的胶囊，靠左放，胶囊出来、收起时开关不挪地方；
+   份数留够「10 / 10」的宽，备份从 9 份变 10 份时开关也不动。右边是当前世界那句（只在现在的世界不是列表里某一份时出来） */
+.wd-bk .wd-hd .wd-n { min-width: 7ch; }
+.wd-auto { flex: none; display: flex; align-items: center; gap: 10px; margin-left: 6px; }
+.wd-auto .wd-tg { height: 28px; gap: 8px; font-size: 12.5px; }
+.wd-chipslot { display: flex; }
 .wd-nowslot { display: flex; min-width: 0; }
 .wd-now { display: inline-flex; align-items: center; gap: 6px; height: 28px; min-width: 0; padding: 0 10px; border: 0; border-radius: 14px; background: none; font: inherit; font-size: 12.5px;
           color: var(--muted); cursor: pointer; }
@@ -86,10 +94,10 @@ button.wd-tag { cursor: pointer; } button.wd-tag:hover { color: var(--text); bac
            border: 0; box-shadow: inset 0 0 0 1px var(--border); background: none; color: var(--text); cursor: pointer; transition: background .15s, color .15s; }
 .wd-chip .ico { width: 14px; height: 14px; color: var(--muted); }
 .wd-chip:hover { background: var(--hover); }
-.wd-chip.none { color: var(--faint); }
+.wd-chip small { font-family: var(--mono); font-size: 11.5px; font-weight: 400; color: var(--faint); margin-left: -1px; } /* 不止一条定时备份：「+1」 */
 .wd-bk .wd-lw { margin-top: 2px; }
 
-/* 一份备份一行：40 高、圆角 10。时间等宽、标签（程序自己打的「定时」「还原前自动」淡一点）、标记、大小；「还原」「删除」悬停这一行才出来 */
+/* 一份备份一行：40 高、圆角 10。时间等宽、标签（程序自己打的「定时」「还原前自动」淡一点）、标记、大小；「还原」「下载」「删除」悬停这一行才出来 */
 .wd-row { flex: none; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px 0 12px; border-radius: 10px; box-sizing: border-box; min-width: 0; transition: background .15s; }
 .wd-row:hover { background: var(--hover); }
 .wd-time { flex: none; font-family: var(--mono); font-size: 13px; font-weight: 400; font-variant-numeric: tabular-nums; }
@@ -98,11 +106,11 @@ button.wd-tag { cursor: pointer; } button.wd-tag:hover { color: var(--text); bac
 .wd-lab:empty { display: none; }
 .wd-tags { display: flex; gap: 4px; flex: none; }
 .wd-tags:empty { display: none; }
-/* 大小贴着行的右边；「还原」「删除」在它左边，悬停这一行才出来 */
+/* 大小贴着行的右边；「还原」「下载」「删除」在它左边，悬停这一行才出来。正在还原、正在保存（.dl）时那一颗留在行上，不用悬停着 */
 .wd-size { flex: none; width: 70px; text-align: right; font-family: var(--mono); font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
 .wd-row .wd-act { opacity: 0; pointer-events: none; }
-.wd-row:hover .wd-act, .wd-row:focus-within .wd-act, .wd-row.busy .wd-act[data-wd-act="restore"] { opacity: 1; pointer-events: auto; }
-.wd-row.busy .wd-act[data-wd-act="del"] { visibility: hidden; }
+.wd-row:hover .wd-act, .wd-row:focus-within .wd-act, .wd-row.busy .wd-act[data-wd-act="restore"], .wd-row.dl .wd-act[data-wd-act="dl"] { opacity: 1; pointer-events: auto; }
+.wd-row.busy .wd-act[data-wd-act="del"], .wd-row.busy .wd-act[data-wd-act="dl"] { visibility: hidden; }
 .wd-row .wd-ib { margin-left: -6px; }
 
 /* 底下一行：标签框 + 立即备份世界（各 40 高、圆角 10，离栏边 8，18 − 8 同心） */
@@ -137,6 +145,12 @@ button.wd-tag { cursor: pointer; } button.wd-tag:hover { color: var(--text); bac
 .wd-dzs .mono { font-size: 12px; }
 .wd-dzs.bad { color: var(--danger-text); }
 .wd-dzs .num { font-variant-numeric: tabular-nums; }
+/* 警告卡（存档正被占着、换地图没走完）：占着虚线框的位置，实线、警告色，点不了。要人处理的那种多一块要看的位置（等宽、折行）和「重试恢复」 */
+.wd-dz.hold { cursor: default; border-style: solid; border-color: color-mix(in srgb, var(--warning-text) 45%, transparent); }
+.wd-dzi.warn { background: var(--warning-subtle); color: var(--warning-text); }
+.wd-stk { max-width: 100%; box-sizing: border-box; padding: 6px 10px; border-radius: 6px; background: color-mix(in srgb, var(--text) 6%, transparent);
+          font-size: 11.5px; line-height: 17px; color: var(--muted); text-align: left; overflow-wrap: anywhere; } /* 路径在反斜杠后面折行（脚本里加了 wbr） */
+.wd-rty { display: flex; margin-top: 6px; }
 /* 上传进度：30 格（同程序上传地图那条经验条），右边一个取消 */
 .wd-upr { display: flex; align-items: center; gap: 8px; margin: 4px 0 0 36px; }
 .wd-upbar { width: 230px; height: 12px; display: flex; gap: 2px; }
@@ -152,6 +166,10 @@ button.wd-tag { cursor: pointer; } button.wd-tag:hover { color: var(--text); bac
 .wd-prow input { flex: 1; min-width: 0; border: 0; background: none; outline: none; padding: 0; font: inherit; font-family: var(--mono); font-size: 12.5px; color: var(--text); }
 .wd-prow input::placeholder { font-family: var(--font); font-size: 13px; color: var(--faint); }
 .wd-prow .wd-ib { border-radius: 4px; }
+/* 用不了时（警告卡在、从别的设备打开）：整行灰掉，原因在这一行的悬停里；里面的按钮不再各自淡一遍 */
+.wd-prow.off { opacity: .45; cursor: not-allowed; }
+.wd-prow.off input { pointer-events: none; }
+.wd-prow.off .wd-ib[aria-disabled="true"] { opacity: 1; }
 
 /* 恢复点：一条一块（圆角 10，离栏边 8）。第一行名字、状态标签、操作；第二行时间 · 来源 · 大小 */
 .wd-pts .wd-lw .list { gap: 6px; }
@@ -259,7 +277,7 @@ button.wd-tag { cursor: pointer; } button.wd-tag:hover { color: var(--text); bac
 .wd-sbad { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--danger-text); min-width: 0; }
 .wd-sbad .ico { width: 16px; height: 16px; flex: none; }
 
-/* 进度：左边五步，右边复制的进度和过程记录 */
+/* 进度：左边四步，右边复制的进度和过程记录 */
 .wd-task { flex: 1; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 0 24px; padding: 18px 20px 16px; }
 .wd-steps { display: flex; flex-direction: column; gap: 4px; }
 .wd-step { display: flex; align-items: center; gap: 10px; height: 32px; font-size: 13px; color: var(--faint); }
@@ -268,6 +286,7 @@ button.wd-tag { cursor: pointer; } button.wd-tag:hover { color: var(--text); bac
 .wd-step.done { color: var(--muted); } .wd-step.done .ic { color: var(--success-text); }
 .wd-step.run { color: var(--text); font-weight: 600; } .wd-step.run .ic { color: var(--accent-text); }
 .wd-step.cx { color: var(--muted); }
+.wd-step.err { color: var(--danger-text); font-weight: 600; } /* 在这一步出的错：图标是 × */
 .wd-px { width: 6px; height: 6px; border-radius: 2px; background: color-mix(in srgb, var(--text) 22%, transparent); display: block; }
 .wd-dash { width: 10px; height: 2px; border-radius: 1px; background: var(--muted); display: block; }
 .wd-prog { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
@@ -280,10 +299,14 @@ button.wd-tag { cursor: pointer; } button.wd-tag:hover { color: var(--text); bac
 .wd-log { margin-top: 6px; border-top: 1px solid var(--border); padding-top: 10px; }
 .wd-log .list { gap: 0; font-family: var(--mono); font-size: 12px; line-height: 20px; color: var(--muted); }
 .wd-log .list > div { flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wd-msg { flex: none; min-height: 22px; font-size: 13px; }
+.wd-log .list > div.err { white-space: normal; word-break: break-all; color: var(--danger-text); } /* 报错的原话：折行，看得全 */
+/* 结束时的那句；出错时两句，一句一行（结果、怎么办和复制报错信息） */
+.wd-msg { flex: none; min-height: 22px; font-size: 13px; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
 .wd-msg span { display: inline-flex; align-items: center; gap: 8px; }
 .wd-msg .ico { width: 16px; height: 16px; }
+.wd-msg .wd-ib .ico { width: 14px; height: 14px; }
 .wd-ok { color: var(--success-text); font-weight: 600; }
+.wd-er { color: var(--danger-text); font-weight: 600; }
 .wd-mi2 { color: var(--muted); }
 
 /* 底下一排：36 高胶囊（36 的一半 18 = 26 − 8，又是胶囊、又和面板的下角同心，同共用件页弹窗底下那排） */
