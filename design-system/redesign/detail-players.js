@@ -4,7 +4,7 @@
 // 输入框回车加、每人 ×）、管理员 OP（输入框加、× 取消）、封禁名单（输入框封、× 解封）。后端照 internal/inst/players.go：服务器开着时走控制台命令，
 // 停着（启动中也算没开）时直接改 whitelist.json / ops.json / banned-players.json；只有踢人要求服务器运行中（players.go 129 行「踢出玩家需要服务器运行中」）。
 // 这里四块都画上，功能一样，排法照临时规范重来：
-//   · 内容面板里并排四栏（顺序同程序），每栏一样的骨架：顶上名字和人数，中间名单（多了在栏里滚，细滚动条），底下一个输入框加名字。
+//   · 内容面板里并排四栏（从左到右：在线玩家、管理员 OP、封禁名单、白名单，作者 11-28 定；程序里的顺序是在线、白名单、管理员、封禁），每栏一样的骨架：顶上名字和人数，中间名单（多了在栏里滚，细滚动条），底下一个输入框加名字。
 //     四块一眼都看得见，不用切；在线玩家没有输入框，名单从上到下占满。
 //   · 白名单的总开关就是白名单这一栏的名字：开关在字的左边、字只写「白名单」（同向导第四步「谁能进」，作者 11-26 定过的样子），
 //     程序那两句说明（开着只有名单里的能进、管理员不受限制；关着谁都能进）和「server.properties 里还没写这一项」进悬停。
@@ -86,7 +86,7 @@
       + `<span class="pl-n">${num("wl")}</span></div>${listBox("wl", "空")}${addBox("wl")}</section>`;
     const list = k => `<section class="pl-col" data-pl-col="${k}"><div class="pl-hd"><span class="pl-t">${L[k].title}</span><span class="pl-n">${num(k)}</span></div>`
       + `${listBox(k, "空")}${addBox(k)}</section>`;
-    return `<div class="pl">${online}${wl}${list("ops")}${list("ban")}</div>`;
+    return `<div class="pl">${online}${list("ops")}${list("ban")}${wl}</div>`; // 顺序：在线玩家、管理员 OP、封禁名单、白名单（作者 11-28 定）
   }
 
   // ---- 挂上去 ----
