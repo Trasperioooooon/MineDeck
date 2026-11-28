@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"minedeck/internal/inst"
 	"minedeck/internal/ops"
 )
 
@@ -39,6 +40,9 @@ func (c *cat) backupOps() {
 				return nil, err
 			}
 			if _, err := c.get(p.Inst); err != nil {
+				return nil, err
+			}
+			if err := inst.CheckBackupLabel(p.Label); err != nil { // 「定时」留给定时任务：出确认卡片之前就拒，不等点了确认
 				return nil, err
 			}
 			return &ops.Plan{Summary: fmt.Sprintf("立即备份「%s」的世界", p.Inst)}, nil

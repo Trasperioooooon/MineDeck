@@ -186,10 +186,19 @@ func (m *Manager) ListBackups(name string) ([]BackupInfo, error) {
 // CreateBackup 备份世界存档；运行中执行热备（save-off → save-all → 压缩 → save-on）。
 // 这是手动备份的入口（界面、AI 助手、MCP 都走这里），标签不能是留给定时备份的「定时」；定时任务走 createScheduledBackup。
 func (m *Manager) CreateBackup(name, label string) (string, error) {
-	if sanitizeLabel(label) == scheduledLabel {
-		return "", errScheduledLabel
+	if err := CheckBackupLabel(label); err != nil {
+		return "", err
 	}
 	return m.backupWorld(name, label)
+}
+
+// CheckBackupLabel 手动备份的标签能不能用：按写进文件名的样子（sanitizeLabel）比，恰好是留给定时备份的「定时」时不行。
+// CreateBackup 做之前查；instance.backup.create 的预览也查，免得 AI 助手、MCP 出了确认卡片、点了确认才报错。
+func CheckBackupLabel(label string) error {
+	if sanitizeLabel(label) == scheduledLabel {
+		return errScheduledLabel
+	}
+	return nil
 }
 
 // createScheduledBackup 定时任务做备份：标签是 scheduledLabel，清理时只和别的定时备份比、按定时备份的份数留（见 pruneBackups）。
@@ -197,7 +206,8 @@ func (m *Manager) createScheduledBackup(name string) (string, error) {
 	return m.backupWorld(name, scheduledLabel)
 }
 
-// backupWorld 同 CreateBackup，不查标签。
+// backupWorld 先拿这个盘的写入名额、登记「正在备份」（换地图要等它做完），再调 createBackupWith 做一份备份。
+// 同 CreateBackup，不查标签：手动备份由 CreateBackup 查过，定时备份（createScheduledBackup）要用的就是「定时」。
 func (m *Manager) backupWorld(name, label string) (string, error) {
 	// 换地图到一半时世界目录正在被移来移去，打出来的备份是半截的（定时备份也走这里）。
 	// 不只是开头看一眼：备份的这段时间一直登记着，换地图要等它做完才占得上位。

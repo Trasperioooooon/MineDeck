@@ -108,7 +108,7 @@ const DefaultScheduledBackupKeep = 24
 // MaxBackupKeep 两种保留份数的上限（下限是 1）。
 const MaxBackupKeep = 1000
 
-// ClampBackupKeep 把保留份数限制在 1~MaxBackupKeep 之间（PUT /api/config 收到的超出范围的值按边界算）。
+// ClampBackupKeep 把保留份数限制在 1~MaxBackupKeep 之间（app.config.set，即 PUT /api/config，收到的超出范围的值按边界算）。
 func ClampBackupKeep(k int) int {
 	return min(max(k, 1), MaxBackupKeep)
 }

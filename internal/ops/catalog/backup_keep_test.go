@@ -95,4 +95,15 @@ func TestBackupCreateRejectsScheduledLabel(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "留给定时任务") || ops.CodeOf(err) != 400 {
 		t.Fatalf("手动备份用「定时」当标签应被拒：%v（%d）", err, ops.CodeOf(err))
 	}
+	// AI 助手、MCP 先走预览出确认卡片：预览就要拒，不能出了卡片、点了确认才报错
+	op := reg.Op("instance.backup.create")
+	if op == nil {
+		t.Fatal("没有 instance.backup.create")
+	}
+	if _, err := op.Preview(context.Background(), ops.Caller{Source: ops.SrcAssistant, Local: true}, ops.Args(`{"inst":"生存服","label":"定时"}`)); err == nil || !strings.Contains(err.Error(), "留给定时任务") {
+		t.Fatalf("预览也应拒绝「定时」标签：%v", err)
+	}
+	if _, err := op.Preview(context.Background(), ops.Caller{Source: ops.SrcAssistant, Local: true}, ops.Args(`{"inst":"生存服","label":"定时前"}`)); err != nil {
+		t.Fatalf("别的标签预览应照常通过：%v", err)
+	}
 }
