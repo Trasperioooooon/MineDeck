@@ -3,12 +3,24 @@
    .list、.thumb 只在自己的 .sj-lw 里用（外壳的细滚动条 thinBar 认这两个名字）。
 
    内容面板（.cp，868 × 658、内边距 8、圆角 26）里并排两栏（圆角 18 = 26 − 8，内边距 8，栏间 8）：
-     左「MineDeck 下载的」、右「本机装的」，各 422 宽。顶上一行 28 高（字离栏边 14，同「玩家」「备份」各栏）；
+     左「MineDeck 下载的」、右「本机装的」，默认各 422 宽。顶上一行 28 高（字离栏边 14，同「玩家」「备份」各栏）；
      右栏右上角「重新扫描」贴栏角 8，28 见方、圆角 10（18 − 8，同各页右上角的文件夹按钮）。
      中间是列表，一行 52 高（两行字：名字和版本、路径）、圆角 10（离栏边 8，18 − 8），多了在栏里滚（细滚动条）；
-     右栏最下面手动添加的框 40 高、圆角 10，框里的 ＋ 28 见方、离框外沿 6、圆角 4（10 − 6）。 */
+     右栏最下面手动添加的框 40 高、圆角 10，框里的 ＋ 28 见方、离框外沿 6、圆角 4（10 − 6）；左栏最下面「下载 Java」一样 40 高、圆角 10，和它对称（11-29）。
+   11-29 作者要的：两栏中间那 8 像素的缝能左右拖（.sj-split），左栏占的比例在 --sj-r（脚本从 localStorage 读了写进来），
+     左栏最窄 332、右栏最窄 300（同 settings-java.js 的 L_MIN、R_MIN），面板变宽变窄时照比例跟着变。 */
 
-.sj { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.sj { flex: 1; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr);
+      grid-template-columns: clamp(332px, calc((100% - 8px) * var(--sj-r, .5)), calc(100% - 308px)) 8px minmax(0, 1fr); }
+
+/* 两栏中间的手柄：就是那道 8 像素的缝，往两边各多 2 像素好抓（栏的内边距 8，碰不到里面的东西）。移上去光标变左右箭头、缝正中淡淡显出一道 2 像素的线
+   （上下各让开栏的圆角 18）；拖着、键盘聚焦时线是强调色。拖的时候整页都是左右箭头、不选字 */
+.sj-split { position: relative; z-index: 3; margin: 0 -2px; cursor: ew-resize; touch-action: none; outline: none; }
+.sj-split::before { content: ""; position: absolute; left: 50%; top: 18px; bottom: 18px; width: 2px; margin-left: -1px; border-radius: 1px; pointer-events: none;
+                    background: color-mix(in srgb, var(--text) 22%, transparent); opacity: 0; transition: opacity .15s, background-color .15s; }
+.sj-split:hover::before { opacity: 1; transition-delay: .08s; }
+.sj-split.drag::before, .sj-split:focus-visible::before { opacity: 1; background: color-mix(in srgb, var(--accent) 75%, transparent); transition-delay: 0s; }
+html.sj-dragging, html.sj-dragging * { cursor: ew-resize !important; -webkit-user-select: none !important; user-select: none !important; }
 .sj [hidden] { display: none !important; }
 .sj .mono, .sj-md .mono { font-family: var(--mono); }
 
@@ -54,11 +66,8 @@
 .sj-l1 { display: flex; align-items: center; gap: 8px; height: 20px; min-width: 0; }
 .sj-nm { flex: none; font-size: 13.5px; font-weight: 600; line-height: 20px; white-space: nowrap; }
 .sj-ver { min-width: 0; font-family: var(--mono); font-size: 12px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* 路径：等宽，放不下时先省前面的上级目录，后面的 Java 文件夹名和 bin\java.exe 留着（同「启动与内存」的服务器文件夹框） */
-.sj-path { display: flex; min-width: 0; font-family: var(--mono); font-size: 11.5px; line-height: 17px; color: var(--faint); white-space: nowrap; }
-.sj-path .hd, .sj-path .tl { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.sj-path .tl { flex-shrink: 0; max-width: 100%; }
-.sj-path .hd { flex-shrink: 1000; min-width: 1.6ch; }
+/* 路径：等宽。放不下时中间省略、盘符和文件名留着（11-29 作者要的，脚本按栏宽挑一档写进来，完整路径在悬停里）；末尾的省略号只是兜底 */
+.sj-path { display: block; min-width: 0; font-family: var(--mono); font-size: 11.5px; line-height: 17px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 标记：18 高的小胶囊（同「备份」） */
 .sj-tg { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 9px; font-size: 11px; font-weight: 500; line-height: 18px; white-space: nowrap;
          background: color-mix(in srgb, var(--text) 9%, transparent); color: var(--muted); cursor: default; }
@@ -66,26 +75,34 @@
 /* 检查：检查中名字后面一个小转圈；检查不过一个红的「无法启动」；重新下载中第二行换成一句淡字（同路径的位置和大小） */
 .sj-tg.bad { background: var(--danger-subtle); color: var(--danger-text); }
 .sj-chk { width: 13px; height: 13px; flex: none; color: var(--faint); animation: sj-spin .9s linear infinite; }
-.sj-prog { font-size: 11.5px; line-height: 17px; color: var(--faint); white-space: nowrap; }
+.sj-prog { font-size: 11.5px; line-height: 17px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sj-pct { font-variant-numeric: tabular-nums; } /* 下载进度的数字等宽，涨的时候字不跳 */
 /* 重新下载：坏了的那一套强调成危险色，提醒点它 */
 .sj-ib.sj-rd.hot { color: var(--danger-text); }
-/* 谁在用：一台服务器一颗 20 高的小胶囊，开着的前面一个成功色小方点；点了去那台服务器的「设置 → 启动与内存」换 Java */
-.sj-use { flex: none; display: flex; gap: 4px; max-width: 58%; min-width: 0; overflow: hidden; }
+/* 谁在用：一台服务器一颗 20 高的小胶囊，开着的前面一个成功色小方点；点了去那台服务器的「设置 → 启动与内存」换 Java。
+   这一块的宽由脚本按栏宽定（fitRow）：放得下全摆开；挤不下时两台以上的换成收起来的那一颗（.sj-fold：第一台的名字、「+N」，点了出菜单），名字最后才省略 */
+.sj-use { flex: none; display: flex; gap: 4px; min-width: 0; overflow: hidden; }
 .sj-sv { flex: 0 1 auto; min-width: 0; display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px; border-radius: 10px; border: 0; font: inherit; font-size: 11.5px;
          font-weight: 500; white-space: nowrap; background: color-mix(in srgb, var(--text) 9%, transparent); color: var(--muted); cursor: pointer; text-decoration: none;
          transition: background .15s, color .15s; }
 .sj-sv > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.sj-sv:hover { color: var(--text); background: color-mix(in srgb, var(--text) 14%, transparent); }
+.sj-sv:hover, .sj-sv.open { color: var(--text); background: color-mix(in srgb, var(--text) 14%, transparent); }
 .sj-sv > i { width: 6px; height: 6px; border-radius: 2px; flex: none; background: var(--success-text); }
+.sj-sv > b { flex: none; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+.sj-use .sj-fold { display: none; }
+.sj-use.fold > a.sj-sv { display: none; }
+.sj-use.fold > .sj-fold { display: inline-flex; }
 /* 图标按钮：28 见方，行里离行的右边 12，圆角 6（同「备份」行里的按钮） */
 .sj-ib { width: 28px; height: 28px; border-radius: 6px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer;
          transition: background .15s, color .15s, opacity .15s; }
 .sj-ib:hover { background: var(--hover); color: var(--text); }
 .sj-ib .ico { width: 15px; height: 15px; }
-/* 卸载一直露着（行少，规范第九节「暂时不能用的：灰掉、悬停说原因，不藏起来」）；有服务器在用的灰着 */
+/* 卸载一直露着（行少，规范第九节「暂时不能用的：灰掉、悬停说原因，不藏起来」）；有服务器在用的灰着。
+   重新下载也一样：开着的服务器正用它跑时灰着（11-29 起和卸载一起灰，原来只是点不动、看不出来）；正在下载、检查的那一颗在转，不灰 */
 .sj-row .sj-rm { margin-right: -6px; }
-.sj-rm[aria-disabled="true"] { opacity: .35; cursor: not-allowed; }
-.sj-rm[aria-disabled="true"]:hover { background: none; color: var(--muted); }
+.sj-ib[aria-disabled="true"] { opacity: .35; cursor: not-allowed; }
+.sj-ib[aria-disabled="true"]:hover { background: none; color: var(--muted); }
+.sj-ib.busy[aria-disabled="true"] { opacity: 1; cursor: default; }
 .sj-row.sj-flash { animation: sj-flash .9s cubic-bezier(.2, .7, .2, 1); }
 @keyframes sj-flash { 0%, 30% { background: var(--accent-subtle); } 100% { background: transparent; } }
 
@@ -103,31 +120,39 @@
 .sj-add.bad .sj-msg:not(:empty) { display: block; }
 .sj-add.bad .sj-msg:not(:empty) ~ .sj-plus { display: none; }
 
-/* ================= 确认框：同共用件页（commons.html）、「世界与备份」的危险确认框 =================
-   外 26 / 内边距 8、里面的栏 18，标题前一个危险色图标块（40 见方、离栏的角 8、圆角 10），底下一排 36 高胶囊等宽铺满；默认聚焦「取消」，画一圈细框。
-   遮罩从标题栏下面开始。--scrim、--elev-4 外壳里没有，照共用件页的深浅两套定在这里 */
-.sj-mask { --sj-scrim: rgb(var(--shadow-rgb) / .32); --sj-elev4: 0 28px 64px -16px rgb(var(--shadow-rgb) / .32), 0 8px 20px -4px rgb(var(--shadow-rgb) / .10);
-           position: fixed; left: 0; right: 0; top: 40px; bottom: 0; z-index: 40; display: grid; place-items: center; background: var(--sj-scrim); backdrop-filter: blur(2px); }
-[data-theme="dark"] .sj-mask { --sj-scrim: rgb(0 0 0 / .56); --sj-elev4: 0 32px 72px -16px rgb(0 0 0 / .72), 0 8px 24px -4px rgb(0 0 0 / .40); }
-.sj-mask.enter { animation: sj-mk-in .22s cubic-bezier(.2, .7, .2, 1) both; }
-.sj-mask.enter > .sj-md { animation: sj-md-in .26s cubic-bezier(.2, .7, .2, 1) both; }
-.sj-mask.leave { animation: sj-mk-out .14s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
-.sj-mask.leave > .sj-md { animation: sj-md-out .14s cubic-bezier(.4, 0, 1, 1) both; }
-@keyframes sj-mk-in { from { opacity: 0; } } @keyframes sj-mk-out { to { opacity: 0; } }
-@keyframes sj-md-in { from { opacity: 0; transform: translateY(10px); } } @keyframes sj-md-out { to { opacity: 0; transform: translateY(6px); } }
-.sj-md { width: 380px; box-sizing: border-box; border-radius: 26px; padding: 8px; background: var(--surface); box-shadow: var(--sj-elev4); display: flex; flex-direction: column; gap: 8px; }
-.sj-mc { border-radius: 18px; padding: 18px 20px 20px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); display: flex; flex-direction: column; gap: 12px; }
-.sj-mh { display: flex; align-items: center; gap: 12px; margin: -10px 0 0 -12px; }
-.sj-mi { width: 40px; height: 40px; border-radius: 10px; flex: none; display: grid; place-items: center; background: var(--danger-subtle); color: var(--danger-text); }
-.sj-mi .ico { width: 20px; height: 20px; }
-.sj-md h3 { flex: 1; min-width: 0; margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; }
-.sj-mb { font-size: 13px; line-height: 21px; color: var(--muted); }
-.sj-mb b { color: var(--text); font-weight: 600; }
-.sj-ma { display: flex; gap: 8px; }
-.sj-b { flex: 1 1 0; min-width: 0; display: inline-flex; align-items: center; justify-content: center; height: 36px; padding: 0 14px; border-radius: 18px; box-sizing: border-box;
-        border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer;
-        transition: background-color .2s; outline: none; }
-.sj-b:hover { background: var(--control-hov); }
-.sj-b.dgr { background: var(--danger-solid); color: var(--on-danger); border-color: transparent; font-weight: 600; }
-.sj-b.dgr:hover { background: var(--danger-solid-hov); }
-.sj-b.fk { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* 「下载 Java」（11-29 作者要的）：左栏最下面，和右栏的手动添加框对称（40 高、圆角 10、同样的底和细边、离栏边 8、上面多 2）；
+   左边图标和字，右边 ▴ 在框里 ＋ 那个位置（离框外沿 6 的 28 见方正中），点开往上弹菜单，开着时 ▴ 转过来 */
+.sj-dlb { flex: none; display: flex; align-items: center; gap: 8px; height: 40px; min-width: 0; margin-top: 2px; padding: 0 5px 0 12px; border-radius: 10px; box-sizing: border-box;
+          background: var(--field); border: 1px solid var(--border); font: inherit; font-size: 13px; font-weight: 500; color: var(--muted); text-align: left; cursor: pointer;
+          transition: border-color .2s, color .15s, box-shadow .2s; outline: none; }
+.sj-dlb > span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sj-dlb > .ico { width: 15px; height: 15px; flex: none; }
+.sj-dlb .sj-chev { width: 28px; height: 15px; color: var(--faint); transition: transform .32s cubic-bezier(.3, .7, .2, 1), color .15s; }
+.sj-dlb:hover, .sj-dlb.open { color: var(--text); border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.sj-dlb:hover .sj-chev, .sj-dlb.open .sj-chev { color: var(--muted); }
+.sj-dlb.open .sj-chev { transform: rotate(180deg); }
+.sj-dlb:focus-visible { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+
+/* ================= 小菜单（「下载 Java」、收起来的胶囊）：同「手机远程管理」换地址那张（外圆角 16、细边 1 加内边距 5，项 36 高、圆角 10 = 16 − 6）；挂在 body 上 ================= */
+.sj-dm { position: fixed; z-index: 50; min-width: 200px; max-width: 360px; padding: 5px; box-sizing: border-box; display: flex; flex-direction: column; gap: 1px;
+         border-radius: 16px; border: 1px solid var(--border); background: var(--overlay); box-shadow: var(--elev-3); }
+.sj-dm.enter { animation: sj-in .22s cubic-bezier(.2, .7, .2, 1) both; }
+.sj-dm.leave { animation: sj-out .09s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+.sj-dm.up.enter { animation-name: sj-in-up; } .sj-dm.up.leave { animation-name: sj-out-up; }
+@keyframes sj-in { from { opacity: 0; transform: translateY(-5px); } }
+@keyframes sj-out { to { opacity: 0; transform: translateY(-5px); } }
+@keyframes sj-in-up { from { opacity: 0; transform: translateY(5px); } }
+@keyframes sj-out-up { to { opacity: 0; transform: translateY(5px); } }
+.sj-it { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: 10px; box-sizing: border-box; font-size: 13px; color: var(--text); cursor: pointer;
+         white-space: nowrap; text-decoration: none; outline: none; transition: background .15s; }
+.sj-it:hover, .sj-it:focus-visible { background: var(--hover); }
+.sj-im { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sj-is { flex: none; font-size: 12px; color: var(--faint); }
+.sj-is.warn { color: var(--warning-text); }
+.sj-it > .ico { width: 15px; height: 15px; flex: none; color: var(--muted); }
+/* 已经下好的：整项 0.45（规范第六节「暂时用不了的」），点不了 */
+.sj-it[aria-disabled="true"] { opacity: .45; cursor: default; }
+.sj-it[aria-disabled="true"]:hover { background: none; }
+/* 收起来的胶囊点开：每台前面同胶囊的小方点，停着的空一格对齐 */
+.sj-dot { width: 6px; height: 6px; border-radius: 2px; flex: none; background: var(--success-text); }
+.sj-dot.off { background: none; }
