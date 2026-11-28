@@ -9,7 +9,11 @@
 
 .sab { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 8px; }
 .sab-col { min-width: 0; min-height: 0; box-sizing: border-box; border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
-.sab-main { padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 24px; }
+.sab-main { padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 16px; }
+/* 三块（版本与更新、启动与托盘、通知与集成，11-29 作者要合并了也分得开）：小标题比「更新渠道」这种淡字标签高一级，块和块之间一道细线 */
+.sab-grp { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.sab-gt { height: 20px; display: flex; align-items: center; font-size: 13.5px; line-height: 20px; font-weight: 600; color: var(--text); cursor: default; flex: none; }
+.sab-hr { display: block; height: 1px; flex: none; background: var(--border); }
 .sab-f { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .sab-lb { height: 18px; display: flex; align-items: center; min-width: 0; font-size: 12.5px; line-height: 18px; font-weight: 500; color: var(--muted); }
 .sab-lb > span { white-space: nowrap; cursor: default; }
@@ -97,7 +101,7 @@
 
 /* 右栏「关于」：顶上一行字（离栏边 20），下面贴边 8 一块可滚的（细滚动条同首页、详情页） */
 .sab-ab { padding: 16px 8px 8px; display: flex; flex-direction: column; gap: 8px; }
-.sab-ab > .sab-lb { padding-left: 12px; }
+.sab-ab > .sab-lb, .sab-ab > .sab-gt { padding-left: 12px; }
 .sab-lw { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .sab-lw .list { position: relative; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; display: flex; flex-direction: column; gap: 4px;
   --ft: 0px; --fb: 0px; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--ft), #000 calc(100% - var(--fb)), transparent 100%);

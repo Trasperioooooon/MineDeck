@@ -163,7 +163,11 @@ function thinBar(w) {
 
 // 外观里能改的、会影响外壳的几样：主题（深 / 浅 / 跟随系统）、胶囊里的 AI 助手。各页改了就调这两个，外壳跟着变
 function setTheme(t) { document.documentElement.dataset.theme = t; const q = new URLSearchParams(location.search); if (t === "dark") q.delete("theme"); else q.set("theme", t); history.replaceState(null, "", "?" + q); skBar(); }
-function setCapAI(on) { $("#cap-ai").hidden = !on; }
+// 胶囊里的 AI 助手：外观里「在底部导航显示 AI 助手」开着、而且 AI 没被停用，才显示（作者 11-29 定：停用 AI 以后那颗跟着藏起来，重新配好又出来）
+const CAP_AI = { pref: true, off: false };
+const paintCapAI = () => { $("#cap-ai").hidden = !(CAP_AI.pref && !CAP_AI.off); };
+function setCapAI(on) { CAP_AI.pref = !!on; paintCapAI(); }
+function setAIOff(off) { CAP_AI.off = !!off; paintCapAI(); }
 
 // ---- 草图切换条 ----
 function skBar() {
@@ -177,7 +181,7 @@ function skBar() {
 // 各分类的内容在各自的文件里，登记在 window.SETTINGS_SECS[分类] = { html(ctx), mount(ctx) }。
 // html 返回内容面板里的那一块（外层自己定，通常是 flex: 1 的一栏）；mount 在内容换上去、图标换好以后跑一次。
 window.SETTINGS_SECS = window.SETTINGS_SECS || {};
-const secCtx = () => ({ sec, QS, $, $$, esc, thinBar, KIT, servers: SERVERS, update: UPDATE, setTheme, setCapAI, goSec, go: href => GUARD.go(href) }); // go：用脚本跳到别的页时走它，有没保存的改动先问
+const secCtx = () => ({ sec, QS, $, $$, esc, thinBar, KIT, servers: SERVERS, update: UPDATE, setTheme, setCapAI, setAIOff, goSec, go: href => GUARD.go(href) }); // go：用脚本跳到别的页时走它，有没保存的改动先问
 function content() {
   const v = SETTINGS_SECS[sec];
   return v ? v.html(secCtx()) : `<div class="empty"></div>`;

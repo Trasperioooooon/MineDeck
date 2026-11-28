@@ -25,6 +25,7 @@
 //     现有值不在档位上时照原样写、一动落到相邻的档，同详情页「常用」；不带快捷预设，同详情页那些步进），后面一颗「保存」（同保存条那颗：没改时灰着，改了亮起来）；
 //     改了没存时名字后面一个强调色小点。存好不弹提示（数字就在那儿）。说明进悬停，加了一句：定时任务每小时备份一次时，保留 N 份只够留最近 N 个小时（手动的也算）。
 //     步进中间的数点进去就地打字（作者 11-28 定凡是步进都这样，共用 kit.js 的 KIT.numEdit）：1～1000 的整数，不在档位上的也收，之后点加减往那个方向落到最近一档。
+//     步进右边一排快捷预设「5 份 / 10 份 / 24 份 / 48 份」（作者 11-29 定要加；样子同向导第三步内存下面那排），点了只改草稿，照旧点「保存」才生效。
 //   · 离开前拦（作者 11-28 定，外壳统一拦，这里只登记 dirty / save / discard）：这一页只有保留份数是先改、点「保存」才生效的；
 //     存放文件夹、排除项都是点了就生效，不在里面。
 // 换分类回来：改过的都还在（数据在这个文件里）；正在等的「加入…」、挂着的「撤销」提示回来照样有效。
@@ -60,6 +61,8 @@
   const PICKS = { servers: ["E:\\MC-Servers", "F:\\游戏\\开服"], backups: ["E:\\MineDeck-备份", "F:\\备份\\MineDeck"] };
   // 保留份数的档位（草图定的，见开头）
   const LAD = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 20, 24, 30, 48, 72, 100, 168, 200, 300, 500, 1000];
+  // 快捷预设（11-29 作者定要加）：步进右边一排小胶囊，同向导第三步内存下面那排；点了只改草稿，照旧点「保存」才生效。正好等于某一档时那一颗亮着
+  const PRESETS = [5, 10, 24, 48];
 
   // 排除项的几句话（照 cmd/minedeck/defender_windows.go 和分支里 app.js 的原话）
   const DEF_TIP = base => "实时防护会扫描该文件夹中读写的每个文件，影响服务器启动和保存存档的速度，frpc 等穿透程序也常被误报隔离。"
@@ -147,7 +150,8 @@
     const dn = stepTo(s.keep, -1) !== undefined, up = stepTo(s.keep, 1) !== undefined, dirty = s.keep !== s.keepBase;
     return `<div class="ss-f ss-keep${dirty ? " mod" : ""}"><div class="ss-lb"><span title="${esc(keepTip(s.keep))}">每台服务器备份保留份数</span><i class="ss-dot"></i></div><div class="ss-kr">`
       + `<div class="ss-stp"><button type="button" data-ss="dec" aria-label="减少" aria-disabled="${!dn}" title="${dn ? "减少" : "最少 1 份"}"><i data-ic="minus"></i></button>`
-      + `<b class="ss-sv" aria-live="polite">${kTxt(s.keep)}</b><button type="button" data-ss="inc" aria-label="增加" aria-disabled="${!up}" title="${up ? "增加" : "最多 1000 份"}"><i data-ic="plus"></i></button></div>`      + `<button type="button" class="ss-save${dirty ? " on" : ""}" data-ss="ksave" aria-disabled="${!dirty}"${dirty ? "" : ' title="暂无未保存的修改"'}>保存</button></div></div>`;
+      + `<b class="ss-sv" aria-live="polite">${kTxt(s.keep)}</b><button type="button" data-ss="inc" aria-label="增加" aria-disabled="${!up}" title="${up ? "增加" : "最多 1000 份"}"><i data-ic="plus"></i></button></div>`
+      + `<div class="ss-pre" role="group" aria-label="快捷预设">${PRESETS.map(n => `<button type="button" class="ss-mp${s.keep === n ? " on" : ""}" data-kp="${n}">${kTxt(n)}</button>`).join("")}</div>`      + `<button type="button" class="ss-save${dirty ? " on" : ""}" data-ss="ksave" aria-disabled="${!dirty}"${dirty ? "" : ' title="暂无未保存的修改"'}>保存</button></div></div>`;
   }
 
   function html(ctx) {
@@ -207,6 +211,7 @@
     setAttr(mi, "aria-disabled", !dn); setTip(mi, dn ? "减少" : "最少 1 份");
     setAttr(pl, "aria-disabled", !up); setTip(pl, up ? "增加" : "最多 1000 份");
     f.classList.toggle("mod", dirty);
+    f.querySelectorAll("[data-kp]").forEach(b => b.classList.toggle("on", +b.dataset.kp === s.keep));
     setTip(f.querySelector(".ss-lb > span"), keepTip(s.keep));
     const sv = f.querySelector(".ss-save");
     if (!s.keepSaving) { sv.classList.toggle("on", dirty); setAttr(sv, "aria-disabled", !dirty); setTip(sv, dirty ? "" : "暂无未保存的修改"); }
@@ -287,6 +292,7 @@
   // =====================================================================================================
   function onClick(e) {
     const r = root(), s = data(); if (!r) return;
+    const kp = e.target.closest("[data-kp]"); if (kp) { s.keep = +kp.dataset.kp; paintKeep(); return; } // 快捷预设：只改草稿
     const b = e.target.closest("[data-ss]"); if (!b) return;
     if (b.getAttribute("aria-disabled") === "true") return;
     const w = b.dataset.w;

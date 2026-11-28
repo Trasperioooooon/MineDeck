@@ -57,6 +57,12 @@
 
 /* ---- 保留份数：步进（132 宽，同向导内存的步进）、保存 ---- */
 .ss-kr { display: flex; align-items: center; gap: 14px; height: 40px; }
+/* 快捷预设：同向导第三步内存下面那排（28 高胶囊，选中的是强调色淡底） */
+.ss-pre { display: flex; gap: 6px; }
+.ss-mp { height: 28px; padding: 0 12px; border-radius: 14px; border: 1px solid var(--border); background: none; color: var(--muted); font: inherit; font-size: 12px; font-weight: 500;
+         cursor: pointer; white-space: nowrap; transition: background .15s, color .15s, border-color .15s; }
+.ss-mp:hover:not(.on) { color: var(--text); background: var(--hover); }
+.ss-mp.on { background: var(--accent-subtle); color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
 .ss-stp { width: 132px; flex: none; display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 5px; border-radius: 10px; box-sizing: border-box;
           background: var(--field); border: 1px solid var(--border); }
 .ss-stp button { width: 28px; height: 28px; padding: 0; border: 0; border-radius: 4px; flex: none; display: grid; place-items: center; background: none; color: var(--muted); cursor: pointer;

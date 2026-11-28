@@ -30,6 +30,8 @@
 //   没写的（Kimi、智谱、OpenAI、Ollama）当作「没有拉到」；用量、费用、测试连接的延迟和 token、价格表的更新日期和条数、自填单价 ¥1 / ¥2 都是草图编的；
 //   公开价格没画（不编具体模型的价格）：当前模型没有自填单价时照程序写「查不到…的公开价格」。MCP 打开着，连过 Claude Desktop 和 Cherry Studio；
 //   配置预览里的令牌照程序换成占位，MineDeck.exe 的路径是编的。
+// 停用 AI 以后胶囊里的 AI 助手跟着藏起来，重新配好又出来（作者 11-29 定；外观里「在底部导航显示 AI 助手」关着时照旧不显示，外壳 setAIOff 管）。
+// 程序里停用是把服务商配置清掉，和「从来没配过」看起来一样，要另记一个「停用过」，下次打开才知道还要藏着；从来没配过的照旧显示，点了是助手面板里引着去设置的那一页。
 // 草图专用：&ai=off 看还没配置（服务商「未选择」、停用和测试灰着）。没画的：从局域网打开（只能看）、读取失败、测试连接失败。
 (() => {
   window.SETTINGS_SECS = window.SETTINGS_SECS || {};
@@ -421,6 +423,7 @@
         if (typed) V.keySet = true; else if (clearKey) V.keySet = false;
         V.saved = { preset: V.cur.preset, url: V.cur.url.trim(), model: V.cur.model.trim(), proto: V.cur.proto, auth: V.cur.auth, echo: V.cur.echo, effort: V.cur.effort };
         V.cur = { ...V.saved, key: "" }; V.test = null;
+        if (V.saved.preset) C.setAIOff?.(false); // 重新配好：胶囊里的 AI 助手回来（外观里关着的话照旧不显示）
         const r = root();
         if (r) {
           r.querySelector(".sai-save").textContent = "保存";
@@ -453,7 +456,7 @@
   function stopAI() {
     modal({ ic: "power", danger: true, title: "停用 AI？", ok: "停用", body: "将清除服务商配置与 API Key；用量记录、每日额度与自填单价会保留，后续可随时重新配置。",
       onOk: () => { V.saved = { preset: "", url: "", model: "", proto: "openai", auth: "", echo: "auto", effort: "" }; V.cur = { ...V.saved, key: "" }; V.keySet = false; V.test = null; V.models = {};
-        fld("key").querySelector("input").value = ""; paintAll(true); } });
+        fld("key").querySelector("input").value = ""; paintAll(true); C.setAIOff?.(true); } }); // 停用以后胶囊里的 AI 助手跟着藏起来（作者 11-29 定）
   }
   function clearKey() {
     modal({ ic: "trash", danger: true, title: "清除 API Key？", ok: "清除", body: "清除后 AI 功能将停用，需要时可重新填写。",

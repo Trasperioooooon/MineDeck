@@ -25,6 +25,9 @@
 //        检查更新 → 检查中 → 已是最新 / 发现新版本 vX（正式版）→ 下载更新 → 正在下载（块底一条细进度条和 MB 数）→ vX 已下载，重启后完成更新 →「重启并更新」。
 //        换状态只换那一行字和右边那颗键（逐项换），进度只改数和条。
 //     3. 更新渠道（40 高三段，各自的说明进悬停）。程序里的「更新仓库」框不在这里：更新从哪里下载挪到了「下载与网络」的「软件更新」（11-28 作者问起）。
+//   · 11-29 作者：合并了也要适当区分，不能只是连在一起。左栏 Logo 下面照原来的三个分类分成三块，各带一个小标题（13.5 号、加粗、正文色，比「更新渠道」这种
+//     淡字标签高一级），块和块之间一道细线：「版本与更新」（版本块、更新渠道、启动时静默检查更新）、「启动与托盘」（两个开关）、「通知与集成」（Webhook）。
+//     右栏「关于」的标题用同一种小标题。下面 2～5 条说的是各块里的东西。
 //     4. 一组三个开关，同一种样子（36 高一行，开关 36 × 20 在字的左边，字只写名字，说明进整行的悬停；只有开关本身能点，kit.js 统一处理）：
 //        「启动时静默检查更新」，多隔 8（开关之间看着是 24，同块和块的间距），再是从「启动与托盘」搬来的「关闭窗口时最小化到托盘（不退出）」「开机自动启动」。都是点了马上拨过去（同程序：即时保存），不弹提示。
 //        没写成功时开关拨回去、那一行晃一下，行尾一句短的红字，整句进悬停（规范第七节「反馈」）。托盘那一行的悬停里说退出的办法：
@@ -74,7 +77,7 @@
   // ---- 三个开关：点了马上拨过去（同程序：即时保存）。sep：和上一行多隔 8（上面一个管更新，下面两个管窗口和开机） ----
   const SWS = [
     { k: "silent", label: "启动时静默检查更新", tip: "程序启动后将在后台按所选更新渠道检查一次新版本" },
-    { k: "tray", sep: true, label: "关闭窗口时最小化到托盘（不退出）",
+    { k: "tray", label: "关闭窗口时最小化到托盘（不退出）",
       tip: "开启后，点击关闭按钮将最小化至系统托盘，程序与服务器继续运行；点击托盘图标可恢复窗口（首次最小化时将发送一次系统通知）。"
         + "如需退出，可右键托盘图标，或在本页底部点击「退出 MineDeck」。关闭后，点击关闭按钮将停止服务器并退出程序（有运行中的服务器时会先确认）。" },
     { k: "auto", label: "开机自动启动",
@@ -250,13 +253,16 @@
     return `<div class="sab">`
       + `<section class="sab-col sab-main" aria-label="更新与其他">`
       + `<div class="sab-brand"><img src="../../internal/web/ui/img/logo-48.png" alt=""><div><div class="sab-name">MineDeck</div><div class="sab-tag">Windows 本地 Minecraft 开服工具</div></div></div>`
+      // 三页合成一页以后照原来的三块分开（作者 11-29：合并了也要适当区分）：每块一个小标题，块和块之间一道细线
+      + `<div class="sab-grp" role="group" aria-label="版本与更新"><div class="sab-gt">版本与更新</div>`
       + `<div class="sab-up"><div class="sab-txt"><b class="sab-v">v${A.ver}</b><div class="sab-s"></div></div><div class="sab-act"></div><span class="sab-bar"><i></i></span></div>`
       + `<div class="sab-f"><div class="sab-lb"><span class="sab-cht" title="${esc(chTip())}">更新渠道</span></div>${segHTML()}</div>`
-      + `<div class="sab-sws">${SWS.map(swHTML).join("")}</div>`
-      + hookHTML()
+      + `<div class="sab-sws">${SWS.slice(0, 1).map(swHTML).join("")}</div></div><i class="sab-hr"></i>`
+      + `<div class="sab-grp" role="group" aria-label="启动与托盘"><div class="sab-gt">启动与托盘</div><div class="sab-sws">${SWS.slice(1).map(swHTML).join("")}</div></div><i class="sab-hr"></i>`
+      + `<div class="sab-grp" role="group" aria-label="通知与集成"><div class="sab-gt">通知与集成</div>${hookHTML()}</div>`
       + `<button type="button" class="sab-btn dgr sab-quit" data-sab="quit" title="先保存存档并停止正在运行的服务器，随后退出程序"><i data-ic="power"></i>退出 MineDeck</button>`
       + `</section>`
-      + `<section class="sab-col sab-ab" aria-label="关于"><div class="sab-lb"><span>关于</span></div><div class="sab-lw"><div class="list">`
+      + `<section class="sab-col sab-ab" aria-label="关于"><div class="sab-gt">关于</div><div class="sab-lw"><div class="list">`
       + item("内网穿透基于 <b>OpenFrp OPENAPI</b> 接入", "https://www.openfrp.net")
       + item(`界面字体：Geist、Geist Mono（© The Geist Project Authors）与 Noto Sans SC（© Adobe），均为 SIL Open Font License 1.1，子集随程序内嵌，许可原文见 `
         + `<a class="sab-tx" href="../../internal/web/ui/fonts/OFL-Geist.txt" target="_blank">OFL-Geist.txt</a>、<a class="sab-tx" href="../../internal/web/ui/fonts/OFL-NotoSansSC.txt" target="_blank">OFL-NotoSansSC.txt</a>。`)
