@@ -9,14 +9,16 @@
 // 端口、最大人数同页头，Paper、Forge 是离线模式、白名单开着，原版 26.2 文件里没写白名单）。排法照临时规范重来（内容面板 868 × 526，里面 852 × 510）：
 //   · 最上面一排 32 高：七个分组片（28 高胶囊，选中块滑过去），跟着下面滚到哪一组走；点了滚过去。右边搜索框（32 高胶囊，同控制台过滤框），
 //     边打边筛（停手 0.18 秒），中文名、键名都认，空格、横线、下划线、点都不算（同程序 filterBySearch）；筛不到时栏正中一行「没有匹配的配置项」。
-//   · 中间一栏（圆角 18）是全部的项，多了在栏里滚（细滚动条）。最上面「谁能进」两块（正版验证、白名单，同向导第四步那条：开关在字的左边，1 : 2），
+//   · 中间一栏（圆角 18）是全部的项，多了在栏里滚（细滚动条）。最上面「谁能进」两块（正版验证、白名单，同向导第四步那条：开关在字的左边；两块一样宽、按字的宽度，不再铺满一行，作者 11-28 嫌白名单那块太长），
 //     任务单说这两项放在「常用」里；白名单那块右边一个箭头去「玩家」（名单在那里）。下面一组一组：组名和项数，组里四列的格子
 //     （字 18 + 6 + 框 40，同向导第三步；行距 16）：步进和数字框占一格，分段、下拉、文本框占两格，MOTD 占一整行；开关放在每组最后，四个一行，开关在字的左边。
 //     26.x 的四个游戏规则开关在「基础与玩法」最后单独一行，标「游戏规则」（悬停说马上生效、不用保存）；停着、启动中时灰掉。
 //   · 控件（规范第九节）：程序的 <select> 换成分段（四项以内）或自己画的下拉（世界类型五项）；数字：范围小的用步进加档位（视距 3~32、最大人数、出生点保护……，
 //     现有值不在档位上时照样显示，一动落到相邻的档），两项权限等级用 1~4 的分段，范围大、要能填 -1 的（端口、卡死超时、压缩阈值、世界边界、连锁更新上限、发包限速）
 //     用向导端口那样能打字、不带箭头的框，单位写在框里右边；不是整数、端口越界时框标红、右边一句红字，点保存时拦下（滚过去、晃一下、光标落过去）。
-//   · MOTD：一行里左边是输入框（右边的调色板按钮点开 16 色和 5 种样式，点了把 § 码插在光标处，同程序），右边是预览（恒深底，同程序 motd-preview）。
+//   · MOTD：左边是两行的输入框（游戏的服务器列表最多显示两行；回车换行，第三行进不去；存进 server.properties 时换行要写成 \n，改程序时注意），
+//     框里右上角的调色板按钮点开 16 色和 5 种样式：没选中字时把 § 码插在光标处（同程序），选中一段时只改这一段（作者 11-28 要的，做法见调色板那段）；
+//     右边是两行的预览（恒深底，同程序 motd-preview）。
 //   · 说明、键名、默认值都进中文名的悬停；程序每一项都挂着「重启生效」（目录里每一项都是 restart: true），这里不再每项挂，改成保存条上说一次（同「全部配置」）。
 // 保存条（52 高、圆角 18，面板里最下面一条，同「全部配置」「定时任务」）：有改动时右边淡进来「N 项修改未保存」「放弃修改」，「保存」亮起来；
 // 服务器开着或启动中、又有改动时左边「保存后要重启才生效」，开着时存过以后「已保存，重启服务器以后生效」加「立即重启」（同程序 wireLiveBar）。
@@ -168,7 +170,9 @@
     if (!menu) return; const m = menu; menu = null;
     m._a.classList.remove("open"); m._a.setAttribute("aria-expanded", "false"); m.classList.remove("enter"); m.classList.add("leave"); setTimeout(() => m.remove(), 90);
   }
-  // 浮层（MOTD 的调色板、实际启动参数）：在按钮下面、右边对齐；放不下就到上面
+  // 浮层（MOTD 的调色板、实际启动参数）：在按钮下面、右边对齐；放不下就到上面。
+  // 调色板的按钮在两行简介框的右上角，从按钮下面弹会盖住第二行（正好是选中要改的字），所以它对着整个框的下沿弹
+  const popRef = a => a.closest(".st-motd .st-iw") || a;
   function openPop(anchor, inner, cls, wire) {
     if (pop && pop._a === anchor) { closePop(); return; }
     closePop(); closeMenu();
@@ -179,7 +183,7 @@
   }
   function placePop() {
     if (!pop) return;
-    const r = pop._a.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight, up = r.bottom + 6 + h > innerHeight - 8;
+    const r = popRef(pop._a).getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight, up = r.bottom + 6 + h > innerHeight - 8;
     pop.classList.toggle("up", up);
     pop.style.left = Math.round(Math.max(8, Math.min(r.right - w, innerWidth - w - 8))) + "px";
     pop.style.top = Math.round(up ? r.top - h - 6 : r.bottom + 6) + "px";
@@ -292,7 +296,7 @@
 
   // 悬停：说明、键名（程序在每一项下面写着）；没写进文件的照程序说一句
   function tipOf(D, p) {
-    const out = [p.desc + (p.key === "motd" ? " 支持中文与 § 色码。" : "")];
+    const out = [p.desc + (p.key === "motd" ? " 支持中文与 § 色码，最多两行。" : "")];
     if (p.key === "white-list") out.push(`MineDeck 新建服务器时会按向导设置写入此项（默认关闭${verGte(C.S.mc, "26.3") ? "；该版本服务端自行生成配置时默认开启" : ""}）。白名单开关与名单亦可在「玩家」页管理。`);
     if (p.mode === "gamerule") out.push(live() ? "游戏规则：服务器运行时通过 /gamerule 即时生效，无需保存" : "游戏规则：服务器运行后可切换");
     if (D.missing.has(p.key) && p.mode !== "gamerule") out.push("server.properties 尚未写入此项，当前显示服务端默认值");
@@ -342,8 +346,8 @@
   }
   function ctlHTML(D, p) {
     const s = p.spec, v = D.cur[p.key] ?? "", al = `aria-label="${esc(p.label)}"`;
-    if (s.ctl === "motd") return `<div class="st-motd"><label class="st-iw"><input class="st-in" value="${esc(v)}" placeholder="服务器简介" autocomplete="off" spellcheck="false" ${al}>`
-      + `<button type="button" class="st-ib" data-st="pal" title="颜色与样式"><i data-ic="palette"></i></button></label><div class="st-mdp" aria-hidden="true">${motdHTML(v)}</div></div>`;
+    if (s.ctl === "motd") return `<div class="st-motd"><label class="st-iw"><textarea class="st-in" rows="2" wrap="off" placeholder="服务器简介" autocomplete="off" spellcheck="false" ${al}>${esc(v)}</textarea>`
+      + `<button type="button" class="st-ib" data-st="pal" title="颜色与样式：选中文字时仅应用于所选内容，未选中时插入光标处"><i data-ic="palette"></i></button></label><div class="st-mdp" aria-hidden="true">${motdHTML(v)}</div></div>`;
     if (s.ctl === "seg") return segHTML(s.opts, v, p.label);
     if (s.ctl === "sel") return `<button type="button" class="st-sel" data-st="sel" aria-haspopup="menu" aria-expanded="false" ${al}><span class="st-selv">${esc(optLabel(p, v))}</span><i data-ic="chevronDown" class="st-chev"></i></button>`;
     if (s.ctl === "step") {
@@ -414,7 +418,7 @@
     spyLock = 1; clearTimeout(goGroup._t); goGroup._t = setTimeout(() => { spyLock = 0; }, 300);
     list.scrollTop = Math.max(0, el.offsetTop - list.clientHeight / 2 + el.offsetHeight / 2);
     setChip(+el.closest(".st-g").dataset.g, false); el.classList.remove("st-flash"); void el.offsetWidth; el.classList.add("st-flash");
-    el.querySelector("input")?.focus({ preventScroll: true });
+    el.querySelector("input, textarea")?.focus({ preventScroll: true });
   }
 
   // ---- 分组片：选中块滑到下面正看着的那一组（滚着看时跟着走，点了滚过去） ----
@@ -515,7 +519,7 @@
       const f = fieldEl(bad); if (!f) return;
       const top = f.offsetTop, h = list.clientHeight;
       if (top < list.scrollTop || top + f.offsetHeight > list.scrollTop + h) list.scrollTo({ top: Math.max(0, top - h / 2), behavior: "smooth" });
-      const iw = f.querySelector(".st-iw"); shake(iw); f.querySelector("input").focus({ preventScroll: true });
+      const iw = f.querySelector(".st-iw"); shake(iw); f.querySelector("input, textarea").focus({ preventScroll: true });
     }, D.q ? 320 : 0);
     return false;
   }
@@ -567,6 +571,9 @@
       clearTimeout(qT); qT = setTimeout(() => filter(D, true), 180); return;
     }
     const el = e.target.closest(".st-f"); if (!el || !e.target.classList.contains("st-in")) return;
+    if (e.target.tagName === "TEXTAREA" && e.target.value.split("\n").length > 2) { // 粘贴进来超过两行：只留前两行
+      const t = e.target, pos = t.selectionStart; t.value = t.value.split("\n").slice(0, 2).join("\n"); t.selectionStart = t.selectionEnd = Math.min(pos, t.value.length);
+    }
     const p = itemOf(D, el.dataset.k), v = e.target.value;
     setVal(D, p.key, v); paintBad(el, p, v);
     if (p.key === "motd") el.querySelector(".st-mdp").innerHTML = motdHTML(v);
@@ -574,14 +581,48 @@
   function cmKey(e) {
     const D = cmData(); if (!D) return;
     if (e.target.classList.contains("st-q") && e.key === "Escape" && e.target.value) { e.preventDefault(); e.stopPropagation(); clearQ(D, e.target); return; }
-    if (e.target.classList.contains("st-in") && e.key === "Enter") { e.preventDefault(); e.target.blur(); } // 回车只是改完这一格；保存在下面
+    if (e.target.classList.contains("st-in") && e.key === "Enter") {
+      if (e.target.tagName === "TEXTAREA") { // 服务器简介：回车换行，最多两行（游戏的服务器列表只显示两行）；已经两行时回车不做事
+        const t = e.target, rest = t.value.slice(0, t.selectionStart) + t.value.slice(t.selectionEnd);
+        if (rest.includes("\n")) e.preventDefault();
+        return;
+      }
+      e.preventDefault(); e.target.blur(); // 回车只是改完这一格；保存在下面
+    }
   }
   function cmBlur(e) { // 整数框离开时去掉两头的空格
     const el = e.target.closest?.(".st-f"); if (!el || !e.target.classList.contains("st-in")) return;
     const D = cmData(), p = itemOf(D, el.dataset.k); if (p.spec.ctl !== "num") return;
     const v = e.target.value.trim(); if (v !== e.target.value) { e.target.value = v; setVal(D, p.key, v); paintBad(el, p, v); }
   }
-  // 调色板：16 色、5 种样式（同程序），点了把 § 码插在 MOTD 框的光标处、光标留在框里（按下时不抢焦点）；浮层开着可以连着点
+  // 调色板：16 色、5 种样式（同程序）；按下时不抢焦点，浮层开着可以连着点。
+  // 没选中字时把 § 码插在光标处（同程序）；选中了一段字时只改这一段（作者 11-28 要的；程序现在是把选中的字换成 § 码）：
+  //   前面插上新的码，后面补「§r + 选中前一刻生效的颜色和样式」，让后面的字照旧；改完那一段仍是选中的，可以接着叠样式。
+  //   § 码的规矩（游戏的）：颜色码会把粗体、斜体这些样式清掉，§r 全清。所以给一段换颜色时，前面已经生效的样式在新颜色码后面再补一遍，
+  //   段里原有的颜色码去掉；给一段加样式时，段里每个颜色码、§r 后面也补上这个样式；「重置」把段里的码都去掉。
+  const MFMT = new Set(["l", "o", "n", "m"]);
+  function motdState(text, upto) { // text 前 upto 个字走完以后生效的颜色和样式
+    let c = "", f = [];
+    for (let i = 0; i < upto; i++) {
+      if (text[i] !== "§" || i + 1 >= upto) continue;
+      const k = text[++i].toLowerCase();
+      if (MCC[k]) { c = k; f = []; } else if (k === "r") { c = ""; f = []; } else if (MFMT.has(k) && !f.includes(k)) f.push(k);
+    }
+    return { c, f };
+  }
+  const fmtCodes = f => f.map(k => "§" + k).join("");
+  function motdApply(text, s, e, k) { // 返回 [新的字, 新选区起, 新选区止]
+    if (s > 0 && text[s - 1] === "§") s--; // 别把 § 和它后面那个字拆开
+    if (e > s && text[e - 1] === "§" && e < text.length) e++;
+    if (s === e) return [text.slice(0, s) + "§" + k + text.slice(e), s + 2, s + 2];
+    const a = motdState(text, s), b = motdState(text, e), sel = text.slice(s, e);
+    let pre, mid;
+    if (MCC[k]) { pre = "§" + k + fmtCodes(a.f); mid = sel.replace(/§[0-9a-fr]/gi, ""); }
+    else if (k === "r") { pre = "§r"; mid = sel.replace(/§[0-9a-fk-or]/gi, ""); }
+    else { pre = "§" + k; mid = sel.replace(/§[0-9a-fr]/gi, m => m + "§" + k); }
+    const after = text.slice(e), post = !after || /^§[0-9a-fr]/i.test(after) ? "" : "§r" + (b.c ? "§" + b.c : "") + fmtCodes(b.f);
+    return [text.slice(0, s) + pre + mid + post + after, s + pre.length, s + pre.length + mid.length];
+  }
   const palHTML = () => `<div class="st-pal">${Object.keys(MCC).map(c => `<button type="button" class="st-pc" data-c="${c}" style="--c:${MCC[c]}" title="§${c} ${MCN[c]}"></button>`).join("")}</div>`
     + `<div class="st-pst">${MSTY.map(([c, t]) => `<button type="button" class="st-ps st-ps-${c}" data-c="${c}" title="§${c}">${t}</button>`).join("")}</div>`;
   document.addEventListener("pointerdown", e => { if (pop && e.target.closest(".st-palp")) e.preventDefault(); });
@@ -589,8 +630,8 @@
     const b = e.target.closest(".st-palp [data-c]"); if (!b || !pop) return;
     const D = cmData(), el = fieldEl("motd"), inp = el?.querySelector(".st-in"); if (!inp) return;
     const pos = inp.selectionStart ?? inp.value.length, end = inp.selectionEnd ?? pos;
-    inp.value = inp.value.slice(0, pos) + "§" + b.dataset.c + inp.value.slice(end);
-    inp.focus(); inp.selectionStart = inp.selectionEnd = pos + 2;
+    const [t, ns, ne] = motdApply(inp.value, pos, end, b.dataset.c);
+    inp.value = t; inp.focus(); inp.setSelectionRange(ns, ne);
     setVal(D, "motd", inp.value); el.querySelector(".st-mdp").innerHTML = motdHTML(inp.value);
   });
 

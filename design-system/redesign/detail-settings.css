@@ -62,8 +62,9 @@
                       transition: opacity .22s cubic-bezier(.2, .7, .2, 1); }
 .st-lw.is-none .st-none, .st-jlw.is-none .st-jnone { opacity: 1; }
 
-/* 「谁能进」：同向导第四步那条（开关在字的左边，正版验证一块只包住开关和字，白名单一块占其余的宽）；贴栏边 8，44 高、圆角 10（18 − 8） */
-.st-who { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; margin-bottom: 4px; }
+/* 「谁能进」：同向导第四步那条（开关在字的左边）；两块一样宽、按字的宽度排在左边，不铺满一行（作者 11-28 嫌白名单那块太长）；贴栏边 8，44 高、圆角 10（18 − 8） */
+.st-who { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); width: max-content; gap: 8px; margin-bottom: 4px; }
+.st-wb { min-width: 168px; }
 .st-wb { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 8px 0 12px; border-radius: 10px; box-sizing: border-box; min-width: 0; background: var(--surface); }
 .st-wb .st-b { height: 44px; margin: 0; padding: 0 8px 0 0; flex: 1; }
 .st-wb .st-b:hover { background: none; }
@@ -165,8 +166,12 @@
 
 /* MOTD：左边输入框（调色板按钮在框里），右边预览（恒深底，同程序 motd-preview；左右各占两列） */
 .st-motd { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.st-mdp { height: 40px; padding: 0 14px; border-radius: 10px; box-sizing: border-box; background: var(--term-bg); font-size: 13.5px; line-height: 40px;
-         white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--term-fg) 10%, transparent); }
+/* 两行（作者 11-28 要的；游戏的服务器列表最多两行）：框 64 高，字一行 22；调色板按钮贴右上角、离框外沿 6（边 1 + 5）；不自动折行，一行太长横着滚（不出滚动条），和游戏一样一行就是一行 */
+.st-motd .st-iw { height: 64px; align-items: flex-start; padding: 5px 5px 5px 12px; }
+.st-motd .st-in { height: 44px; margin-top: 5px; line-height: 22px; resize: none; white-space: pre; overflow: auto hidden; scrollbar-width: none; }
+.st-motd .st-in::-webkit-scrollbar { display: none; }
+.st-mdp { height: 64px; padding: 10px 14px; border-radius: 10px; box-sizing: border-box; background: var(--term-bg); font-size: 13.5px; line-height: 22px;
+         white-space: pre; overflow: hidden; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--term-fg) 10%, transparent); }
 .st-mpe { color: #666; }
 
 /* ================= 启动与内存 ================= */
