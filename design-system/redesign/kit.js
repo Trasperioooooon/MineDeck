@@ -56,7 +56,7 @@
     }
     if (el === cur) return;
     hide();
-    if (!el || !el.dataset.tip || el.closest(".cap")) return;
+    if (!el || !el.dataset.tip || el.closest(".cap") || el.querySelector(":scope > .kit-num")) return; // 步进正在打字时不出「点击输入数值」
     cur = el;
     timer = setTimeout(() => { if (cur === el && el.isConnected && el.dataset.tip) show(el); }, performance.now() - lastHide < 300 ? 0 : 400);
   });
