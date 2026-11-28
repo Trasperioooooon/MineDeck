@@ -638,10 +638,12 @@
     mk.addEventListener("click", e => {
       if (mask !== mk) return; // 已经关了（正在淡出时又点了一下）
       if (e.target.closest("[data-ad-x=ok]")) {
+        const along = m.up ? [...upGroup(m).keys()].slice(1) : []; // 删的这个有新版本时，原来会和它一起更新的那几行
         closeAsk(); D.mods = D.mods.filter(x => x !== m);
         const rr = root(), el = rr && $(`.ad-row[data-ad-file="${CSS.escape(m.file)}"]`, rr);
         if (el) dropOut(el, () => el.closest?.(".ad-lw")?._paint?.());
         if (rr) { paintCount();
+          if (m.up) { paintUpAll(); along.forEach(o => paintRow(o)); } // 「全部更新」的个数跟着少，那几行「更新」的悬停里不再提它
           D.mods.forEach(o => { if (o.need && o.need[0] === m.id) { const x = $(`.ad-row[data-ad-file="${CSS.escape(o.file)}"]`, rr); if (x) swapKeyed(x, instRow(o)); } }); }
         return;
       }
