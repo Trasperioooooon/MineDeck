@@ -7,7 +7,8 @@
 // 文件夹框带候选、「添加」）；「5 分钟后」「10 分钟后」「30 分钟后」；吸底保存条「保存策略」。
 // 后端 internal/inst/policy.go：类型 restart / command / backup；at（HH:MM）和 every（分钟）二选一，every 从每天 0 点起按钟点对齐
 // （每隔 60 就是每个整点），最短命令 5、备份 30、重启 60，最长 720；group 是文件夹名（最多 32 字），只管分组显示，挪空了文件夹就没了。
-// 到点时：命令、重启只在服务器开着时执行；每隔多久的备份停着时不做（世界没变），每天定时的备份照做。备份只留最近 N 份（全局设置，默认 10，手动的也算）。
+// 到点时：命令、重启只在服务器开着时执行；每隔多久的备份停着时不做（世界没变），每天定时的备份照做。
+// 定时备份只留最近 N 份（全局设置，默认 24；作者 11-29 定和手动备份分开计数，互不挤占）。
 //
 // 排法（内容面板 868 × 526，里面 852 × 510）：左边一栏任务列表、右边 300 宽一栏添加任务（都是圆角 18 = 26 − 8），最下面横跨两栏
 // 一条 52 高、圆角 18 的保存条（同向导第三步 EULA 那条：开关在字的左边）。三块都不动，多了在列表里滚（细滚动条）。
@@ -43,7 +44,10 @@
   window.DETAIL_TABS = window.DETAIL_TABS || {};
   const EASE_IN = "cubic-bezier(.4, 0, 1, 1)", EASE_OUT = "cubic-bezier(.2, .7, .2, 1)", SLIDE = "cubic-bezier(.3, .7, .2, 1)";
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-  const KEEP = 10; // 备份保留份数：全局设置，默认 10（internal/app/app.go DefaultBackupKeep），所有服务器共用，手动备份也算
+  // 定时备份保留份数（作者 11-29 定和手动备份分开算）：全局设置、所有服务器共用，默认 24，没设过时按 24 和手动份数（默认 10）里大的算
+  // （程序 app.ScheduledBackupKeepOf）；手动备份另有自己的份数，不占这里。草图参数 &keep= &skeep= 同「设置 → 存储位置」那页，随时读
+  const qsN = k => { const n = parseInt(C.QS.get(k), 10); return n >= 1 && n <= 1000 ? n : 0; };
+  const skeepN = () => qsN("skeep") || Math.max(24, qsN("keep") || 10);
   const TYPES = { restart: { name: "重启", ic: "refresh" }, command: { name: "命令", ic: "console" }, backup: { name: "备份", ic: "camera" } };
   const MIN_EVERY = { command: 5, backup: 30, restart: 60 }, MAX_EVERY = 720; // 同后端 everyMin、everyMax
   // 步进一下一档：只取能整除一天的（从 0 点起对齐，一天里每一段一样长）；数据里不在这几档上的（比如别处设的 100 分钟）照样能显示
@@ -51,7 +55,8 @@
   const SWEEP = "kill @e[type=item]";
   const PRESETS = [ // 字照程序（一键添加的两样，悬停的话也是程序的）
     { id: "save", label: "每小时存档", task: { type: "backup", every: 60, group: "存档" }, proxy: "代理端没有存档，不支持备份",
-      tip: () => `每隔 1 小时备份一次存档，放入「存档」文件夹；服务器未运行时不执行。每台服务器保留最近 ${KEEP} 份（含手动备份，可在「设置 → 存储位置」中修改），超出时自动清理最旧的备份` },
+      tip: () => `每隔 1 小时备份一次存档，放入「存档」文件夹；服务器未运行时不执行。定时备份保留最近 ${skeepN()} 份（约为最近 ${span(skeepN() * 60)}，所有服务器共用，`
+        + "可在「设置 → 存储位置」中修改），超出时自动删除最旧的定时备份；手动备份单独计数，不受影响" },
     { id: "sweep", label: "每小时扫地", task: { type: "command", every: 60, args: SWEEP, group: "扫地" }, proxy: "代理端不支持 kill 命令",
       tip: () => `每隔 1 小时执行 ${SWEEP}，清理地面掉落物，放入「扫地」文件夹；服务器未运行时不执行` },
   ];
@@ -78,7 +83,8 @@
     return Math.round(+m[1] * (m[2] ? (/^(小时|时|h)$/i.test(m[2]) ? 60 : 1) : unit) * 1e6) / 1e6; // 1.1 小时是 66 分钟，别让浮点误差弄成不是整数
   };
   const whenText = t => (t.every ? `每隔 ${dur(t.every)}` : `每天 ${t.at}`);
-  const ago = m => (m < 2880 ? `${+(m / 60).toFixed(1)} 小时` : `${Math.round(m / 1440)} 天`);
+  // 份数 × 间隔大约是多久（同 detail-world.js、settings-storage.js）：整天的写天，两天以内写小时（最多一位小数），再长四舍五入到天
+  const span = m => m % 1440 === 0 ? `${m / 1440} 天` : m < 2880 ? `${+(m / 60).toFixed(1)} 小时` : `${Math.round(m / 1440)} 天`;
   // 认 4:00、04:00、0400、21：30 这几种写法，一律补齐成 HH:MM（同程序 parseHM）
   const parseHM = v => {
     const m = String(v).trim().match(/^(\d{1,2})[:：.](\d{1,2})$/) || String(v).trim().match(/^(\d{1,2})(\d{2})$/);
@@ -132,7 +138,8 @@
     return n >= 1440 ? "明天 00:00" : `今天 ${hm(n)}`;
   }
   const slots = m => [0, m, 2 * m].filter(x => x < 1440).map(hm).join("、") + "……"; // 同程序
-  const keepText = t => `每台服务器保留最近 ${KEEP} 份（含手动备份）` + (t.every ? `，约 ${ago(t.every * KEEP)}前的备份将被自动清理` : "");
+  // 定时备份那一行的悬停：只留几份、大约多久（每隔多久的才算得出；同程序 everyHint），手动备份另算
+  const keepText = t => `定时备份保留最近 ${skeepN()} 份${t.every ? `（按此间隔约为最近 ${span(t.every * skeepN())}）` : ""}，超出时自动删除最旧的定时备份；手动备份单独计数，不受影响`;
   function rowTip(t) {
     const out = [idle(t) ? (t.type === "backup" ? "服务器未运行时不执行定时备份" : "服务器未运行时不执行") : `下次 ${nextRun(t)}`];
     if (t.every) out.push(`从每日 00:00 起算：${slots(t.every)}`);

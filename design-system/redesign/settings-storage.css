@@ -3,7 +3,7 @@
 
    内容面板（.cp，868 × 658、内边距 8、圆角 26）里一栏占满（圆角 18 = 26 − 8，内边距 16 / 20），表单两列各 398 宽、列距 16，一项「字 18 + 6 + 控件 40」，行距 24。
    路径框、排除项的框、步进都是 40 高、圆角 10；框里的图标按钮 28 见方、离框外沿 6、圆角 4，排除项框里的「加入…」是 28 高胶囊（胶囊不按同心算）；
-   「保存」36 高胶囊（同保存条那颗），跟在步进后面隔 14。 */
+   「保存」36 高胶囊（同保存条那颗），跟在快捷预设后面隔 14。保留份数两行（手动、定时）各占满两栏宽，上下一行一项，行距同上面 24。 */
 
 .ss { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .ss [hidden] { display: none !important; }
@@ -55,7 +55,8 @@
 .ss-spin { animation: ss-spin .9s linear infinite; }
 @keyframes ss-spin { to { transform: rotate(360deg); } }
 
-/* ---- 保留份数：步进（132 宽，同向导内存的步进）、保存 ---- */
+/* ---- 保留份数：两行（手动、定时，作者 11-29 定分开计数），各占满两栏宽、一行一项；每行步进（132 宽，同向导内存的步进）、快捷预设、保存 ---- */
+.ss-keep { grid-column: 1 / -1; }
 .ss-kr { display: flex; align-items: center; gap: 14px; height: 40px; }
 /* 快捷预设：同向导第三步内存下面那排（28 高胶囊，选中的是强调色淡底） */
 .ss-pre { display: flex; gap: 6px; }

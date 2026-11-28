@@ -31,16 +31,33 @@
   };
   const JDK21 = "MineDeck\\runtimes\\java\\jdk-21.0.5+11\\bin\\java.exe";
   const NET_HINT = "网络请求超时，请检查网络或代理后再试", DISK_HINT = "磁盘剩余空间不足，请清理磁盘空间或更换存放位置后再试";
-  const SLOW_TIP = "下载较慢或正在重试。可检查网络或代理；网络恢复后将自动继续下载，无需重新开始。"; // 程序原话，进悬停
+  // 「慢」那块黄条的悬停（作者 11-29 定：按任务换字，不下载的不再说下载）。黄条程序里是「多久没有新进度」就出（app.js 约 3479 行：步骤、进度、日志 STALL_MS 没变），
+  // 不管卡在哪一步；所以按卡住的那一项换：后端报了重试（T.net）或者正在下的那一项是下载（进度名以「下载」开头），用程序原话；
+  // 别的照任务种类换成不提下载的说法：导出卡在打包，换地图卡在复制到暂存区，接管卡在检查文件夹、登记（接管要下 Java 时那一项是「下载 Java 8」，照旧用原话），
+  // 导入交接包卡在解包；新建、导入整合包、导入服务端在下载以外卡住（Forge 安装器跑着、写配置）用最后那句通用的。只说会怎样，不许诺程序没有的行为（不自动重试、不提网络）
+  const SLOW_TIP = "下载较慢或正在重试。可检查网络或代理；网络恢复后将自动继续下载，无需重新开始。"; // 程序原话
+  const SLOW_TIP_OF = {
+    export: "要打包的文件较多或体积较大时，打包耗时较长，请耐心等待。",
+    map: "地图文件较多或体积较大时，复制至暂存区耗时较长，请耐心等待。",
+    adopt: "服务器文件夹中的文件较多时，检查与登记耗时较长，请耐心等待。",
+    import: "交接包中的文件较多或体积较大时，解包耗时较长，请耐心等待。",
+    "": "当前步骤耗时较长，请耐心等待。",
+  };
   // 程序 LEFTOVER_HINT；「服务器页」照重构以后的叫法改成「首页」（首页提示浮层里的「没建完的文件夹」）
   const LEFTOVER_HINT = "文件夹未能自动清理：会列在首页上方「未建完的文件夹」中，可前往处理。";
   const EXPORT_PATH = "D:\\MC\\交接包\\生存服-朋友-交接包-20261127-221530.mdpack";
   const CREATE_STEPS = ["解析版本信息", "准备 Java 运行时", "下载服务端核心", "安装服务端", "写入配置文件", "生成启动脚本"]; // inst/install.go createSteps
 
-  // 新建 / 导入整合包这两种是同一类任务（Go 里 kind 为空），说法同程序 TASK_KINDS[""]
+  // 新建，说法同程序 TASK_KINDS[""]
   const T_CREATE = { title: "正在创建服务器", sub: "正在下载 Java 和服务端。", done: "服务器已建好", doneSub: "Java、服务端与配置均已就绪",
     fail: "服务器创建失败", cx: "已取消创建", cxBtn: "取消创建", failHint: "已下载的文件有缓存，重试速度较快。", go: "完成，进入控制台" };
   const ASK_CREATE = { title: s => `取消创建<span class="nw">「${esc(s.name)}」？</span>`, body: "将删除未建完的文件夹，已下载的文件会保留在缓存中。", keep: "继续创建" };
+  // 导入整合包：Go 里现在和新建是同一类任务（kind 为空），程序页头只能写「正在创建服务器」；作者 11-29 定后端给它自己的种类，说法照交接包、服务端导入那两套。
+  // 做完的那句（进标题的悬停）分两种：有没装上的文件时不说「均已就绪」（第二个参数是任务本身，见 headModel）
+  const T_PACK = { title: "正在导入整合包", sub: "正在准备 Java、安装服务端，并下载整合包中的模组与配置。",
+    done: "整合包已导入", doneSub: (s, t) => t.pending.length || t.skipped.length ? "其余文件均已安装；未装上的文件可在下方逐项处理" : "服务端、模组与配置均已就绪，可以启动",
+    fail: "整合包导入失败", cx: "已取消导入", cxBtn: "取消导入", failHint: "已下载的文件有缓存，重试速度较快。", go: "完成，进入控制台" };
+  const ASK_PACK = { title: s => `取消导入<span class="nw">「${esc(s.name)}」？</span>`, body: "将删除未完成导入的服务器文件夹，已下载的文件会保留在缓存中。", keep: "继续导入" };
 
   // Forge / NeoForge 的建服过程（下载安装器、预放原版服务端、跑官方安装器），导入整合包多两步
   const forgeOps = o => [
@@ -80,7 +97,8 @@
         leftover: "remove MineDeck\\servers\\测试服\\cache\\paper-1.21.4-232.jar: The process cannot access the file because it is being used by another process." },
       go: s => link("detail.html", { kind: s.detail }) },
 
-    pack: { label: "整合包", from: "new", srv: SRV.gear, cancel: true, edit: ["import.html", { flow: "modpack" }], T: T_CREATE, ask: ASK_CREATE,
+    // 日志里的话（cxText 和 forgeOps 里的「服务器创建完成 ✔」）是后端写的，照旧（同服务端导入）；页面上的说法见 T_PACK
+    pack: { label: "整合包", from: "new", srv: SRV.gear, cancel: true, edit: ["import.html", { flow: "modpack" }], T: T_PACK, ask: ASK_PACK,
       cover: "导入整合包", steps: [...CREATE_STEPS, "下载整合包文件", "应用整合包覆盖"], cxText: "已取消，未创建服务器",
       ops: s => s === SRV.tinker
         ? forgeOps({ mc: "1.21.1", java: 21, jv: "21.0.5", jdk: "jdk-21.0.5+11", installer: "neoforge-21.1.77-installer.jar", insMb: 5.9, vanMb: 51.6, lib: "net.neoforged:neoforge:21.1.77",
@@ -374,7 +392,7 @@
   function headModel() {
     const K = T.K, tt = !T.ended ? K.T.title : T.cancelled ? (K.T.cx || "已取消") : T.err ? K.T.fail : K.T.done;
     // 程序页头下面那一行说明（K.sub、做完的 doneSub）进标题的悬停；页面上那一行只留会改变结果、要人记住的
-    const val = v => typeof v === "function" ? v(T.srv) : v;
+    const val = v => typeof v === "function" ? v(T.srv, T) : v;
     const tip = !T.ended ? val(K.T.sub) : !T.err && !T.cancelled && !doneSubShown() ? val(K.T.doneSub) : "";
     return `<span${tip ? ` title="${esc(tip)}"` : ""}>${esc(tt)}</span>`;
   }
@@ -450,8 +468,10 @@
     if (T.ended && T.err && !T.cancelled) return { key: "fail", text: T.err + T.errHint + T.leftover };
     return null;
   }
+  // 悬停用哪一句：见 SLOW_TIP_OF 上面的说明
+  const slowTip = () => T.net || /^下载/.test(T.label) ? SLOW_TIP : SLOW_TIP_OF[T.kind] || SLOW_TIP_OF[""];
   function noteHTML(m) {
-    if (m.key === "slow") return `<div class="tk2-slow" title="${esc(SLOW_TIP)}">${icon("clock")}<span class="tk2-slt">${esc(m.text)}</span></div>`;
+    if (m.key === "slow") return `<div class="tk2-slow" title="${esc(slowTip())}">${icon("clock")}<span class="tk2-slt">${esc(m.text)}</span></div>`;
     // 「创建失败：」这类前缀不写（标题已经说没建好）；failHint 进右下「重试」的悬停，没删干净时换成 LEFTOVER_HINT 写在这里（要人去处理）
     return `<div class="tk2-fail"><div class="tk2-fr">${icon("warn")}${esc(T.err)}</div>${T.errHint ? `<div class="tk2-fh">${esc(T.errHint)}</div>` : ""}`
       + (T.leftover ? `<div class="tk2-flo">${icon("folder")}<span>${esc(LEFTOVER_HINT)}</span></div>` : "")
@@ -460,7 +480,14 @@
   function paintNote(first) {
     const m = noteModel(), box = $("#tk2-note"), inner = box.firstElementChild;
     if (!m) { if (V.note) { box.classList.remove("open"); V.note = null; } return; }
-    if (V.note && V.note.key === m.key) { if (V.note.text !== m.text && m.key === "slow") { const t = $(".tk2-slt", inner); swapIn(t, esc(m.text), { dy: 3 }); } V.note = m; return; }
+    if (V.note && V.note.key === m.key) {
+      if (m.key === "slow") {
+        if (V.note.text !== m.text) { const t = $(".tk2-slt", inner); swapIn(t, esc(m.text), { dy: 3 }); }
+        const sl = $(".tk2-slow", inner), tip = slowTip(); // 卡住的那一项换了（下载 ↔ 别的），悬停跟着换
+        if (sl && (sl.getAttribute("title") ?? sl.dataset.tip) !== tip) { sl.title = tip; delete sl.dataset.tip; }
+      }
+      V.note = m; return;
+    }
     inner.innerHTML = noteHTML(m); hy(inner);
     if (first) { box.style.transition = "none"; box.classList.add("open"); void box.offsetWidth; box.style.transition = ""; }
     else box.classList.add("open");
@@ -903,7 +930,7 @@
     const a = (h, label, on, cls = "", tip = "") => `<a href="${h}" class="${on ? "on" : ""}${cls ? " " + cls : ""}"${tip ? ` title="${esc(tip)}"` : ""}>${label}</a>`;
     const th = document.documentElement.dataset.theme;
     const kinds = Object.entries(KINDS).map(([k, K]) => a(href(q => { q.set("kind", k); if (!legal(k, ST)) q.delete("st"); }), K.label, k === KIND, "",
-      k === "pack" ? "导入整合包（Go 里和新建是同一类任务，多两步；有文件没装上的「部分」只在这一种）" : ""));
+      k === "pack" ? "导入整合包（Go 里现在和新建是同一类任务、多两步，作者 11-29 定后端给它自己的种类；有文件没装上的「部分」只在这一种）" : ""));
     const naTip = s => s === "cancelled" ? "这类任务程序里不能取消（没有取消键），切过去会落到「进行中」" : s === "partial" ? (KIND === "create" ? "从零创建不会有没装上的文件；看「整合包」" : "这类任务没有要单独处理的结果（要留意的只写在日志里）") : "";
     const sts = Object.entries(STATES).map(([s, label]) => a(href(q => q.set("st", s)), label, s === ST, legal(KIND, s) ? "" : "na", legal(KIND, s) ? "" : naTip(s)));
     $("#tk2-sk").innerHTML = `<b>草图</b><b>主题</b>${a(href(q => q.delete("theme")), "深", th === "dark")}${a(href(q => q.set("theme", "light")), "浅", th === "light")}<i></i>`

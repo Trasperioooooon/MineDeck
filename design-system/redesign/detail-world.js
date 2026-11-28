@@ -9,7 +9,9 @@
 //       一大段说明（运行中也能备份、超过份数删最旧的、还原时会先停服、还原前自动备份、定时备份在「定时任务」里加），
 //       下面一行一份：标签或文件名、「现在的世界」「在原来的文件夹」标记、时间 · 大小 · 文件名，运行中写「会先停服」，「还原」「删除」两个按钮。
 // 这里：内容面板里一栏（圆角 18 = 26 − 8），从上到下：
-//   · 顶上一行 28 高（同「玩家」各栏）：「备份」和份数「9 / 10」（后面那个数是保留份数，所有服务器共用；说明和到哪改进悬停，一个值只说一次）；
+//   · 顶上一行 28 高（同「玩家」各栏）：「备份」和份数「手动 5 / 10」（后面那个数是保留份数，所有服务器共用；说明和到哪改进悬停，一个值只说一次）。
+//     作者 11-29 定定时备份单独算份数（默认 24），所以这里只数手动的那一类（「立即备份存档」做的就是这一类），前面写明「手动」，免得和列表的行数对不上；
+//     定时备份现在几份、留几份写在悬停里，两类各几份、到哪改都在那里；
 //     接着是「自动备份」开关（36 × 20，在字的左边）和一颗 28 高的胶囊「每天 04:00」（定时备份，点了去「定时任务」）。作者 11-28 定要加这颗开关：
 //     自动备份就是「定时任务」里的定时备份，有一条就算开着。开 = 加一条每天 04:00 的（见下面 AUTO），关 = 把定时备份都拿掉、胶囊跟着收起；
 //     点了就生效，不进草稿；要拿掉的不只是开关自己加的那一条时先确认。不止一条时胶囊写第一条、后面跟「+1」（同控制台报错横幅两个以上的问题），全部列在悬停里。
@@ -24,7 +26,8 @@
 //     启动中灰掉（后端这时拒绝备份：「服务器正在启动或停止，请稍后再备份」）。程序那段说明拆进各按钮的悬停。
 //   · 还原：危险确认框（共用件页的样子：标题点名是哪一份、按钮写出后果、默认聚焦「取消」）。运行中、启动中按钮写「停止并还原」，带在线人数。
 //     照程序修好以后的做法画：只换世界，核心、插件和服务器设置都不动（框里不写「会覆盖设置」）。
-//     还原完列表顶上多一份「还原前自动」，「现在的世界」从原来那行挪到这一行（只换这两处标记），超过保留份数时最旧的一份往右划掉。
+//     还原完列表顶上多一份「还原前自动」，「现在的世界」从原来那行挪到这一行（只换这两处标记），超过保留份数时最旧的一份往右划掉
+//     （按类算：「还原前自动」和「立即备份存档」做的都是手动备份，只和手动的比，定时备份不会被划掉）。
 //   · 删除：危险确认框，同共用件页「删除备份「更新模组前」？」那张。删掉的正好是「现在的世界」那份时，顶上那句跟着出来（程序也是这样：worldFrom 还在）。
 //   · 程序里没有的两样（都是作者 11-28 定要加的，要后端补）：下载备份的接口；备份页这颗「自动备份」开关（增删定时备份用现成的 PolicyPatch 就行，
 //     「每隔多久」在另一个分支上，这个分支的 inst/policy.go 还只有每天几点）。程序里也没有「停用一条定时任务」，所以关就是删掉，再开回到预设那一条。
@@ -45,6 +48,8 @@
 //     底下一条（52 高、圆角 18，同 EULA）：「我已了解：…」和运行中的「停服并导入」；地图比服务器新时这一条换成红字，主键灰掉。
 //   · 确认框 → 任务进度：封面条下一栏，左边四步（程序 worldimport importSteps 前四步的原话；它的第五步「完成」作者 11-28 定不要：
 //     四步都打勾就是做完了，下面那句「地图已替换完成。」和按钮「完成」留着），右边复制的进度（30 格）和过程记录；复制完以前能取消。
+//     作者 11-29 定和后台任务页（task.html）对齐：过程记录整行折行、不截；「取消换地图」先弹共用的确认框（KIT.confirm，「继续换地图」「取消换地图」，
+//     默认落在「继续换地图」），确认了键变成「正在取消」，收尾后按已取消结束。按钮仍在面板底下一排（作者只定了这两样）。
 //     做完点「完成」回到打开时那页，恢复点顶上多一条（从下面淡进来）。
 //   · 11-28 补画的几种（程序里都有，说法照程序改成书面口吻；各有一个地址参数直接打开，见下面「草图专用的地址参数」）：
 //     读取失败：选的来源读不出来（压缩包打不开、文件夹读不了），和「是整合包」一样写在虚线框里，再点、再拖就是换一个来源。
@@ -60,6 +65,7 @@
 // ---- 草图专用的地址参数（都只在头一次建这台服务器的数据时套用，换子页回来不会又重置；remote 例外，随时读） ----
 //   map=unreadable 读取失败 · map=fail 任务出错（这台服务器之后每次导入都在「换上新地图」那一步出错）· map=busy 正在换（等它做完）· map=stuck 要人处理（重试恢复）
 //   remote=1 从别的设备打开 · from=carried 随交接包带来的存档（看 sub=backups）· sched=multi 两条定时备份（看 sub=backups）
+//   keep=N 手动备份保留 N 份 · skeep=N 定时备份保留 N 份（看 sub=backups 和「定时任务」；同「设置 → 存储位置」的参数，随时读）
 //   填路径时带「损坏」「broken」的也会读取失败（同原来带「整合包」「mrpack」的会认成整合包）。
 // 示例数据：Paper、原版用 import.html 那个 SkyCity_v2.1.zip（三张，第三张只有 level.dat_old 不能导入）；地图存于 1.20.4，比 Paper 1.21.4、原版 26.2 旧，
 // 所以要「我已了解」。Forge 那台 1.20.1 换成一个朋友的机械动力存档：第一张 1.20.1 能直接换，第二张 1.20.4 比服务器新、核对时拦下。都是编的。
@@ -78,12 +84,20 @@
   let C = null; // 外壳最近一次给的 ctx
 
   // ================= 数据（每台服务器一份；换标签回来还在） =================
-  const KEEP = 10; // 程序默认保留份数（app.DefaultBackupKeep），所有服务器共用
+  // 保留份数（全局设置，所有服务器共用；作者 11-29 定手动、定时分开算）：手动备份（「立即备份存档」、AI 助手做的、「还原前自动」）默认 10（app.DefaultBackupKeep）；
+  // 定时备份（定时任务做的，标签「定时」）默认 24，没设过时按 24 和手动份数里大的算（程序 app.ScheduledBackupKeepOf）。
+  // 草图参数 &keep= &skeep= 同「设置 → 存储位置」那页（两页各读各的，不联动）；&keep=5 一类小的数点一下「立即备份存档」就能看到最旧的手动备份划掉
+  const qsN = k => { const n = parseInt(C.QS.get(k), 10); return n >= 1 && n <= 1000 ? n : 0; };
+  const keepN = () => qsN("keep") || 10, skeepN = () => qsN("skeep") || Math.max(24, keepN());
+  const isSched = b => b.label === "定时";
+  // 份数 × 间隔大约是多久（同 detail-tasks.js、settings-storage.js）：整天的写天，两天以内写小时（最多一位小数），再长四舍五入到天
+  const span = m => m % 1440 === 0 ? `${m / 1440} 天` : m < 2880 ? `${+(m / 60).toFixed(1)} 小时` : `${Math.round(m / 1440)} 天`;
   // 备份文件名：时间（20060102-150405）加可选的「-标签」，同 inst/backup.go 的 parseBackupName
   const parse = f => { const x = f.match(/^(\d{4})(\d\d)(\d\d)-(\d\d)(\d\d)(\d\d)(?:\.\d+)?(?:-(.+))?\.zip$/); return x ? { time: `${x[1]}-${x[2]}-${x[3]} ${x[4]}:${x[5]}`, label: x[7] || "" } : { time: "", label: "" }; };
   const bk = (file, mb, old) => ({ file, mb, ...parse(file), old: old || "" }); // old：改存放位置以前的旧文件夹（程序的 elsewhere + dir）
   // 「自动备份」开关打开时加的那一条定时备份：每天 04:00（主会话 11-28 改的：子代理先照「定时任务」的预设「每小时存档」画，
-  // 但保留份数和手动备份共用，每小时一份 10 个小时就把手动的挤掉；每天一份是程序原来就有的定时备份，也同示例里 Paper 那条）
+  // 那时保留份数和手动备份共用，每小时一份 10 个小时就把手动的挤掉；每天一份是程序原来就有的定时备份，也同示例里 Paper 那条）。
+  // 11-29 定时备份单独算份数以后，挤掉手动备份这个理由没有了；草图照旧是每天 04:00，要不要改成每小时等主会话、作者定
   const AUTO = { at: "04:00" };
   const SEED = {
     // scheds：这台服务器的定时备份（「定时任务」里类型是备份的那几条：at 每天几点，every 每隔几分钟）。Paper：天天 04:00 定时备份；11-22 从「开荒第一周」还原过一次（那时自动做了一份「还原前自动」）；最旧那份还在改存放位置以前的文件夹里
@@ -279,11 +293,17 @@
     }
     return null;
   }
-  const keepTip = () => `保留最近 ${KEEP} 份，超出后自动删除最旧的备份。份数上限所有服务器共用，可在「设置 → 存储位置」中修改`;
-  const countHTML = () => `${dat().backups.length}<small> / ${KEEP}</small>`;
-  // 「自动备份」开关：有定时备份就是开着。开 = 照预设加一条，关 = 定时备份都拿掉（程序没有「停用」，只能增删）；说明进悬停
+  // 顶上的份数只数手动备份（这一页的「立即备份存档」做的就是这一类）；定时备份几份、留几份写在悬停里（11-29：两类分开计数）
+  const keepTip = () => { const D = dat(), sn = D.backups.filter(isSched).length;
+    return `手动备份：「立即备份存档」、AI 助手创建的备份及还原前自动备份，保留最近 ${keepN()} 份，超出时自动删除最旧的手动备份。\n`
+      + `定时备份：定时任务创建的备份（标签「定时」），当前 ${sn} 份，保留最近 ${skeepN()} 份，超出时自动删除最旧的定时备份。\n`
+      + "两类分开计数，互不挤占。份数上限所有服务器共用，可在「设置 → 存储位置」中修改"; };
+  const countHTML = () => `<span class="k">手动</span>${dat().backups.filter(b => !isSched(b)).length}<small> / ${keepN()}</small>`;
+  // 「自动备份」开关：有定时备份就是开着。开 = 照预设加一条，关 = 定时备份都拿掉（程序没有「停用」，只能增删）；说明进悬停。
+  // 每天定时的备份服务器停着也照做（detail-tasks.js 开头），所以不写「服务器未运行时不执行」（11-29 改掉了原来那句）
   const autoTip = n => n ? `关闭后移除${n > 1 ? `全部 ${n} 条` : ""}定时备份，已有的备份不受影响`
-    : `开启后${whenText(AUTO)} 自动备份一次存档，服务器未运行时不执行；时刻可在「定时任务」中修改。每台服务器保留最近 ${KEEP} 份（含手动备份），超出时自动清理最旧的备份`;
+    : `开启后${whenText(AUTO)} 自动备份一次存档，时刻可在「定时任务」中修改。定时备份保留最近 ${skeepN()} 份（约为最近 ${span(skeepN() * 1440)}，所有服务器共用），`
+      + "超出时自动删除最旧的定时备份；手动备份单独计数，不受影响";
   function autoSw() {
     const n = dat().scheds.length;
     return `<button type="button" class="wd-tg${n ? " on" : ""}" data-wd-act="auto" role="switch" aria-checked="${n > 0}" title="${esc(autoTip(n))}"><span class="wd-sw"></span><span class="t">自动备份</span></button>`;
@@ -345,15 +365,17 @@
       list.insertAdjacentHTML("afterbegin", bkRow(b)); const row = hy(list.firstElementChild);
       growIn(row); list.scrollTo({ top: 0, behavior: "smooth" });
     }
-    trim(spare); paintHead(1); bkRoot()?.querySelector(".wd-lw")._paint?.();
+    trim(spare, isSched(b)); paintHead(1); bkRoot()?.querySelector(".wd-lw")._paint?.();
   }
-  // 超过保留份数：最旧的往右划掉（程序在做完一份以后按时间删最旧的，「还原前自动」也算数；
-  // 还原时正要用的那一份不删，同 inst/backup.go createBackup 的 spare）
-  function trim(spare) {
-    const D = dat();
-    while (D.backups.length > KEEP) {
-      let at = D.backups.length - 1; if (D.backups[at].file === spare) at--;
-      const [b] = D.backups.splice(at, 1), row = rowOf(b.file);
+  // 超过保留份数：同一类里最旧的往右划掉（作者 11-29 定手动、定时分开计数：程序做完一份以后只在这一份那一类里按时间删最旧的，
+  // 「还原前自动」算手动；定时的只和定时的比，做手动备份不会删掉定时备份）。还原时正要用的那一份不删，同 inst/backup.go createBackup 的 spare
+  function trim(spare, sched) {
+    const D = dat(), same = D.backups.filter(b => isSched(b) === sched); // 新的在前
+    let over = same.length - (sched ? skeepN() : keepN());
+    for (let i = same.length - 1; over > 0 && i >= 0; i--) {
+      const b = same[i]; if (b.file === spare) continue;
+      D.backups = D.backups.filter(x => x !== b); over--;
+      const row = rowOf(b.file);
       if (row) setTimeout(() => dropOut(row, () => bkRoot()?.querySelector(".wd-lw")._paint?.()), 380);
     }
   }
@@ -645,12 +667,12 @@
   const failCause = () => `rename MineDeck\\servers\\${C.S.name}\\${dat().level}: Access is denied.`;
   const failText = () => `导入中断，已退回导入前的存档：${failCause()}`;
   const FAIL_HINT = "没有读写权限，请检查文件夹权限或关闭占用它的程序";
-  const logLine = l => `<div${l === dat().flow.task.error ? ' class="err"' : ""}>${esc(l)}</div>`; // 报错那一行标红、折行，别的一行一条
+  const logLine = l => `<div${l === dat().flow.task.error ? ' class="err"' : ""}>${esc(l)}</div>`; // 一行一条、整行折行（同 task.html），报错那一行标红
   function taskHTML() {
     const D = dat(), T = D.flow.task, c = cand();
     return `<div class="wd-flow">${cover()}<section class="wd-col wd-task"><div class="wd-steps">${STEPS.map((s, i) => `<div class="wd-step ${stepCls(i)}" data-wd-step="${i}"><span class="ic">${stepIco(i)}</span><span>${s}</span></div>`).join("")}</div>`
       + `<div class="wd-prog"><div class="wd-ph"><span class="mono wd-pt2">${size(c.mb * T.pct / 100)} / ${size(c.mb)}</span><span class="wd-sp"></span><span class="mono wd-pct">${Math.floor(T.pct)}%</span></div>`
-      + `<div class="wd-xp${T.step > 1 ? " done" : ""}">${Array.from({ length: 30 }, (_, i) => `<i${i < Math.floor(T.pct / 100 * 30 + 1e-6) ? ' class="on"' : ""}></i>`).join("")}</div>`
+      + `<div class="wd-xp${T.step > 1 || T.cancelled ? " done" : ""}">${Array.from({ length: 30 }, (_, i) => `<i${i < Math.floor(T.pct / 100 * 30 + 1e-6) ? ' class="on"' : ""}></i>`).join("")}</div>`
       + `<div class="wd-lw wd-log"><div class="list">${T.log.map(logLine).join("")}</div><span class="thumb"></span></div>`
       + `<div class="wd-msg" data-wd-k="msg">${taskMsg()}</div></div></section>${footHTML(taskLeft(), taskRight())}</div>`;
   }
@@ -666,8 +688,21 @@
     const T = dat().flow.task;
     if (T.cancelled || T.error) return `<button type="button" class="wd-nb" data-wd-act="again"><i data-ic="refresh"></i>重新核对地图</button>`;
     if (T.ended) return "";
+    if (T.cancelling) return `<button type="button" class="wd-nb" aria-disabled="true">${icon("spinner", "wd-spin")}正在取消</button>`; // 正在进行中：灰着、点了没反应
     const can = T.step <= 1;
-    return `<button type="button" class="wd-nb" data-wd-act="cancel"${can ? ` title="地图正在复制，原存档尚未变动"` : ` aria-disabled="true" title="已开始替换存档，无法取消；若出错将自动退回原存档"`}>取消导入</button>`;
+    return `<button type="button" class="wd-nb" data-wd-act="cancel"${can ? ` title="地图正在复制，原存档尚未变动"` : ` aria-disabled="true" title="已开始替换存档，无法取消；若出错将自动退回原存档"`}>取消换地图</button>`;
+  }
+  // 取消前先确认（作者 11-29 定对齐 task.html：共用的 KIT.confirm，危险的那种，默认落在「继续换地图」；样子和字照 task.js 的取消确认）。
+  // 弹框开着时复制照样往下走：点了「取消换地图」时要还是同一次任务、没结束、还在复制（过了复制就取消不了，那颗键已经灰着写了原因），不然什么都不做。
+  // 确认以后同程序：键变成「正在取消」，停下复制，收尾以后按「已取消」结束（worldimport service.go 的 errImportCancelled：没有替换任何文件）
+  async function askCancel() {
+    const F = dat().flow, T = F.task;
+    if (!T || T.ended || T.cancelling || T.step > 1) return;
+    const k = await KIT.confirm({ ic: "stop", tone: "dgr", title: `取消换地图「${esc(cand().name)}」？`, body: "取消后不会替换任何文件，原存档保持不变。",
+      btns: [{ k: "keep", label: "继续换地图" }, { k: "ok", label: "取消换地图", tone: "dgr" }] });
+    if (k !== "ok" || F.task !== T || T.ended || T.cancelling || T.step > 1) return;
+    T.cancelling = true; F.tok++; paintTask();
+    setTimeout(() => { if (F.task !== T || T.ended) return; T.cancelling = false; T.cancelled = true; T.ended = true; paintTask(); }, 900);
   }
   const taskRight = () => { const T = dat().flow.task; return T.ended ? `<button type="button" class="wd-nb pri" data-wd-act="done">${T.cancelled || T.error ? "返回换地图" : `${icon("check")}完成`}</button>` : ""; };
   const mapInner = () => { const F = dat().flow; return F.screen === "pick" ? pickHTML() : F.screen === "check" ? checkHTML() : F.screen === "task" ? taskHTML() : homeHTML(); };
@@ -835,7 +870,7 @@
     $(".wd-pct", r).textContent = Math.floor(T.pct) + "%";
     $(".wd-pt2", r).textContent = `${size(cand().mb * T.pct / 100)} / ${size(cand().mb)}`;
     if (onlyBar) return;
-    $(".wd-xp", r).classList.toggle("done", T.step > 1); // 复制完了：经验条淡下去，步骤那边已经打了勾
+    $(".wd-xp", r).classList.toggle("done", T.step > 1 || T.cancelled); // 复制完了：经验条淡下去，步骤那边已经打了勾；取消了也淡下去（同 task.html 结束时）
     $$(".wd-step", r).forEach((s, i) => { const cls = `wd-step ${stepCls(i)}`; if (s.className.trim() !== cls.trim()) { s.className = cls; $(".ic", s).innerHTML = stepIco(i); } });
     const list = $(".wd-log .list", r), have = list.children.length;
     T.log.slice(have).forEach(l => { list.insertAdjacentHTML("beforeend", logLine(l)); list.lastElementChild.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "none" }], { duration: 220, easing: EASE_OUT }); });
@@ -917,7 +952,7 @@
     if (act === "back") { if (F.screen === "check") { F.screen = "pick"; F.ack = false; F.stop = false; } else { Object.assign(F, freshFlow()); } stepMap(-1); return; }
     if (act === "next") { F.screen = "check"; F.ack = false; F.stop = false; F.sets = {}; F.readme = false; stepMap(1); return; }
     if (act === "go") { tryGo(); return; }
-    if (act === "cancel") { const T = F.task; if (T && !T.ended && T.step <= 1) { T.cancelled = true; T.ended = true; F.tok++; paintTask(); } return; } // 取消的结果写在下面那句里，过程记录不再重复
+    if (act === "cancel") { askCancel(); return; } // 取消的结果写在下面那句里，过程记录不再重复
     if (act === "again") { F.task = null; F.screen = "check"; F.ack = false; F.stop = false; stepMap(-1); return; }
     if (act === "done") { finishTask(); return; }
   }

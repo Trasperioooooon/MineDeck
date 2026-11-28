@@ -78,9 +78,10 @@ button.wd-tag { cursor: pointer; } button.wd-tag:hover { color: var(--text); bac
 .wd-out { pointer-events: none; }
 
 /* ================= 备份 ================= */
-/* 顶上一行：份数后面是「自动备份」开关（36 × 20，在字的左边）和定时备份的胶囊，靠左放，胶囊出来、收起时开关不挪地方；
-   份数留够「10 / 10」的宽，备份从 9 份变 10 份时开关也不动。右边是当前世界那句（只在现在的世界不是列表里某一份时出来） */
-.wd-bk .wd-hd .wd-n { min-width: 7ch; }
+/* 顶上一行：份数（11-29 起只数手动备份，前面一个「手动」）后面是「自动备份」开关（36 × 20，在字的左边）和定时备份的胶囊，靠左放，胶囊出来、收起时开关不挪地方；
+   份数留够「手动 10 / 10」的宽（「手动」两个字 12 号约 24 加间距 4），备份从 9 份变 10 份时开关也不动。右边是当前世界那句（只在现在的世界不是列表里某一份时出来） */
+.wd-bk .wd-hd .wd-n { min-width: calc(7ch + 28px); }
+.wd-n .k { font-family: var(--font); margin-right: 4px; }
 .wd-auto { flex: none; display: flex; align-items: center; gap: 10px; margin-left: 6px; }
 .wd-auto .wd-tg { height: 28px; gap: 8px; font-size: 12.5px; }
 .wd-chipslot { display: flex; }
@@ -298,8 +299,9 @@ button.wd-tag { cursor: pointer; } button.wd-tag:hover { color: var(--text); bac
 .wd-pt2 { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .wd-log { margin-top: 6px; border-top: 1px solid var(--border); padding-top: 10px; }
 .wd-log .list { gap: 0; font-family: var(--mono); font-size: 12px; line-height: 20px; color: var(--muted); }
-.wd-log .list > div { flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wd-log .list > div.err { white-space: normal; word-break: break-all; color: var(--danger-text); } /* 报错的原话：折行，看得全 */
+/* 一行一条，整行折行、不截（作者 11-29 定对齐 task.html 的日志：同 task.css 的 .tk2-log） */
+.wd-log .list > div { flex: none; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; }
+.wd-log .list > div.err { color: var(--danger-text); } /* 报错的原话 */
 /* 结束时的那句；出错时两句，一句一行（结果、怎么办和复制报错信息） */
 .wd-msg { flex: none; min-height: 22px; font-size: 13px; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
 .wd-msg span { display: inline-flex; align-items: center; gap: 8px; }
