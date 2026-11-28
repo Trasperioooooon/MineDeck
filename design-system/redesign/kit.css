@@ -28,6 +28,12 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
+/* 背景图（外观页选了一张以后；草图里 ?bg=1，见 kit.js 开头）。照程序 body.has-bg 的做法：整页底下铺壁纸（铺满、居中、不跟着滚），
+   上面盖一层页面底色；面板、底部胶囊、弹窗照旧是实底，字始终落在实色面上，所以只有面板外面那一圈（版心两边、顶上、胶囊那一排）看得到图。
+   程序盖 88%，壁纸几乎看不出来；这里深色盖 72%、浅色盖 64%，看得出是一张图又不和面板抢。各页 body 的底色写在自己的 <style> 里，这里多一个 html.kit-bg 压过它 */
+html.kit-bg { --kit-bg-scrim: color-mix(in srgb, var(--bg) 72%, transparent); }
+html.kit-bg[data-theme="light"] { --kit-bg-scrim: color-mix(in srgb, var(--bg) 64%, transparent); }
+html.kit-bg body { background: linear-gradient(var(--kit-bg-scrim), var(--kit-bg-scrim)) fixed, url("img/bg-sample.svg") center / cover no-repeat fixed, var(--bg); }
 body { background: var(--chrome); color: var(--text); font: 400 14px/22px var(--font); font-synthesis-weight: none; -webkit-font-smoothing: antialiased; }
 button { font: inherit; color: inherit; }
 .ico { width: 16px; height: 16px; flex: none; }

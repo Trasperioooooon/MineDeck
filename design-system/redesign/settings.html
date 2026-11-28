@@ -9,8 +9,10 @@
   结构照详情页 11-27 定的那种（标签放左边，作者：两处的二级导航一种做法）：版心 1080，左边 200 宽的分类面板（26 / 8，一行 36 高胶囊、选中块上下滑），
   右边内容面板（26 / 8）。没有页头：底部胶囊里「设置」亮着、左边分类亮着，已经说清在哪了（计划书 U03：「你在哪」被说了四遍），不再写大标题「设置」和「设置 / 外观」。
 
-  分类照程序 SETTINGS_SECTIONS（app.js 约 5769 行）的九个，加「内网穿透」（平台账户、全部隧道，11-26 作者定从胶囊挪进设置，tunnels.html 有第一稿），
-  放在 Java 运行时后面（和联网、开服有关的几样挨着）。
+  分类照程序 SETTINGS_SECTIONS（app.js 约 5769 行）的九个，加「内网穿透」（平台账户、全部隧道，11-26 作者定从胶囊挪进设置，tunnels.html 有第一稿）。
+  排法 11-28 作者定：按重要程度排，不分组、不收起，「内网穿透」往上放。主会话排的先后：和朋友能不能连进来、服务器能不能建起来、跑起来有关的在上面
+  （内网穿透、下载与网络、Java 运行时、存储位置），再是可选的（AI、手机远程管理、通知与集成），最后是窗口行为、外观和版本信息（启动与托盘、外观、更新与关于）。
+  程序打开设置时停在第一个分类，草图不带 sec 参数时也一样。
 
   各分类的内容各一份文件：settings-<分类>.js / .css，往 window.SETTINGS_SECS[分类] 里登记 { html(ctx), mount(ctx) }，同详情页的 DETAIL_TABS。
   还没画的分类是一行占位，这里显示一块空面板。
@@ -113,19 +115,19 @@ const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [..
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
 // 分类：照程序 SETTINGS_SECTIONS，加「内网穿透」
-const SECS = [
-  { id: "appearance", label: "外观", ic: "palette" },
-  { id: "download", label: "下载与网络", ic: "globe" },
-  { id: "storage", label: "存储位置", ic: "folder" },
-  { id: "java", label: "Java 运行时", ic: "coffee" },
+const SECS = [ // 按重要程度排（11-28 作者定），见文件开头
   { id: "tunnels", label: "内网穿透", ic: "link" },
+  { id: "download", label: "下载与网络", ic: "globe" },
+  { id: "java", label: "Java 运行时", ic: "coffee" },
+  { id: "storage", label: "存储位置", ic: "folder" },
+  { id: "ai", label: "AI（可选）", ic: "sparkle" },
   { id: "remote", label: "手机远程管理", ic: "phone" },
   { id: "notify", label: "通知与集成", ic: "bell" },
-  { id: "ai", label: "AI（可选）", ic: "sparkle" },
   { id: "startup", label: "启动与托盘", ic: "monitor" },
+  { id: "appearance", label: "外观", ic: "palette" },
   { id: "about", label: "更新与关于", ic: "info" },
 ];
-let sec = SECS.some(s => s.id === QS.get("sec")) ? QS.get("sec") : "appearance";
+let sec = SECS.some(s => s.id === QS.get("sec")) ? QS.get("sec") : SECS[0].id;
 // 草图里的几台服务器（同首页、详情页的示例），内网穿透的「全部隧道」、存储位置里「放在别处的服务器」要用
 const SERVERS = [
   { id: "paper", name: "生存服 · 朋友", core: "Paper", mc: "1.21.4", port: 25565, tunnel: "frp-hk.openfrp.net:31234", voice: true, running: true },

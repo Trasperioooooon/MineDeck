@@ -64,7 +64,7 @@
     { k: "label", t: "首页显示「点击赞赏」标签", tip: "显示像素爱心右上方的「点击赞赏」标签；点击标签上的 × 将同步关闭此项，需要时可在此重新开启" },
     { k: "ai", t: "底部导航显示 AI 助手", tip: "关闭后隐藏底部导航中的 AI 助手入口，需要时可在此重新开启" },
   ];
-  const BG_NAME = "雪山.jpg"; // 草图里假装选的那一张
+  const BG_NAME = "黄昏山谷.png"; // 草图里假装选的那一张（实际显示的是 img/bg-sample.svg）
 
   const html0 = document.documentElement;
   const sysLight = () => matchMedia("(prefers-color-scheme: light)").matches;
@@ -182,8 +182,9 @@
       if (k === "ai") C.setCapAI(D.ai);
       return;
     }
-    if (e.target.closest("[data-sa=bgx]")) { D.bg = false; swapBg(r); return; }
-    if (e.target.closest("[data-sa=bg]")) { D.bg = true; swapBg(r); } // 草图里不弹选文件的窗口：假装选了一张（已经有图时就是换一张，样子不变）
+    // 选完、移除都马上生效（11-28 作者定）：框里换图的同时整页底下的壁纸跟着铺上 / 撤掉，地址里的 bg 跟着改，刷新也还是它
+    if (e.target.closest("[data-sa=bgx]")) { D.bg = false; swapBg(r); C.KIT.setBg(false); setQ("bg", "0", "0"); return; }
+    if (e.target.closest("[data-sa=bg]")) { D.bg = true; swapBg(r); C.KIT.setBg(true); setQ("bg", "1", "0"); } // 草图里不弹选文件的窗口：假装选了一张（已经有图时就是换一张，样子不变）
   }
   function onKey(e) {
     if ((e.key === "Enter" || e.key === " ") && e.target.matches?.(".sa-bg")) { e.preventDefault(); e.target.click(); }

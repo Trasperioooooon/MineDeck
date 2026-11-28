@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice">
+  <!-- 界面重构草图用的示例壁纸（主会话 11-28 画的，原创）：黄昏的天、远山、方块台阶似的丘陵和几棵方树。只给草图演示「选了背景图以后程序变成什么样」 -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#27325a"/>
+      <stop offset=".38" stop-color="#5a6aa3"/>
+      <stop offset=".62" stop-color="#d79b86"/>
+      <stop offset=".72" stop-color="#f3c79a"/>
+    </linearGradient>
+    <radialGradient id="sun" cx="1130" cy="600" r="360" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff2cf" stop-opacity=".95"/>
+      <stop offset=".12" stop-color="#ffe2a8" stop-opacity=".75"/>
+      <stop offset=".45" stop-color="#f6b98a" stop-opacity=".25"/>
+      <stop offset="1" stop-color="#f6b98a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="far" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8a8fb8"/>
+      <stop offset="1" stop-color="#b9a7b5"/>
+    </linearGradient>
+    <linearGradient id="mid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5d7a8c"/>
+      <stop offset="1" stop-color="#4b6474"/>
+    </linearGradient>
+    <linearGradient id="near" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3f6650"/>
+      <stop offset="1" stop-color="#22392f"/>
+    </linearGradient>
+    <linearGradient id="front" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2c4b3a"/>
+      <stop offset="1" stop-color="#15241d"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1600" height="1000" fill="url(#sky)"/>
+  <rect width="1600" height="1000" fill="url(#sun)"/>
+  <circle cx="1130" cy="600" r="46" fill="#fff4d6"/>
+
+  <!-- 方块云 -->
+  <g fill="#f7e6dc" opacity=".55">
+    <path d="M180 210h160v-20h120v20h80v40H180z"/>
+    <path d="M760 150h100v-20h140v20h60v30H760z"/>
+    <path d="M1290 250h120v-20h100v20h60v34h-280z"/>
+  </g>
+  <g fill="#f7e6dc" opacity=".3">
+    <path d="M520 320h80v-16h90v16h40v26H520z"/>
+    <path d="M60 380h70v-14h80v14h30v22H60z"/>
+  </g>
+
+  <!-- 远山 -->
+  <path fill="url(#far)" opacity=".9" d="M0 640 L120 560 L210 600 L330 500 L450 590 L560 540 L700 610 L820 520 L940 600 L1040 560 L1180 620 L1300 540 L1420 600 L1520 560 L1600 590 V1000 H0z"/>
+
+  <!-- 中间的台阶丘陵（每级 40 宽，像方块地形） -->
+  <path fill="url(#mid)" d="M0 700 h80 v-20 h80 v-20 h120 v20 h80 v20 h120 v-40 h80 v-20 h120 v20 h40 v40 h160 v-20 h80 v-20 h120 v20 h80 v20 h120 v-40 h80 v20 h120 v40 h120 V1000 H0z"/>
+
+  <!-- 近处的丘陵 -->
+  <path fill="url(#near)" d="M0 790 h120 v-40 h80 v-20 h160 v20 h40 v40 h200 v-40 h80 v-40 h120 v40 h40 v20 h160 v40 h120 v-60 h120 v-20 h80 v20 h80 v40 h200 V1000 H0z"/>
+
+  <!-- 方树 -->
+  <g>
+    <rect x="236" y="690" width="16" height="44" fill="#3a2f25"/>
+    <rect x="210" y="644" width="68" height="56" fill="#2f5b3f"/>
+    <rect x="224" y="626" width="40" height="24" fill="#356746"/>
+
+    <rect x="736" y="670" width="14" height="44" fill="#3a2f25"/>
+    <rect x="714" y="628" width="58" height="48" fill="#2f5b3f"/>
+    <rect x="726" y="612" width="34" height="20" fill="#356746"/>
+
+    <rect x="1290" y="694" width="14" height="40" fill="#3a2f25"/>
+    <rect x="1268" y="654" width="58" height="46" fill="#2b5439"/>
+  </g>
+
+  <!-- 最前面一层 -->
+  <path fill="url(#front)" d="M0 880 h200 v-40 h120 v20 h160 v-20 h80 v40 h240 v-20 h120 v-40 h160 v40 h120 v20 h200 v-40 h120 v20 h80 V1000 H0z"/>
+</svg>
