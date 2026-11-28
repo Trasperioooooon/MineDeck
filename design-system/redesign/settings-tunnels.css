@@ -1,4 +1,5 @@
-/* 全局设置 →「内网穿透」（11-27 夜里第一稿，子代理照临时规范画的，等作者整体扫一眼）。说明写在 settings-tunnels.js 开头。
+/* 全局设置 →「内网穿透」（11-27 夜里第一稿，子代理照临时规范画的，等作者整体扫一眼；11-29 照作者的四条答复加了平台筛选片、
+   没绑定隧道的开停 / 日志 / 改名，行里四格的宽重分了）。说明写在 settings-tunnels.js 开头。
    选择器都带 .stn 前缀（挂在 body 上的是 .stn-dm 菜单、.stn-mask 确认框、#stn-toasts 提示），不碰外壳和别的分类
    （外壳用了 .tb .sk .page .cp .snav .hl .empty .cap .fade-in .fade-out）。
 
@@ -112,11 +113,25 @@
 .stn-fin[data-f="h"], .stn-fin[data-f="p"] { font-family: var(--mono); }
 
 /* ================= 下面一栏：全部隧道 ================= */
-.stn-tl { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 14px 20px 12px; border-radius: 18px; box-sizing: border-box;
+.stn-tl { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 14px 20px 12px; border-radius: 18px; box-sizing: border-box;
           background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
-.stn-th { height: 28px; flex: none; display: flex; align-items: center; gap: 8px; padding-left: 12px; }
+/* 标题行：左边和行里的字对齐（12），右边的筛选片和行里最右那颗图标按钮的右边对齐（列表右边让出 8、行右内边距 6） */
+.stn-th { height: 28px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 14px 0 12px; }
 .stn-tt { font-size: 13.5px; font-weight: 600; cursor: default; }
 .stn-tc { font-size: 12.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+/* 平台筛选片（作者 11-29 定）：28 高胶囊，样子同联机页节点面板的筛选片（.nf：不带边、选中块 --accent-subtle 滑过去）；
+   没有「全部」那一颗，所以没选中时选中块淡掉；没选中的悬停出底色，看得出能点 */
+.stn-fs { position: relative; display: flex; gap: 2px; flex: none; }
+.stn-fhl { position: absolute; left: 0; top: 0; height: 28px; border-radius: 14px; background: var(--accent-subtle); pointer-events: none; opacity: 0;
+           transition: transform .32s cubic-bezier(.3, .7, .2, 1), width .32s cubic-bezier(.3, .7, .2, 1), opacity .2s; }
+.stn-fs.has .stn-fhl { opacity: 1; }
+.stn-f { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: 14px; border: 0; background: none;
+         font: inherit; font-size: 12.5px; color: var(--muted); white-space: nowrap; cursor: pointer; transition: color .2s, background-color .15s; }
+.stn-f:hover:not(.on) { color: var(--text); background: var(--hover); }
+.stn-f.on { color: var(--accent-text); font-weight: 500; }
+.stn-fn { font-size: 12px; font-weight: 400; color: var(--faint); font-variant-numeric: tabular-nums; transition: color .2s; }
+.stn-f.on .stn-fn { color: color-mix(in srgb, var(--accent-text) 70%, transparent); }
+.stn-f:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: -2px; }
 /* 细滚动条：同首页、向导（系统的藏掉，右边 4 像素的细条，上下还有没露出来的行时那一头淡出 28） */
 .stn-lw { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .stn-lw > .list { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; scrollbar-width: none; margin: 0 -4px; padding: 0 12px 0 4px;
@@ -139,14 +154,29 @@
 .stn-rm { flex: 1; min-width: 0; }
 .stn-r1 { height: 18px; display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; font-weight: 600; line-height: 18px; }
 .stn-rn { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 没绑定那行的名字能改（作者 11-29 定）：平时是字，悬停出底色（压在行的悬停底上，所以比 --hover 深一点），点进去才出框（同向导封面上的名字 .ie）。
+   底色往左伸 6、往右伸 4，字和后面的标签都不挪（和绑定了的行一样，名字和标签隔 6） */
+.stn-rn[data-a="ren"] { padding: 1px 4px 1px 6px; margin: -1px -4px -1px -6px; border-radius: 6px; cursor: text; outline: none; transition: background-color .15s; }
+.stn-rn[data-a="ren"]:hover { background: color-mix(in srgb, var(--text) 9%, transparent); }
+.stn-rn[data-a="ren"]:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent); }
+/* 改名的框：24 高、圆角 6，字和平时的位置对齐（左边框 1 加内边距 6）；改的时候这一行只留框，标签和「未绑定服务器」先收起 */
+.stn-ri { flex: 1; min-width: 0; height: 24px; margin: -3px 0 -3px -7px; padding: 0 6px; border-radius: 6px; box-sizing: border-box; outline: none;
+          border: 1px solid color-mix(in srgb, var(--accent) 60%, var(--border)); background: var(--field); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+          font: inherit; font-size: 13px; font-weight: 600; color: var(--text); }
+.stn-row.ed .stn-r1 > :not(.stn-ri) { display: none; }
+.stn-row.bad .stn-ri { border-color: color-mix(in srgb, var(--danger-text) 70%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger-text) 16%, transparent); }
+.stn-r2.bad { color: var(--danger-text); }
 .stn-nb { flex: none; font-size: 12px; font-weight: 400; color: var(--faint); white-space: nowrap; }
 .stn-r2 { margin-top: 1px; font-size: 12px; line-height: 16px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.stn-ra { width: 256px; flex: none; display: flex; align-items: center; gap: 4px; min-width: 0; }
+/* 四格的宽（11-29 最右边加了开停、日志以后重分）：地址 252（最长的「frp-hk.openfrp.net:30512」加「上次」加复制正好放下），
+   状态 104（最长的「凭据无法解密」那颗），最右边 172，剩下约 222 给两行字 */
+.stn-ra { width: 252px; flex: none; display: flex; align-items: center; gap: 4px; min-width: 0; }
 .stn-ad { min-width: 0; font-family: var(--mono); font-size: 12.5px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .stn-ra .stn-tag { margin-left: 2px; }
 .stn-na { font-size: 12.5px; color: var(--faint); }
-.stn-rs { width: 92px; flex: none; display: flex; }
-.stn-rx { width: 112px; flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+.stn-rs { width: 104px; flex: none; display: flex; }
+/* 最右边：绑定了的是「›」；没绑定的是开停、日志（各 28 见方）、「绑定到…」、删除 */
+.stn-rx { width: 172px; flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
 .stn-go { width: 16px; height: 16px; margin-right: 6px; color: var(--faint); transition: color .15s; }
 .stn-row.go:hover .stn-go { color: var(--text); }
 /* 「绑定到…」：28 高胶囊（同筛选片、存储位置那页框里的「加入…」） */
@@ -161,6 +191,27 @@
 .stn-ei { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: var(--danger-subtle); color: var(--danger-text); }
 .stn-ei .ico { width: 20px; height: 20px; }
 .stn-et { font-size: 13.5px; font-weight: 600; cursor: default; }
+
+/* ================= 日志（作者 11-29 定：没绑定的隧道在这里能看日志）=================
+   盖在「全部隧道」那一栏上（和栏的内边距一样：上 14、左右 20、下 12），列表淡掉以后藏在下面、不重画。
+   第一行 28 高：返回（28 见方，和下面终端的左边对齐）、隧道名、状态，右边「启动 / 停止隧道」（28 高胶囊，和终端的右边对齐）；
+   下面终端：恒深色（同控制台 --term-*）、圆角 10，和列表的行一样宽（右边让出 8），等宽 12 号、行高 20，自己滚（细滚动条用终端的字色） */
+.stn-tl.lg > .stn-th, .stn-tl.lg > .stn-lw { visibility: hidden; }
+.stn-lg { position: absolute; inset: 14px 20px 12px; display: flex; flex-direction: column; gap: 6px; }
+.stn-lh { height: 28px; flex: none; display: flex; align-items: center; gap: 8px; min-width: 0; padding-right: 8px; }
+.stn-lh > .stn-ib:first-child { margin-right: 2px; }
+.stn-lt { min-width: 0; font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+.stn-lp, .stn-lr { display: flex; flex: none; }
+.stn-lr .stn-bb .ico { width: 13px; height: 13px; margin-left: -2px; }
+.stn-lw.lg { margin-right: 8px; padding: 8px 0 8px 14px; border-radius: 10px; background: var(--term-bg); color: var(--term-fg); }
+.stn-lw.lg > .list { margin: 0; padding: 2px 16px 2px 0; outline: none; font-family: var(--mono); font-size: 12px; line-height: 20px; --ft: 0px; --fb: 0px; }
+.stn-lw.lg.can-up > .list { --ft: 20px; } .stn-lw.lg.can-down > .list { --fb: 20px; }
+.stn-log > div { flex: none; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; }
+.stn-log > .w { color: var(--term-warn); }
+.stn-log > .e { color: var(--term-err); }
+.stn-lw.lg > .thumb { right: 4px; margin-top: 8px; background: color-mix(in srgb, var(--term-fg) 34%, transparent); }
+.stn-lw.lg > .thumb:hover, .stn-lw.lg > .thumb.drag { right: 3px; background: color-mix(in srgb, var(--term-fg) 55%, transparent); }
+.stn-le { position: absolute; inset: 0; display: grid; place-items: center; font-size: 12.5px; color: color-mix(in srgb, var(--term-fg) 45%, transparent); pointer-events: none; }
 
 /* ================= 菜单：同共用件页（commons.html 的 .dm）——外圆角 16、细边 1 加内边距 5，项 36 高、圆角 10（16 − 6） ================= */
 .stn-dm { position: fixed; z-index: 50; min-width: 208px; max-width: 320px; padding: 5px; box-sizing: border-box; display: flex; flex-direction: column; gap: 1px;
