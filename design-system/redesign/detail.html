@@ -232,7 +232,7 @@ window.EXTRA_ICONS = {
   /* 开关：同新建向导那颗（36 × 20，滑块 16） */
   .tg { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px 0 8px; margin-left: 8px; border: 0; border-radius: 16px; background: none; flex: none;
         font: inherit; font-size: 13px; color: var(--muted); cursor: pointer; }
-  .tg:hover { color: var(--text); background: var(--hover); }
+  /* 只认开关本身（作者 11-28 定），字那一段不再有悬停底色 */
   .tg .sw { position: relative; width: 36px; height: 20px; border-radius: 10px; flex: none; background: color-mix(in srgb, var(--text) 18%, transparent); transition: background .2s; }
   .tg .sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 8px; background: var(--text); transition: transform .26s cubic-bezier(.3, .7, .2, 1); }
   .tg.on .sw { background: var(--accent-solid); }
