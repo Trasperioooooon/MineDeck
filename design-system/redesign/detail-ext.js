@@ -285,6 +285,14 @@
     const pane = $(".ex-pane", r), nv = view(D);
     swapKids(pane, nv.html, dir, "X", () => { pane.className = "ex-pane " + nv.cls; mountPane(r); });
   }
+  // 总开关关着（作者 11-28 定）：下面这一段设置整块淡到 0.7（规范第六节「开关关着、内容先给人看的」），
+  // 按钮、输入框点不动、键盘也进不去；列表照样能滚、标题照样能悬停看说明，空白处悬停说为什么。
+  // 只管「设置」这一段：问答记录、识别测试、伙伴的安装照常能用（不开也要能装模组、能先测日志）
+  function paintOff(r, off, tip) {
+    const p = $(".ex-pane", r); if (!p) return;
+    p.classList.toggle("off", off); setTip(p, off ? tip : "");
+    $$("button, input, textarea, [tabindex]", p).forEach(el => { el.inert = off; });
+  }
 
   // ======================================================================
   // ================= 游戏内 AI ==========================================
@@ -590,7 +598,8 @@
     gaPane(r);
     r.addEventListener("click", gaClick); r.addEventListener("keydown", gaKey); r.addEventListener("input", onInput);
   }
-  const gaPane = r => { bars(r); fitNames(r); };
+  const gaPane = r => { bars(r); fitNames(r); gaOff(r); };
+  const gaOff = r => { const G = ga(); paintOff(r, !G.on && G.seg === "set", "游戏内 AI 未开启，开启后方可修改"); };
   const paintCount = (r, k, text) => { const el = $(`[data-k=${k}]`, r); if (el && el.textContent !== text) swapIn(el, esc(text), 1); };
   function gaClick(e) {
     const r = e.currentTarget, G = ga();
@@ -599,7 +608,7 @@
     if (t) {
       if (t.getAttribute("aria-disabled") === "true") return;
       const k = t.dataset.exTg;
-      if (k === "gaOn") { G.on = !G.on; setTgl(t, G.on); if (G.res) runTest(r, true); return; }
+      if (k === "gaOn") { G.on = !G.on; setTgl(t, G.on); gaOff(r); if (G.res) runTest(r, true); return; }
       if (k === "tpl") { const id = t.dataset.id; G.tpl[id] = !G.tpl[id]; setTgl(t, G.tpl[id]); paintCount(r, "nTpl", nTpl(G)); return; }
       if (k === "allow") { const n = t.closest(".ex-pr").dataset.name; setAllowed(r, n, !has(G.allowed, n)); return; }
       if (k === "loose" || k === "thread") { G.adv[k] = !G.adv[k]; setTgl(t, G.adv[k]); if (G.res) runTest(r, true); return; }
@@ -878,7 +887,8 @@
     cpPane(r);
     r.addEventListener("click", cpClick); r.addEventListener("keydown", cpKey); r.addEventListener("input", onInput);
   }
-  const cpPane = r => { bars(r); fitNames(r); };
+  const cpPane = r => { bars(r); fitNames(r); cpOff(r); };
+  const cpOff = r => { const D = cp(); paintOff(r, !D.on && D.seg === "set", modMissing(D) ? "需先安装伙伴模组并开启 AI 伙伴，方可修改" : "AI 伙伴未开启，开启后方可修改"); };
   const addEv = (r, x, lv = "info") => {
     const D = cp(), e = { t: nowHM(), x, lv }; D.events.unshift(e);
     const w = $("[data-lw=events]", r); if (!w) return;
@@ -923,7 +933,7 @@
       paintLink(r); paintComps(r);
       if (!D.on && running()) addEv(r, "已关闭 AI 伙伴，与伙伴模组的连接已断开（伙伴仍保留在存档中）");
     }
-    paintGate(r);
+    paintGate(r); cpOff(r);
   }
   function cpClick(e) {
     const r = e.currentTarget, D = cp();
