@@ -24,6 +24,9 @@
 //   · 每台服务器保留几份备份：步进（132 宽，一下一档，到头那边灰掉；档位 1~10 一档一个，再往上 12、15、20、24、30、48、72、100、168、200、300、500、1000，
 //     现有值不在档位上时照原样写、一动落到相邻的档，同详情页「常用」；不带快捷预设，同详情页那些步进），后面一颗「保存」（同保存条那颗：没改时灰着，改了亮起来）；
 //     改了没存时名字后面一个强调色小点。存好不弹提示（数字就在那儿）。说明进悬停，加了一句：定时任务每小时备份一次时，保留 N 份只够留最近 N 个小时（手动的也算）。
+//     步进中间的数点进去就地打字（作者 11-28 定凡是步进都这样，共用 kit.js 的 KIT.numEdit）：1～1000 的整数，不在档位上的也收，之后点加减往那个方向落到最近一档。
+//   · 离开前拦（作者 11-28 定，外壳统一拦，这里只登记 dirty / save / discard）：这一页只有保留份数是先改、点「保存」才生效的；
+//     存放文件夹、排除项都是点了就生效，不在里面。
 // 换分类回来：改过的都还在（数据在这个文件里）；正在等的「加入…」、挂着的「撤销」提示回来照样有效。
 // 草图专用（左上角的切换条加不进，用地址参数）：
 //   &def=added   已加入 · 2026-11-27 03:10，能「撤销…」
@@ -200,7 +203,7 @@
   function paintKeep() {
     const r = root(); if (!r) return; const s = data(), f = r.querySelector(".ss-keep");
     const [mi, pl] = f.querySelectorAll(".ss-stp button"), dn = stepTo(s.keep, -1) !== undefined, up = stepTo(s.keep, 1) !== undefined, dirty = s.keep !== s.keepBase;
-    setText(f.querySelector(".ss-sv"), kTxt(s.keep));
+    const num = f.querySelector(".ss-sv"); if (!num.querySelector(".kit-num")) setText(num, kTxt(s.keep)); // 正在框里打字时不动它（打完由 numEdit 放回去，再重画）
     setAttr(mi, "aria-disabled", !dn); setTip(mi, dn ? "少一档" : "最少 1 份");
     setAttr(pl, "aria-disabled", !up); setTip(pl, up ? "多一档" : "最多 1000 份");
     f.classList.toggle("mod", dirty);
@@ -208,6 +211,22 @@
     const sv = f.querySelector(".ss-save");
     if (!s.keepSaving) { sv.classList.toggle("on", dirty); setAttr(sv, "aria-disabled", !dirty); setTip(sv, dirty ? "" : "暂无未保存的修改"); }
   }
+
+  // 步进中间的数点进去就地打字（kit.js 第 7 条）：1～1000 的整数；不在档位上的也收，之后点加减由 stepTo 往那个方向落到最近一档
+  const keepEdit = el => C.KIT.numEdit(el, { get: () => data().keep, set: n => { data().keep = n; paintKeep(); }, min: 1, max: 1000, int: true, label: "每台服务器备份保留份数" });
+  // 存保留份数：草图里装作等了一下请求；存好不弹提示（同详情页「常用」的保存）。返回 Promise：外壳「离开前拦」选了保存时等它落定再走
+  let keepP = null;
+  function saveKeep() {
+    const s = data();
+    if (s.keepSaving) return keepP;
+    if (s.keep === s.keepBase) return Promise.resolve(true);
+    s.keepSaving = true; const sv = root()?.querySelector(".ss-save"); if (sv) sv.innerHTML = `${C.KIT.icon("spinner", "ss-spin")}保存`;
+    return keepP = new Promise(ok => setTimeout(() => {
+      s.keepSaving = false; s.keepBase = s.keep; const rr = root(); if (rr) rr.querySelector(".ss-save").textContent = "保存"; paintKeep(); ok(true);
+    }, 450));
+  }
+  // 放弃没存的保留份数：回到存过的那个数
+  function discardKeep() { if (!S) return; S.keep = S.keepBase; paintKeep(); }
 
   // =====================================================================================================
   // 改存放文件夹：马上生效，右上角一条带「撤销」的提示（同共用件页那条）
@@ -280,12 +299,7 @@
       }
       case "def": runDef(b.dataset.act); break;
       case "dec": case "inc": { const v = stepTo(s.keep, b.dataset.ss === "inc" ? 1 : -1); if (v !== undefined) { s.keep = v; paintKeep(); } break; }
-      case "ksave": { // 草图里装作等了一下请求；存好不弹提示（同详情页「常用」的保存）
-        if (s.keepSaving) return;
-        s.keepSaving = true; b.innerHTML = `${C.KIT.icon("spinner", "ss-spin")}保存`;
-        setTimeout(() => { s.keepSaving = false; s.keepBase = s.keep; const rr = root(); if (rr) rr.querySelector(".ss-save").textContent = "保存"; paintKeep(); }, 450);
-        break;
-      }
+      case "ksave": saveKeep(); break;
     }
   }
   function onKey(e) {
@@ -299,7 +313,9 @@
     r.addEventListener("keydown", onKey);
     const s = data();
     if (s.keepSaving) { const sv = r.querySelector(".ss-save"); sv.innerHTML = `${C.KIT.icon("spinner", "ss-spin")}保存`; } // 换回来时还在存
+    keepEdit(r.querySelector(".ss-sv"));
   }
 
-  window.SETTINGS_SECS.storage = { html, mount };
+  // 离开前拦（kit.js 第 6 条）：只有保留份数是要点「保存」的；正在存的那一下不算没存（还没画过这一页时 S 是空的，算 0）
+  window.SETTINGS_SECS.storage = { html, mount, dirty: () => (S && !S.keepSaving && S.keep !== S.keepBase ? 1 : 0), save: saveKeep, discard: discardKeep };
 })();

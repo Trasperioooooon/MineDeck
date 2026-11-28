@@ -22,6 +22,9 @@
 //     费用估算（价格来源和刷新；当前模型有自填单价时就在那一行标「当前」，不再另写一遍；自填单价的增删，添加是一个表单弹窗）、
 //     AI 助手（开关、清空会话记录）、MCP 接口（开关；开着时接口地址、访问令牌、复制配置、连过的 AI 工具）。
 //   · 单字段、开关照程序即时保存（额度框里一颗保存，存好了换成勾 1.2 秒；开关点了就是）；确认框照共用件页的危险确认框。
+//   · 离开前拦（作者 11-28 定，外壳统一拦，这里只登记 dirty / save / discard）：算没存的有两处——左栏表单改了的几项、右栏额度框里改了没点保存的；
+//     开关、自填单价、清空、重置这些点了就生效，不在里面。选「保存」时额度和表单都存，有一处被拦下（额度填错、没选服务商、清旧 Key 的确认点了取消）就留在这页；
+//     选「不保存」时两处的草稿都丢掉。清旧 Key 的确认为了能等它的结果，换成了共用的 KIT.confirm（样子一样）。
 // 和程序不一样的字：AI 助手的说明「标题栏右上角的「AI 助手」」改成「底部导航里的「AI 助手」」（胶囊里那一颗）；「去服务器列表」那一行没画（悬停里写了在哪）。
 // 示例数据：配的是 DeepSeek（预设地址、预设的建议模型 deepseek-v4-flash），Key 已设置；模型列表只用 presets.go 里写着的（DeepSeek 的两个取自它的说明），
 //   没写的（Kimi、智谱、OpenAI、Ollama）当作「没有拉到」；用量、费用、测试连接的延迟和 token、价格表的更新日期和条数、自填单价 ¥1 / ¥2 都是草图编的；
@@ -404,10 +407,13 @@
     fld("preset").classList.remove("bad");
     paintForm(); paintBar();
   }
+  // 存左栏的表单。返回存成了没有（布尔或 Promise）：外壳「离开前拦」选了保存时要等它，没选服务商被拦下、清旧 Key 的确认点了取消，都算没存成
+  let saveP = null;
   function save() {
-    if (V.saving || !dirtyN()) return;
-    if (!pre()) { const f = fld("preset"); f.classList.add("bad"); shake(f.querySelector(".sai-sel")); return; } // 同程序「先选择服务商」
-    const commit = clearKey => {
+    if (V.saving) return saveP;
+    if (!dirtyN()) return true;
+    if (!pre()) { const f = fld("preset"); f.classList.add("bad"); shake(f.querySelector(".sai-sel")); return false; } // 同程序「先选择服务商」
+    const commit = clearKey => saveP = new Promise(ok => {
       V.saving = true; const s = root().querySelector(".sai-save"); s.innerHTML = C.KIT.icon("spinner", "sai-spin") + "保存";
       setTimeout(() => { // 草图里装作等了一下请求
         V.saving = false;
@@ -415,19 +421,23 @@
         if (typed) V.keySet = true; else if (clearKey) V.keySet = false;
         V.saved = { preset: V.cur.preset, url: V.cur.url.trim(), model: V.cur.model.trim(), proto: V.cur.proto, auth: V.cur.auth, echo: V.cur.echo, effort: V.cur.effort };
         V.cur = { ...V.saved, key: "" }; V.test = null;
-        const r = root(); if (!r) return;
-        r.querySelector(".sai-save").textContent = "保存";
-        const ki = fld("key").querySelector("input"); ki.value = "";
-        paintAll(true);
+        const r = root();
+        if (r) {
+          r.querySelector(".sai-save").textContent = "保存";
+          const ki = fld("key").querySelector("input"); ki.value = "";
+          paintAll(true);
+        }
+        ok(true);
       }, 450);
-    };
-    if (V.keySet && keyGone() && !V.cur.key.trim() && !pre().noKey) { // 会清掉已存的 Key：先说清楚，确认了才存（同程序）
-      modal({ ic: "key", danger: true, title: "清除旧 API Key 并保存", ok: "清除 API Key 并保存", onOk: () => commit(true),
+    });
+    if (V.keySet && keyGone() && !V.cur.key.trim() && !pre().noKey) { // 会清掉已存的 Key：先说清楚，确认了才存（同程序）。用共用的确认框，点了取消能告诉外壳没存成
+      closeMenu(); closePop();
+      return C.KIT.confirm({ ic: "key", tone: "dgr", title: "清除旧 API Key 并保存",
         body: V.cur.preset !== V.saved.preset ? `服务商已切换为「${esc(pre().name)}」，原有 API Key 不会迁移，保存后将被清除。可先在上方输入新 API Key 后再保存。`
-          : "接口地址已切换至新域名，原有 API Key 不会发送至新地址，保存后将被清除。可先在上方输入新 API Key 后再保存。" });
-      return;
+          : "接口地址已切换至新域名，原有 API Key 不会发送至新地址，保存后将被清除。可先在上方输入新 API Key 后再保存。",
+        btns: [{ k: "cancel", label: "取消" }, { k: "ok", label: "清除 API Key 并保存", tone: "dgr" }] }).then(k => (k === "ok" ? commit(true) : false));
     }
-    commit(false);
+    return commit(false);
   }
   function discard() { V.cur = { ...V.saved, key: "" }; fld("key").querySelector("input").value = ""; fld("preset").classList.remove("bad"); paintForm(); paintBar(); }
   function test() {
@@ -449,13 +459,28 @@
     modal({ ic: "trash", danger: true, title: "清除 API Key？", ok: "清除", body: "清除后 AI 功能将停用，需要时可重新填写。",
       onOk: () => { V.keySet = false; V.test = null; paintAll(true); } });
   }
-  function saveQuota(row) {
+  function saveQuota(row) { // 返回存成了没有（填错被拦下是 false）
     const id = row.dataset.q, box = row.querySelector(".sai-in"), inp = box.querySelector("input"), b = box.querySelector(".sai-ib"), raw = inp.value.trim();
-    if (V.qd[id] === undefined || V.qd[id] === V.quota[id]) return;
+    if (V.qd[id] === undefined || V.qd[id] === V.quota[id]) return true;
     const n = raw === "" ? 0 : +raw;
-    if (!(n >= 0) || n > 1e8) { box.classList.add("bad"); const m = box.querySelector(".sai-msg"); m.textContent = "需大于等于 0"; m.title = "请填写不小于 0 的数值（单位：万 token）"; shake(box); inp.focus(); return; }
+    if (!(n >= 0) || n > 1e8) { box.classList.add("bad"); const m = box.querySelector(".sai-msg"); m.textContent = "需大于等于 0"; m.title = "请填写不小于 0 的数值（单位：万 token）"; shake(box); inp.focus(); return false; }
     V.quota[id] = n ? String(n) : ""; delete V.qd[id]; if (inp.value !== V.quota[id]) inp.value = V.quota[id]; // 0 就是不限：框空着，占位写着「不限」
     box.classList.remove("dirty", "bad"); b.disabled = true; done(b);
+    return true;
+  }
+  // ---- 离开前拦（kit.js 第 6 条）：左栏表单改了的几项，加右栏额度框里改了没存的 ----
+  const quotaMod = () => Object.keys(V.qd).filter(id => V.qd[id] !== V.quota[id]);
+  const dirtyAll = () => (V ? (V.saving ? 0 : dirtyN()) + quotaMod().length : 0); // 表单正在存的那一下不算没存；还没画过这一页时 V 是空的，算 0
+  async function saveAll() { // 额度一个一个存（填错的就地拦下），再存表单；有一处没存成就留在这页
+    for (const id of quotaMod()) if (!saveQuota(root().querySelector(`.sai-f[data-q="${id}"]`))) return false;
+    return dirtyN() ? await save() : true;
+  }
+  function discardAll() { // 表单走「放弃修改」；额度框的草稿丢掉、框里换回存过的
+    discard(); V.qd = {};
+    root()?.querySelectorAll(".sai-f[data-q]").forEach(row => {
+      const box = row.querySelector(".sai-in"), inp = box.querySelector("input"), b = box.querySelector(".sai-ib"), v = V.quota[row.dataset.q];
+      if (inp.value !== v) inp.value = v; box.classList.remove("dirty", "bad"); if (!b._done) b.disabled = true;
+    });
   }
   function delPrice(row) { // 往右划 32 像素淡掉（0.18 秒）再收起（规范第七节「清单加减」）
     const m = row.dataset.m; V.prices = V.prices.filter(x => x.model !== m);
@@ -571,5 +596,5 @@
     });
   }
 
-  window.SETTINGS_SECS.ai = { html, mount };
+  window.SETTINGS_SECS.ai = { html, mount, dirty: dirtyAll, save: saveAll, discard: discardAll };
 })();

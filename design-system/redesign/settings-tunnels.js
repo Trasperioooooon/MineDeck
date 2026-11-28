@@ -27,6 +27,8 @@
 // 语音隧道还没建（和联机页对齐：那页演示的就是「新建语音隧道」，主会话 11-27 改）；另有两条没绑定的老隧道：樱花的「我的隧道」（隧道 778899，同第一稿）、
 // OpenFrp 的 old_server（联机页「已有隧道」里那条，#29 香港-4，上次出了错）。账户照向导和联机页：OpenFrp 已连接（steve · VIP），樱花没连。
 // 令牌、密钥一律不显示真值（框是密码框，存过的只写「已设置」），不读本机配置里的任何东西。
+// 离开前拦（作者 11-28 定，外壳统一拦，这里只登记 dirty / save / discard）：这一页只有自建 frps 那三个框是先改、点「保存」才生效的（地址、端口、令牌各算一项）；
+// 连接、断开、绑定、删除都是点了就做，不在里面；樱花粘了没点「连接」的访问密钥也不算（那是「连接」要用的，不是一项设置）。点一行跳去服务器的「联机」走 ctx.go，有没存的先问。
 // 草图专用（地址参数，定了就删）：
 //   &acc=none    两家都没连；&acc=both 樱花也连上了（steve · 普通用户）；&acc=lost OpenFrp 存的凭据在这台电脑上读不出来（按没连算，状态写「读不出来」）
 //   &ro=1        在局域网里打开（手机远程管理）：账户只看状态（程序在局域网里不拉概览，账户和数换成一句「在局域网里打开时只能看连接状态」），
@@ -181,7 +183,8 @@
       + (rep ? "" : `<div class="stn-frpc" title="${esc(TIP.frpc)}"><i data-ic="info"></i><span>首次使用需手动放置 frpc</span></div>`);
   }
   // 自建 frps：地址、端口、令牌，底下「保存」
-  const fDirty = f => f.h.trim() !== f.host || f.p.trim() !== f.port || f.tk !== "";
+  const fDirtyN = f => (f.h.trim() !== f.host) + (f.p.trim() !== f.port) + (f.tk !== ""); // 改了几项（离开前拦要报数）
+  const fDirty = f => fDirtyN(f) > 0;
   function frpsBody() {
     const d = data(), f = d.frps, ro = d.ro, dis = ro ? " readonly tabindex=\"-1\"" : "";
     const dirty = fDirty(f) && !ro;
@@ -486,6 +489,23 @@
   // =====================================================================================================
   // 动作
   // =====================================================================================================
+  // 存自建 frps（那颗「保存」和外壳的「离开前拦」共用）：填错的就地拦下，返回 false；草图里装作等了一下请求，返回 Promise，存好了是 true
+  let frpsP = null;
+  function saveFrps() {
+    const f = data().frps, bk = block("frps"); if (f.saving) return frpsP;
+    const host = f.h.trim(), port = f.p.trim(), pn = +port;
+    if (!host) { f.bad = "host"; f.msg = "请填写 frps 地址"; paintFrps(); const w = bk.querySelectorAll(".stn-fr .stn-iw")[0]; shake(w); w.querySelector("input").focus(); return false; }
+    if (!/^\d+$/.test(port) || pn < 1 || pn > 65535) { f.bad = "port"; f.msg = "端口需在 1–65535 之间"; paintFrps(); const w = bk.querySelectorAll(".stn-fr .stn-iw")[1]; shake(w); w.querySelector("input").focus(); return false; }
+    f.bad = ""; f.msg = ""; f.saving = true; paintFrps();
+    return frpsP = new Promise(ok => setTimeout(() => {
+      f.saving = false; f.host = host; f.port = port; f.h = host; f.p = port; if (f.tk) { f.tokenSet = true; f.tk = ""; } paintFrps(); ok(true);
+    }, 450));
+  }
+  // 放弃自建 frps 没存的改动：三个框换回存过的样子，拦下时标的红和那句话一起收掉
+  function discardFrps() {
+    if (!D) return; const f = D.frps;
+    f.h = f.host; f.p = f.port; f.tk = ""; f.bad = ""; f.msg = ""; paintFrps();
+  }
   function act(a, b) {
     const d = data(), k = b.closest(".stn-ab")?.dataset.acc;
     switch (a) {
@@ -516,15 +536,7 @@
         s.t = setTimeout(() => { s.busy = false; s.st = "on"; s.replacing = false; s.key = ""; paintAcc("sakura"); }, 1200);
         break;
       }
-      case "fsave": {
-        const f = d.frps, bk = block("frps"); if (f.saving) return;
-        const host = f.h.trim(), port = f.p.trim(), pn = +port;
-        if (!host) { f.bad = "host"; f.msg = "请填写 frps 地址"; paintFrps(); const w = bk.querySelectorAll(".stn-fr .stn-iw")[0]; shake(w); w.querySelector("input").focus(); return; }
-        if (!/^\d+$/.test(port) || pn < 1 || pn > 65535) { f.bad = "port"; f.msg = "端口需在 1–65535 之间"; paintFrps(); const w = bk.querySelectorAll(".stn-fr .stn-iw")[1]; shake(w); w.querySelector("input").focus(); return; }
-        f.bad = ""; f.msg = ""; f.saving = true; paintFrps();
-        setTimeout(() => { f.saving = false; f.host = host; f.port = port; f.h = host; f.p = port; if (f.tk) { f.tokenSet = true; f.tk = ""; } paintFrps(); }, 450);
-        break;
-      }
+      case "fsave": saveFrps(); break;
       case "tclear":
         ask({ title: "清除已保存的认证令牌？", ok: "清除令牌",
           body: "清除后连接自建 frps 将不再携带认证令牌。若 frps 启用了令牌验证，将无法连接，届时可重新填写。",
@@ -577,7 +589,7 @@
     const b = e.target.closest("[data-a]");
     if (b) { if (b.getAttribute("aria-disabled") === "true") return; act(b.dataset.a, b); return; }
     const iw = e.target.closest(".stn-iw"); if (iw && e.target === iw) { iw.querySelector("input")?.focus(); return; }
-    const row = e.target.closest(".stn-row.go"); if (row && row.dataset.href) location.href = row.dataset.href;
+    const row = e.target.closest(".stn-row.go"); if (row && row.dataset.href) C.go(row.dataset.href); // 跳到别的页走外壳的 go：有没存的改动先问
   }
   function onInput(e) {
     const d = data(), t = e.target;
@@ -590,7 +602,7 @@
     if (e.key !== "Enter" || e.isComposing) return;
     if (e.target.classList?.contains("stn-kin")) { e.preventDefault(); block("sakura")?.querySelector('[data-a="skconnect"]')?.click(); return; }
     if (e.target.dataset?.f) { e.preventDefault(); const sv = block("frps")?.querySelector('[data-a="fsave"]'); if (sv && sv.getAttribute("aria-disabled") !== "true") sv.click(); return; }
-    if (e.target.matches?.(".stn-row.go")) { e.preventDefault(); location.href = e.target.dataset.href; }
+    if (e.target.matches?.(".stn-row.go")) { e.preventDefault(); C.go(e.target.dataset.href); }
   }
   // 点到菜单和它的按钮以外就收起；Esc 收菜单、确认框；滚动、改窗口大小也收菜单（菜单是固定在窗口上的）
   document.addEventListener("pointerdown", e => { if (menu && !e.target.closest(".stn-dm") && !menu._a.contains(e.target)) closeMenu(); }, true);
@@ -607,5 +619,6 @@
     w.querySelector(".stn-list").addEventListener("scroll", () => closeMenu(), { passive: true });
   }
 
-  window.SETTINGS_SECS.tunnels = { html, mount };
+  // 离开前拦（kit.js 第 6 条）：只有自建 frps 是要点「保存」的；在局域网里打开时改不了、正在存的那一下，都不算没存
+  window.SETTINGS_SECS.tunnels = { html, mount, dirty: () => (D && !D.ro && !D.frps.saving ? fDirtyN(D.frps) : 0), save: saveFrps, discard: discardFrps };
 })();

@@ -21,6 +21,8 @@
 //     没开、开了还没重启、没有局域网 IP 时，码是一块糊掉的淡码（看得出这里是放码的地方，扫不出来），下面一行换成会改变结果的那句：
 //     「重启 MineDeck 后生效」（整句进悬停）、「未检测到本机局域网 IP，请确认已连接网络。」；关着时下面那行空着（开关已经说了关着）。
 //   · 换状态只换变了的那几样：开关滑过去、码清楚 / 糊掉（0.32 秒）、码下面那一行旧的淡掉新的淡进来；换地址时码和地址两样淡出淡进。
+// 离开前拦（作者 11-28 定，外壳统一拦，这里只登记 dirty / save / discard）：这一页只有访问密码是先填、点保存才生效的（开关点了就生效）；
+//   框里有没存的密码就离开先问，选「保存」走的就是那颗保存（太长照样就地拦下、留在这页），选「不保存」把框里的字和记着的「想开」一起丢掉。
 // 示例数据：程序默认端口 27333；本机三个地址照 lanIPRank 排（192.168.1.5 同向导、联机页的局域网 IP；172.24.160.1 是 WSL 虚拟网卡；26.18.4.77 是 Radmin VPN，同向导的虚拟局域网）。
 // 草图专用（草图里没法重启 MineDeck）：&lan=restart 开着、还没重启；&lan=live 开着、生效（二维码）；&lan=noip 生效但没有局域网 IP；&lan=off 设过密码、关着。
 // 不带参数是第一次来的样子：没设密码、关着（任务单要看「没设密码就拨开关会怎样」）。
@@ -206,13 +208,21 @@
     S.on = turnOn; S.want = false;
     paintLeft(); paintRight();
   }
-  function savePw() {
+  function savePw() { // 返回存成了没有（被拦下是 false）：外壳「离开前拦」选了保存时看它
     const r = root(), box = $(".sr-in", r), v = $("input", box).value;
-    if (!v) { bad(box, S.set ? "请输入新密码" : "请先输入访问密码"); return; }
-    if (tooLong(v)) { bad(box, "最长 72 字节", "密码不可用（最长 72 字节）"); return; }
+    if (!v) { bad(box, S.set ? "请输入新密码" : "请先输入访问密码"); return false; }
+    if (tooLong(v)) { bad(box, "最长 72 字节", "密码不可用（最长 72 字节）"); return false; }
     takePw(box);
     if (S.want) { S.on = true; S.want = false; } // 只有刚才被拦下的那一下才连开关一起开；不拿页面上开关的样子一起发
     paintLeft(); paintRight();
+    return true;
+  }
+  // 放弃框里没存的密码：框清空；「想开」是冲着这次要填的密码记的，一起丢掉（回到存过的样子）
+  function discardPw() {
+    if (!S) return; S.draft = ""; S.want = false;
+    const box = root()?.querySelector(".sr-in"); if (!box) return;
+    $("input", box).value = ""; box.classList.remove("bad");
+    paintLeft();
   }
   function copy(b, text) {
     try { navigator.clipboard?.writeText(text).catch(() => {}); } catch { /* 草图里复制不了也照样打勾 */ }
@@ -274,5 +284,6 @@
     if (e.target.value) untick($(".sr-save", box)); // 勾还没收、又打了字：马上换回保存
   }
 
-  window.SETTINGS_SECS.remote = { html, mount };
+  // 离开前拦（kit.js 第 6 条）：只有访问密码是要点保存的，框里有字就算一项没存
+  window.SETTINGS_SECS.remote = { html, mount, dirty: () => (S && S.draft ? 1 : 0), save: savePw, discard: discardPw };
 })();

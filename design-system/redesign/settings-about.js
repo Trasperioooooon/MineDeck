@@ -16,6 +16,7 @@
 //   · 右栏「关于」：程序那段字一条一块，原文照留（字体许可、AGPL、Mojang 声明是义务，不收进悬停）；外链只放图标（规范第十节），地址在悬停里。
 // 任务单要的、程序没有的两种状态（要改后端，写进清单）：「正在下载」「下载好了等重启」。有服务器开着时点「重启并更新」：程序是拒绝，
 // 这里改成一个确认框列出要停的服务器，确认了先停服再更新（同「退出」的做法）；要不要这样等作者定。左边分类上的小点留到装好新版本才去掉（程序是点过「查看」就去掉）。
+// 离开前拦（作者 11-28 定，外壳统一拦，这里只登记 dirty / save / discard）：这一页只有「更新仓库」是先改、点保存才生效的；更新渠道、静默检查都是点了就生效，不在里面。
 // 示例数据：现在 v3.2.9 正式版（同 internal/app/app.go）；新版本 v3.3.0、38.6 MB 是草图编的；更新仓库是程序默认的 Trasperioooooon/MineDeck；静默检查开着；渠道没选过（跟随当前版本）。
 // 草图专用：外壳的 &update=1 是启动时查到新版本；&up=downloading 一打开就在下载，&up=ready 一打开就是下载好了等重启。外链在草图里不跳转（悬停看地址），两份许可原文能打开。
 (() => {
@@ -195,6 +196,13 @@
       setTimeout(() => { b.classList.remove("done"); b.innerHTML = old; b._done = false; }, 1200);
     }
   }
+  // 放弃没存的更新仓库：草稿丢掉，框里换回存过的
+  function discardRepo() {
+    if (!A) return; A.draft = null;
+    const box = root()?.querySelector(".sab-in"); if (!box) return;
+    box.querySelector("input").value = A.repo; box.classList.remove("dirty");
+    const b = box.querySelector(".sab-ib"); if (!b._done) b.disabled = true;
+  }
   function mount(ctx) {
     C = ctx; const r = root(); if (!r) return;
     ctx.thinBar(r.querySelector(".sab-lw"));
@@ -222,5 +230,6 @@
   }
   addEventListener("resize", () => { const r = root(); if (r) placeSeg(r.querySelector(".sab-seg"), false); });
 
-  window.SETTINGS_SECS.about = { html, mount };
+  // 离开前拦（kit.js 第 6 条）：只有更新仓库是要点保存的（没有会被拦下的填法，存了就算成）
+  window.SETTINGS_SECS.about = { html, mount, dirty: () => (A && A.draft !== null && A.draft !== A.repo ? 1 : 0), save: () => { saveRepo(); return true; }, discard: discardRepo };
 })();

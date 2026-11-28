@@ -64,7 +64,8 @@
 .ss-stp button:hover:not([aria-disabled="true"]) { background: var(--hover); color: var(--text); }
 .ss-stp button[aria-disabled="true"] { opacity: .3; cursor: default; }
 .ss-stp .ico { width: 14px; height: 14px; }
-.ss-sv { min-width: 0; font-size: 14px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* 中间的数点进去就地打字（kit.js 的 numEdit）：占满两颗按钮之间（各留 2）、28 高，悬停的淡底和打字的框都是这一块；字照旧居中 */
+.ss-sv { flex: 1; min-width: 0; height: 28px; margin: 0 2px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .ss-save { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; min-width: 84px; padding: 0 18px; border-radius: 18px; box-sizing: border-box; flex: none;
            border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
            transition: background .2s, color .2s, border-color .2s, opacity .2s; }

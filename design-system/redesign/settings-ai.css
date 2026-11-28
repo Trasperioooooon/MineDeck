@@ -174,7 +174,6 @@
 /* 开关一行：36 高，开关在字的左边；悬停的底往两边各伸 8 */
 .sai-swr { display: flex; align-items: center; gap: 10px; width: calc(100% + 16px); height: 36px; margin: 0 -8px; padding: 0 8px; border: 0; border-radius: 10px; box-sizing: border-box; background: none;
            text-align: left; font: inherit; font-size: 13px; color: var(--text); cursor: pointer; transition: background .15s; }
-.sai-swr:hover { background: var(--hover); }
 .sai-sw { position: relative; width: 36px; height: 20px; border-radius: 10px; flex: none; background: color-mix(in srgb, var(--text) 18%, transparent); transition: background .2s; }
 .sai-sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 8px; background: var(--text); transition: transform .26s cubic-bezier(.3, .7, .2, 1), background .2s; }
 .sai-swr.on .sai-sw { background: var(--accent-solid); }

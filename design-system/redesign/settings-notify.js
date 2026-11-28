@@ -12,6 +12,7 @@
 // 下面地址框占满栏宽（等宽字），
 // 框里右边一颗保存（同详情页「扩展」单字段的框：没改时灰着，改过了亮起来，回车也能存，存好了换成勾 1.2 秒，不弹提示）。
 // 后端不收的照规范第七节「反馈」就地拦下：框标红、晃一下、光标落过去，保存的位置换成一句短的红字，后端的原话进悬停。
+// 离开前拦（作者 11-28 定，外壳统一拦，这里只登记 dirty / save / discard）：Webhook 地址改了没存就离开先问；选「保存」时后端不收的照样就地拦下、留在这页。
 // 示例数据：存着 https://example.com/hook（任务单：画成示例地址，不写真实的服务地址）。
 // 草图专用：&from=lan 看从局域网打开时（地址是 https://example.com/***，点进框全选；说明多那一句，也进悬停）。
 // 没画的：读取失败。
@@ -83,20 +84,28 @@
     const m = $(".sn-msg", box); m.textContent = short; setTip(m, full);
     shake(box); $("input", box)?.focus();
   }
-  // 照后端 appops.go 那几道：草图里不发请求，改这里的数据、换框的样子
+  // 照后端 appops.go 那几道：草图里不发请求，改这里的数据、换框的样子。返回存成了没有（被拦下是 false）：外壳「离开前拦」选了保存时看它
   function save() {
-    const box = root()?.querySelector(".sn-in"); if (!box) return;
+    const box = root()?.querySelector(".sn-in"); if (!box) return true;
     const inp = $("input", box), u = inp.value.trim();
-    if (N.draft === null || inp.value === N.saved) return; // 没改：保存灰着，回车也不存（同 bindSaveInput）
-    if (N.lan && u.includes(MASK)) { bad(box, "请填写完整地址", "地址中的 *** 为隐藏部分，修改时请重新填写完整地址"); return; }
-    if (u && !/^https?:\/\//.test(u)) { bad(box, "需以 http(s):// 开头", "Webhook 地址需以 http(s):// 开头"); return; }
-    if (u && (!hostOf(u) || /\s/.test(hostOf(u)))) { bad(box, "地址格式无效", "Webhook 地址格式无效，请按 https://主机名/路径 格式填写"); return; }
+    if (N.draft === null || inp.value === N.saved) return true; // 没改：保存灰着，回车也不存（同 bindSaveInput）
+    if (N.lan && u.includes(MASK)) { bad(box, "请填写完整地址", "地址中的 *** 为隐藏部分，修改时请重新填写完整地址"); return false; }
+    if (u && !/^https?:\/\//.test(u)) { bad(box, "需以 http(s):// 开头", "Webhook 地址需以 http(s):// 开头"); return false; }
+    if (u && (!hostOf(u) || /\s/.test(hostOf(u)))) { bad(box, "地址格式无效", "Webhook 地址格式无效，请按 https://主机名/路径 格式填写"); return false; }
     N.saved = N.lan ? maskOf(u) : u; N.draft = null; // 存空的就是关掉推送（程序提示「已关闭 Webhook 推送」，这里框空着、占位字写着「留空关闭」）
     if (inp.value !== N.saved) inp.value = N.saved;
     const b = $(".sn-ib", box);
     box.classList.remove("dirty", "bad"); b.disabled = true;
     tick(b);
+    return true;
+  }
+  // 放弃没存的地址：草稿丢掉，框里换回存过的
+  function discard() {
+    if (!N) return; N.draft = null;
+    const inp = root()?.querySelector(".sn-in input"); if (inp) inp.value = N.saved;
+    paint();
   }
 
-  window.SETTINGS_SECS.notify = { html, mount };
+  // 离开前拦（kit.js 第 6 条）：这一页只有 Webhook 地址一项
+  window.SETTINGS_SECS.notify = { html, mount, dirty: () => (N && N.draft !== null && N.draft !== N.saved ? 1 : 0), save, discard };
 })();

@@ -19,7 +19,6 @@
 /* 总开关：一行 36 高、圆角 10，开关 36 × 20、滑块 16 在字的左边（同「外观」、向导、「玩家」页）；字只写名字，说明进悬停 */
 .sr-tg { flex: none; display: flex; align-items: center; gap: 10px; height: 36px; margin: -6px -12px 0; padding: 0 12px; min-width: 0; border: 0; border-radius: 10px; background: none;
          font: inherit; font-size: 13px; color: var(--text); cursor: pointer; text-align: left; transition: background .15s; }
-.sr-tg:hover { background: var(--hover); }
 .sr-sw { position: relative; width: 36px; height: 20px; border-radius: 10px; flex: none; background: color-mix(in srgb, var(--text) 18%, transparent); transition: background .2s; }
 .sr-sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 8px; background: var(--text); transition: transform .26s cubic-bezier(.3, .7, .2, 1); }
 .sr-tg.on .sr-sw { background: var(--accent-solid); }
