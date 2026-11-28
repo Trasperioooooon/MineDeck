@@ -1,10 +1,11 @@
-/* 全局设置 →「更新与关于」（11-27 夜里第一稿，子代理照临时规范画的，等作者整体扫一眼）。说明写在 settings-about.js 开头。
+/* 全局设置 →「关于与其他」（11-28 作者定：「启动与托盘」「通知与集成」「更新与关于」合成一页；三页第一稿是 11-27 夜里子代理照临时规范画的）。说明写在 settings-about.js 开头。
    选择器、动画名都带 sab 前缀，不碰外壳和别的分类。
 
    内容面板（.cp，868 × 658、内边距 8、圆角 26）里左右两栏，圆角 18（26 − 8），左栏占其余（504）、右栏 340。
    左栏内边距 16 / 20，照向导第三步「字 18 + 6 + 控件」，块和块隔 24：Logo 48；版本块 64 高、圆角 10（栏里的块一律 10），右边的键 36 高胶囊；
-   分段 40 高、圆角 10（选中块离外框 4、圆角 6）；开关一行 36 高，开关 36 × 20 在字的左边；
-   最下面「退出 MineDeck」36 高胶囊。右栏贴边 8 放可滚的一块（细滚动条），里面一条一块，外链图标 28 见方、圆角 4。 */
+   分段 40 高、圆角 10（选中块离外框 4、圆角 6）；三个开关各一行 36 高，开关 36 × 20 在字的左边，第一个和后两个之间多隔 8；
+   Webhook 地址框 40 高、圆角 10、等宽字，框里右边一颗保存 28 见方、离框外沿 6（边 1 + 内边距 5）、圆角 4（10 − 6），同详情页「扩展」、设置「下载与网络」单字段的框；
+   最下面「退出 MineDeck」36 高胶囊贴底。右栏贴边 8 放可滚的一块（细滚动条），里面一条一块，外链图标 28 见方、圆角 4。 */
 
 .sab { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 8px; }
 .sab-col { min-width: 0; min-height: 0; box-sizing: border-box; border-radius: 18px; background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
@@ -59,13 +60,40 @@
 .sab-seg button:hover { color: var(--text); }
 .sab-seg button.on { color: var(--accent-text); font-weight: 500; }
 
-/* 开关一行：36 高，悬停的底往两边各伸 8（字和上面的字对齐） */
-.sab-swr { display: flex; align-items: center; gap: 10px; height: 36px; margin: -12px -8px 0; padding: 0 8px; border: 0; border-radius: 10px; background: none; text-align: left;
-           font: inherit; font-size: 13px; color: var(--text); cursor: pointer; transition: background .15s; }
+/* 三个开关：各一行 36 高，开关 36 × 20 在字的左边；只有开关本身能点（kit.js 统一处理），整行不出悬停底色。
+   开关上下各空 8，所以这一组往上收 12、往下收 8，开关离上下两块看着都是 24 上下；键盘聚焦的框往两边各伸 8（字和上面的字对齐）。
+   sep：和上一行多隔 8，两颗开关之间是 24，同块和块的间距（上面一个管更新，下面两个管窗口和开机） */
+.sab-sws { display: flex; flex-direction: column; margin: -12px -8px -8px; min-width: 0; }
+.sab-swr { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 8px; border: 0; border-radius: 10px; box-sizing: border-box; min-width: 0; background: none; text-align: left;
+           font: inherit; font-size: 13px; color: var(--text); }
+.sab-swr.sep { margin-top: 8px; }
 .sab-sw { position: relative; width: 36px; height: 20px; border-radius: 10px; flex: none; background: color-mix(in srgb, var(--text) 18%, transparent); transition: background .2s; }
 .sab-sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 8px; background: var(--text); transition: transform .26s cubic-bezier(.3, .7, .2, 1), background .2s; }
 .sab-swr.on .sab-sw { background: var(--accent-solid); }
 .sab-swr.on .sab-sw::after { transform: translateX(16px); background: var(--on-accent); }
+.sab-sl { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 没写成功：行尾一句短的红字（整句进悬停），再点这颗开关就收 */
+.sab-sm { margin-left: auto; flex: none; font-size: 12px; color: var(--danger-text); white-space: nowrap; opacity: 0; transition: opacity .2s; }
+.sab-swr.bad .sab-sm { opacity: 1; }
+
+/* Webhook 地址框：40 高、圆角 10，等宽字；改过了保存亮起来，回车也能存（程序 bindSaveInput）；不对时框标红、晃一下，保存的位置换成一句短的红字（整句进悬停） */
+.sab-in { position: relative; display: flex; align-items: center; gap: 4px; height: 40px; min-width: 0; padding: 0 5px 0 12px; border-radius: 10px; box-sizing: border-box; cursor: text;
+          background: var(--field); border: 1px solid var(--border); transition: border-color .2s, box-shadow .2s; }
+.sab-in:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+.sab-in input { flex: 1; min-width: 0; height: 28px; border: 0; outline: 0; padding: 0; background: none; font-family: var(--mono); font-size: 12.5px; color: var(--text); }
+.sab-in input::placeholder { color: var(--faint); }
+.sab-ib { width: 28px; height: 28px; border-radius: 4px; border: 0; padding: 0; flex: none; display: grid; place-items: center; background: none; color: var(--faint); cursor: pointer;
+          transition: background .15s, color .15s, opacity .15s; }
+.sab-ib .ico { width: 15px; height: 15px; }
+.sab-ib:disabled { opacity: .55; cursor: default; }
+.sab-ib:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.sab-in.dirty .sab-ib { color: var(--accent-text); }
+.sab-ib.done, .sab-ib.done:disabled { color: var(--success-text); opacity: 1; }
+.sab-ie { display: none; flex: none; padding-right: 7px; font-size: 12px; color: var(--danger-text); white-space: nowrap; cursor: default; }
+.sab-in.bad { border-color: color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
+.sab-in.bad:focus-within { box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger-text) 14%, transparent); }
+.sab-in.bad .sab-ie:not(:empty) { display: block; }
+.sab-in.bad .sab-ie:not(:empty) ~ .sab-ib { display: none; }
 
 /* 右栏「关于」：顶上一行字（离栏边 20），下面贴边 8 一块可滚的（细滚动条同首页、详情页） */
 .sab-ab { padding: 16px 8px 8px; display: flex; flex-direction: column; gap: 8px; }

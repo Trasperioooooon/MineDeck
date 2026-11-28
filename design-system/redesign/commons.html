@@ -681,13 +681,13 @@ function M_errd(id, st) {
 
 // ---- 关窗时的询问（程序 closeAskModal 约 787 行）：点 ×、Alt+F4 时有服务器在运行、又没开「关窗缩到托盘」才问 ----
 // 三选一：取消 / 停止服务器并退出（浅危险底，不是最终的那种实底红，同程序 .btn.danger）/ 最小化到托盘（主键，默认聚焦，不丢数据）。
-// 「选择最小化到托盘时，服务器继续运行，点托盘图标恢复窗口」进那颗键的悬停；「以后关闭窗口都最小化到托盘（可在「设置 → 启动与托盘」修改）」开关只写名字，括号里那句进悬停。
+// 「选择最小化到托盘时，服务器继续运行，点托盘图标恢复窗口」进那颗键的悬停；「以后关闭窗口都最小化到托盘（可在「设置 → 关于与其他」修改）」开关只写名字，括号里那句进悬停。
 // 托盘图标不可用时（小字右边的草图开关切）：只剩取消和停止服务器并退出，正文多一句「托盘图标不可用，这次只能停止服务器并退出」（会改变结果，留在页面上），默认聚焦取消
 function M_closeask(id, st) {
   const tray = st.tray !== false;
   return md({ id, w: 460, title: "有 2 台服务器正在运行",
     body: `退出 MineDeck 会先停止它们并保存世界。${tray ? "" : "<br>托盘图标不可用，这次只能停止服务器并退出。"}`,
-    extra: tray ? `<div class="tg${st.remember ? " on" : ""}" data-act="remember" role="switch" aria-checked="${!!st.remember}" title="可在「设置 → 启动与托盘」修改"><span class="sw"></span><div class="m"><div class="t">以后关窗都最小化到托盘</div></div></div>` : "",
+    extra: tray ? `<div class="tg${st.remember ? " on" : ""}" data-act="remember" role="switch" aria-checked="${!!st.remember}" title="可在「设置 → 关于与其他」修改"><span class="sw"></span><div class="m"><div class="t">以后关窗都最小化到托盘</div></div></div>` : "",
     acts: btn("取消", tray ? "" : "fk", 'data-x="close"') + btn("停止服务器并退出", "sdg", 'data-x="close"')
       + (tray ? btn("最小化到托盘", "pri fk", 'data-x="close" title="服务器继续运行，点托盘图标恢复窗口"') : "") });
 }

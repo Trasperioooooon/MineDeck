@@ -11,7 +11,9 @@
 
   分类照程序 SETTINGS_SECTIONS（app.js 约 5769 行）的九个，加「内网穿透」（平台账户、全部隧道，11-26 作者定从胶囊挪进设置，tunnels.html 有第一稿）。
   排法 11-28 作者定：按重要程度排，不分组、不收起，「内网穿透」往上放。主会话排的先后：和朋友能不能连进来、服务器能不能建起来、跑起来有关的在上面
-  （内网穿透、下载与网络、Java 运行时、存储位置），再是可选的（AI、手机远程管理、通知与集成），最后是窗口行为、外观和版本信息（启动与托盘、外观、更新与关于）。
+  （内网穿透、下载与网络、Java 运行时、存储位置），再是可选的（AI、手机远程管理），最后是外观，以及版本信息和零散的几项（关于与其他）。
+  11-28 作者定：启动与托盘、通知与集成、更新与关于合成「关于与其他」（分类 id 沿用 about，放在最后），所以左栏现在是八个分类；
+  老地址 ?sec=startup、?sec=notify 落到 about（SEC_ALIAS）。
   程序打开设置时停在第一个分类，草图不带 sec 参数时也一样。
 
   各分类的内容各一份文件：settings-<分类>.js / .css，往 window.SETTINGS_SECS[分类] 里登记 { html(ctx), mount(ctx) }，同详情页的 DETAIL_TABS。
@@ -33,9 +35,7 @@ window.EXTRA_ICONS = {
 <script src="settings-java.js"></script><link rel="stylesheet" href="settings-java.css">
 <script src="settings-tunnels.js"></script><link rel="stylesheet" href="settings-tunnels.css">
 <script src="settings-remote.js"></script><link rel="stylesheet" href="settings-remote.css">
-<script src="settings-notify.js"></script><link rel="stylesheet" href="settings-notify.css">
 <script src="settings-ai.js"></script><link rel="stylesheet" href="settings-ai.css">
-<script src="settings-startup.js"></script><link rel="stylesheet" href="settings-startup.css">
 <script src="settings-about.js"></script><link rel="stylesheet" href="settings-about.css">
 <style>
   body { background: var(--bg); overflow: hidden; }
@@ -69,7 +69,7 @@ window.EXTRA_ICONS = {
   .snav button:hover { color: var(--text); }
   .snav button.on { color: var(--accent-text); }
   .snav button .ico { width: 16px; height: 16px; }
-  /* 有新版本时「更新与关于」后面一个小点（程序的 nav-dot） */
+  /* 有新版本时「关于与其他」后面一个小点（程序的 nav-dot，挂在「更新与关于」上） */
   .snav button .dot { width: 6px; height: 6px; border-radius: 3px; background: var(--accent); margin-left: auto; }
 
   /* 换分类：旧的往上淡掉，新的从下面浮上来（同规范第七节、详情页） */
@@ -114,7 +114,7 @@ const QS = new URLSearchParams(location.search);
 const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
-// 分类：照程序 SETTINGS_SECTIONS，加「内网穿透」
+// 分类：照程序 SETTINGS_SECTIONS，加「内网穿透」；11-28 作者定：启动与托盘、通知与集成、更新与关于合成「关于与其他」（id 沿用 about）
 const SECS = [ // 按重要程度排（11-28 作者定），见文件开头
   { id: "tunnels", label: "内网穿透", ic: "link" },
   { id: "download", label: "下载与网络", ic: "globe" },
@@ -122,12 +122,13 @@ const SECS = [ // 按重要程度排（11-28 作者定），见文件开头
   { id: "storage", label: "存储位置", ic: "folder" },
   { id: "ai", label: "AI（可选）", ic: "sparkle" },
   { id: "remote", label: "手机远程管理", ic: "phone" },
-  { id: "notify", label: "通知与集成", ic: "bell" },
-  { id: "startup", label: "启动与托盘", ic: "monitor" },
   { id: "appearance", label: "外观", ic: "palette" },
-  { id: "about", label: "更新与关于", ic: "info" },
+  { id: "about", label: "关于与其他", ic: "info" },
 ];
-let sec = SECS.some(s => s.id === QS.get("sec")) ? QS.get("sec") : SECS[0].id;
+const SEC_ALIAS = { startup: "about", notify: "about" }; // 合并以前的两个分类：老地址落到「关于与其他」
+const secOf = id => (Object.hasOwn(SEC_ALIAS, id) ? SEC_ALIAS[id] : id);
+let sec = SECS.some(s => s.id === secOf(QS.get("sec"))) ? secOf(QS.get("sec")) : SECS[0].id;
+if (Object.hasOwn(SEC_ALIAS, QS.get("sec"))) { QS.set("sec", sec); history.replaceState(null, "", "?" + QS); } // 地址栏跟着换成新的，草图切换条上的链接才带得对
 // 草图里的几台服务器（同首页、详情页的示例），内网穿透的「全部隧道」、存储位置里「放在别处的服务器」要用
 const SERVERS = [
   { id: "paper", name: "生存服 · 朋友", core: "Paper", mc: "1.21.4", port: 25565, tunnel: "frp-hk.openfrp.net:31234", voice: true, running: true },
@@ -135,7 +136,7 @@ const SERVERS = [
   { id: "vanilla", name: "原版快照测试", core: "原版", mc: "26.2", port: 25567, running: false, elsewhere: "D:\\MC\\原版快照测试" },
   { id: "proxy", name: "群组代理", core: "Velocity", mc: "3.4.0", port: 25577, running: true },
 ];
-const UPDATE = QS.get("update") === "1"; // 草图：有新版本时「更新与关于」后面的小点
+const UPDATE = QS.get("update") === "1"; // 草图：有新版本时「关于与其他」后面的小点
 
 // 细滚动条（同首页、详情页的 thinBar）：wrapper 里要有 .list 和 .thumb，CSS 各页自己写
 function thinBar(w) {
@@ -170,7 +171,7 @@ function skBar() {
   const th = document.documentElement.dataset.theme;
   $("#sk").innerHTML = `<b>草图</b><b>主题</b>${link("theme", null, "深", th === "dark")}${link("theme", "light", "浅", th === "light")}<i></i>`
     + `<b>更新</b>${link("update", null, "没有", !UPDATE)}${link("update", "1", "有新版本", UPDATE)}<i></i>`
-    + `<span title="分类在左边（同详情页）；十个分类 11-27 夜里都画了第一稿（各在 settings-<分类>.js / .css），要作者敲定的记在 docs/计划/2026-11-27-界面重构-待作者审.md">各分类第一稿</span>`;
+    + `<span title="分类在左边（同详情页）；各分类 11-27 夜里都画了第一稿（各在 settings-<分类>.js / .css；11-28 三个合成「关于与其他」，现在八个），要作者敲定的记在 docs/计划/2026-11-27-界面重构-待作者审.md">各分类第一稿</span>`;
 }
 
 // 各分类的内容在各自的文件里，登记在 window.SETTINGS_SECS[分类] = { html(ctx), mount(ctx) }。
@@ -198,6 +199,7 @@ function swapContent() {
 // 换分类、刷新、点胶囊上的链接跳走之前，先问这一类有没有没保存的改动（kit.js 第 6 条；作者 11-28 定所有要点保存的页面都这样）
 const GUARD = KIT.guardPage(() => SETTINGS_SECS[sec]);
 async function goSec(id) {
+  id = secOf(id);
   if (id === sec || !SECS.some(s => s.id === id)) return;
   if (!(await KIT.leave(SETTINGS_SECS[sec]))) return;
   sec = id;
