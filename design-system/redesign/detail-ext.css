@@ -242,7 +242,7 @@
 /* ================= 游戏内 AI ================= */
 /* 能执行命令的玩家：一行 36 高、圆角 10；开关在名字左边，在线的名字后面一个成功色小方点，管理员一个王冠 */
 .ex-pr { flex: none; display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 8px 0 6px; border-radius: 10px; box-sizing: border-box; min-width: 0; transition: background .15s; }
-.ex-pr:hover { background: var(--hover); }
+/* .ex-pr、.ex-tr 整行不再有悬停底色：只认开关本身（作者 11-28 定），整行变色会让人以为点哪都行 */
 .ex-prt { flex: 0 1 auto; }
 .ex-nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .ex-dotok { width: 6px; height: 6px; border-radius: 2px; background: var(--success); flex: none; }
@@ -250,7 +250,6 @@
 .ex-tags { display: flex; align-items: center; gap: 4px; flex: none; }
 /* 命令模板：整行是开关，44 高；第二行等宽字是命令的写法 */
 .ex-tr { flex: none; display: flex; align-items: center; gap: 10px; height: 44px; width: 100%; padding: 0 10px 0 6px; border-radius: 10px; box-sizing: border-box; transition: background .15s; }
-.ex-tr:hover { background: var(--hover); }
 .ex-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .ex-tx b { font-size: 13px; font-weight: 500; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ex-tx span { font-family: var(--mono); font-size: 11px; line-height: 16px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -510,3 +509,6 @@
 .ex-pop.enter { animation: ex-dd-in .22s cubic-bezier(.2, .7, .2, 1) both; }
 .ex-pop.leave { animation: ex-dd-out .09s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
 .ex-ph { padding: 4px 6px 0; font-family: var(--mono); font-size: 12px; font-weight: 500; color: var(--muted); align-self: flex-start; }
+/* 授权那一行行尾的未保存小点：没改时不占位（名字长、又带两个小标签时省出地方），改了才撑开（主会话 11-28 审时加的） */
+.ex-pr > .ex-dot { width: 0; margin-left: -6px; transition: opacity .2s, width .2s, margin-left .2s; }
+.ex-pr.mod > .ex-dot { width: 6px; margin-left: 0; }

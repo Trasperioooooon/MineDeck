@@ -28,7 +28,7 @@
 //     「全服每天」「全服每天的 token」下面一行淡字是今天用了多少（谁问了几次在悬停里），
 //     最后一行是所有服务器合计的每日总额度。加了保存条以后这一栏矮了 60，放不下，在栏里滚（最后两行在折叠线下面）。
 //     中「能执行命令的玩家」：一行一人，开关在名字左边，在线的名字后面一个成功色小方点，管理员一个王冠，
-//     「不在白名单」「最近来过」是小标签（白名单只标没在名单里的，作者 11-28 定）；没开白名单又授了权时，栏顶一条警告「未开启白名单」带「开启白名单」（确认框里勾要加进白名单的人）；底下按名字授权的框。
+//     「非白名单」「最近来过」是小标签（白名单只标没在名单里的，作者 11-28 定）；没开白名单又授了权时，栏顶一条警告「未开启白名单」带「开启白名单」（确认框里勾要加进白名单的人）；底下按名字授权的框。
 //     右「命令模板」：一行一个，整行是开关，第二行等宽字是命令的写法，限制和「默认关着」进悬停。
 //   · 问答记录：一栏，记录之间用分隔线：谁、类型、选项、「可执行命令」、用量和时间一行；问、答、执行的命令（✓ / ✗ 加原因）、命令输出、报错往下排，全文不截。
 //   · 识别测试：上一栏贴一行日志、「填入示例」、「识别」，下面认出的几项和一句结论（照 internal/chatai 的 describe 原话，草图里用 JS 照着认）；
@@ -531,7 +531,7 @@
     // 白名单的小标签只标没在白名单里的（作者 11-28 定：原来在名单里的每行都标「白名单」，太吵）；白名单关着时也照名单标
     return `<div class="ex-pr" data-name="${esc(p.name)}" data-dk="allow:${esc(p.name.toLowerCase())}">${tgl({ key: "allow", on, label: `<span class="ex-nm">${esc(p.name)}</span>`, tip: `允许 ${p.name} 让 AI 执行命令`, cls: "ex-prt" })}`
       + (p.online ? `<i class="ex-dotok" title="在线"></i>` : "") + (p.op ? `<span class="ex-op" title="管理员">${ico("exCrown")}</span>` : "")
-      + `<span class="ex-sp"></span><span class="ex-tags">${p.wl ? "" : `<span class="ex-tag" data-k="nowl">不在白名单</span>`}${!p.online && p.seen ? tag("最近来过", "faint") : ""}</span>${DOT}</div>`;
+      + `<span class="ex-sp"></span><span class="ex-tags">${p.wl ? "" : `<span class="ex-tag" data-k="nowl">非白名单</span>`}${!p.online && p.seen ? tag("最近来过", "faint") : ""}</span>${DOT}</div>`;
   }
   // 授了权却没开白名单：栏顶一条提醒（会改变结果：离线服谁都能冒名让 AI 执行命令），带「开启白名单」
   const wlTip = G => `离线模式下，任何人使用 ${has(G.allowed, G.wlFirst) ? G.wlFirst : G.allowed[0]} 的名称进服均可让 AI 执行已启用的命令。开启白名单可拦截未知玩家，不开启亦可正常授权。`;
@@ -865,7 +865,7 @@
         G.wlOn = true;
         picked.forEach(n => {
           const p = G.players.find(x => same(x.name, n)); if (!p) return; p.wl = true; p.extra = false; // 进了白名单的人名单里本来就列，放弃修改时不撤
-          const row = $$(".ex-pr", r).find(x => same(x.dataset.name, n)), tg = row && $("[data-k=nowl]", row); // 进了白名单：那一行的「不在白名单」淡掉
+          const row = $$(".ex-pr", r).find(x => same(x.dataset.name, n)), tg = row && $("[data-k=nowl]", row); // 进了白名单：那一行的「非白名单」淡掉
           if (tg) tg.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 180, easing: E_IN, fill: "forwards" }).onfinish = () => tg.remove();
         });
         paintWl(r);
@@ -1412,14 +1412,17 @@
   const dur = M => { const s = Math.max(0, Math.floor((Date.now() - M.live.since) / 1000)); return `${Math.floor(s / 60)}:${pad(s % 60)}`; };
   const lisText = M => { if (M.live.phase !== "live") return "连接桥接模组后显示听众数"; const n = listeners(M)?.voice.length || 0; return n ? `${n} 人在听` : "暂无听众"; };
   const netText = M => M.live.phase === "live" ? `缓冲 ${M.live.buf} 帧 · 往返 ${M.live.rtt} ms · 已发 ${M.live.sent.toLocaleString("en-US")} 帧` : "正在连接桥接模组…";
-  function whyHTML(M) { if (M.live) return ""; const w = blockers(M)[0]; return w ? `${ico("warn")}<span>${esc(w)}</span>` : ""; }
+  // 「开始广播」左边那句：只写第一条不是「重启后生效」的原因；重启那条检查清单那一行已经标着，只进按钮的悬停（「重启服务器后生效」只常显一处，主会话 11-28 定）
+  const RESTART = /重启服务器后生效/;
+  function whyHTML(M) { if (M.live) return ""; const w = blockers(M).find(x => !RESTART.test(x)); return w ? `${ico("warn")}<span>${esc(w)}</span>` : ""; }
+  const castTip = M => blockers(M).join("\n"); // 灰着时悬停列出全部原因
   const castBtn = M => M.live ? `<button type="button" class="ex-btn big stop" data-ex-act="cast"><i data-ic="stop"></i>停止广播</button>`
-    : `<button type="button" class="ex-btn big pri" data-ex-act="cast"${blockers(M).length ? " aria-disabled=\"true\"" : ""}><i data-ic="play"></i>${M.mode === "system" ? "开始广播（整机录音）" : "开始广播"}</button>`;
+    : `<button type="button" class="ex-btn big pri" data-ex-act="cast"${blockers(M).length ? ` aria-disabled="true" title="${esc(castTip(M))}"` : ""}><i data-ic="play"></i>${M.mode === "system" ? "开始广播（整机录音）" : "开始广播"}</button>`;
   // 音量：自己画的条（规范第九节：把手是竖着的小胶囊），0–200、一下 5，100% 那里一道刻度
   const slider = v => `<div class="ex-sl" data-ex-sl="vol" role="slider" tabindex="0" aria-label="音量" aria-valuemin="0" aria-valuemax="200" aria-valuenow="${v}">`
     + `<span class="ex-slt"><i class="ex-slf" style="width:${v / 2}%"></i><i class="ex-slm"></i></span><i class="ex-slh" style="left:${v / 2}%"></i></div><b class="ex-slv ex-mono">${v}%</b>`;
   // 「重启服务器后生效」只留这一处（作者 11-28 让主会话定，原来栏头还有一颗）：服务器运行中装上的那一行，值后面一个小标签，为什么进悬停。
-  // 「开始广播」左边那句点不了的原因照旧（会拦住下一步，要看得见），不算重复
+  // 「开始广播」左边那句不再写重启这一条（见 whyHTML），只在按钮悬停里
   const restartTag = () => `<span class="ex-tag warn" title="服务器运行期间安装，需重启服务器后生效。">重启生效</span>`;
   // 检查清单五行：核心、SVC、桥接模组、语音端口、远程好友的语音（music.js 的 drawCheck；说明进悬停）
   function checkRows(M) {
@@ -1501,7 +1504,7 @@
     const M = mu(), w = $("[data-k=why]", r), html = whyHTML(M);
     if (w.textContent !== hy(Object.assign(document.createElement("div"), { innerHTML: html })).textContent) swapIn(w, html, 1);
     const b = $("[data-ex-act=cast]", r);
-    if (!M.live) { if (blockers(M).length) b.setAttribute("aria-disabled", "true"); else b.removeAttribute("aria-disabled"); }
+    if (!M.live) { if (blockers(M).length) b.setAttribute("aria-disabled", "true"); else b.removeAttribute("aria-disabled"); setTip(b, castTip(M)); }
   }
   function paintCheck(r, k) {
     const M = mu(), tmp = document.createElement("div"); tmp.innerHTML = checkRows(M); hy(tmp);

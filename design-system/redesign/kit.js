@@ -24,7 +24,7 @@
   };
   window.KIT = { icon, hydrate };
   // 4. 悬停提示
-  let tip = null, cur = null, timer = 0, lastHide = 0;
+  let tip = null, cur = null, timer = 0, lastHide = 0, raf = 0;
   const tipEl = () => tip || (tip = Object.assign(document.createElement("div"), { className: "kit-tip" }), tip.setAttribute("role", "tooltip"), document.body.appendChild(tip), tip);
   const show = el => {
     const t = tipEl(); t.textContent = el.dataset.tip; t.classList.remove("on", "below", "side-r", "side-l");
@@ -36,16 +36,17 @@
       t.classList.add(right ? "side-r" : "side-l");
       t.style.left = Math.round(right ? m.right + gap : Math.max(8, m.left - gap - w)) + "px";
       t.style.top = Math.round(Math.min(Math.max(8, r.top + r.height / 2 - h / 2), innerHeight - h - 8)) + "px";
-      requestAnimationFrame(() => t.classList.add("on"));
+      raf = requestAnimationFrame(() => t.classList.add("on"));
       return;
     }
     const below = r.top - gap - h < 8;
     t.classList.toggle("below", below);
     t.style.left = Math.round(Math.min(Math.max(8, r.left + r.width / 2 - w / 2), innerWidth - w - 8)) + "px";
     t.style.top = Math.round(below ? r.bottom + gap : r.top - gap - h) + "px";
-    requestAnimationFrame(() => t.classList.add("on"));
+    raf = requestAnimationFrame(() => t.classList.add("on"));
   };
-  const hide = () => { clearTimeout(timer); if (tip) tip.classList.remove("on"); if (cur) lastHide = performance.now(); cur = null; };
+  const hide = () => { clearTimeout(timer); cancelAnimationFrame(raf); // 刚 show 还没加上 .on 的也收掉（步进打错字后马上点别处，提示原来会留在屏幕上）
+    if (tip) tip.classList.remove("on"); if (cur) lastHide = performance.now(); cur = null; };
   document.addEventListener("pointerover", e => {
     const el = e.target.closest?.("[title], [data-tip]");
     if (el && el.hasAttribute("title")) { // 每次悬停都从 title 重新取，脚本后来改了 title 也跟得上
