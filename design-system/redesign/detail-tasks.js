@@ -25,9 +25,21 @@
 //     保存条和列表的大小一像素不变。改动的那几行有个强调色小点（程序是「未保存」标签）。
 // 程序的「5 分钟后」那三颗（作者以前的清单 A72：意思不清）这里拿掉了：它们只是把「每天」的时刻填成几分钟后，加出来的是一条天天执行的任务。
 // 「每隔多久」和两颗预设管了反复做的事；要「过几分钟只做一次」得另加功能，写在汇报里等作者定。
+// 作者 11-28 审完以后加的三样（程序都没有，改程序时照这里做）：
+//   · 文件夹能收起、重命名、整个删除。文件夹那一行左边一大块是按钮，点了收起 / 展开（末尾的尖角跟着转；里面的行一起往上淡掉再收起高度，
+//     展开是一行一行从下面淡进来）。收起只是看的样子，不算修改，保存、放弃都不动它；收起着、里面有没保存的任务时文件夹那一行亮小点；
+//     往收起的文件夹里加、挪任务，或者加的那条已经在里面，先把它展开。右边「···」（悬停才出来，同任务行）：重命名、删除文件夹。
+//     重命名是名字就地变成框（同「新建文件夹…」）：回车、点别处确定，Esc 不改；空着、和别的文件夹同名时回车拦下（框标红、晃一下、右边一句红字），
+//     点别处就照原样放回去。后端的文件夹只是每条任务上的一个名字，所以重命名算「里面每条任务各挪了一次」（几条就是几项修改），改回原名就不算。
+//     删除文件夹连同里面的任务一起删，先弹共用的确认框（KIT.confirm，危险），和别的改动一样进草稿、点保存才生效。
+//   · 离开前拦未保存：登记 dirty / save / discard（见文件末尾），外壳在换标签、刷新、跳页前问「有未保存的修改」。
+//   · 「每隔」步进中间的数点进去就地打字（KIT.numEdit）：框里带着单位（「1 小时」「90 分钟」），只填数字时照框里原来的单位算；
+//     分钟数不在档位上的也收（后端收任意整数），之后点加减往那个方向落到最近一档。
 // 示例数据：Paper 照任务单给的那份（每天 4 点重启、「存档」里每隔 1 小时和每天 3 点的备份、「扫地」里每隔 1 小时 kill @e[type=item]）；
 // Forge 三条不放文件夹的（一条很长的 tellraw 看截断）；原版没有任务（看空的样子）；代理端一条每天重启。外壳的接口见 detail.html 的 content()。
 (() => {
+  // 程序图标里没有的：铅笔（重命名），画法同 AI 助手面板里那支（assistant.html）
+  Object.assign(window.EXTRA_ICONS = window.EXTRA_ICONS || {}, { pencil: '<path d="M3 13l.5-2.6 7.7-7.7a1.2 1.2 0 011.7 0l.4.4a1.2 1.2 0 010 1.7L5.6 12.5z"/><path d="M9.9 4l2.1 2.1"/>' });
   window.DETAIL_TABS = window.DETAIL_TABS || {};
   const EASE_IN = "cubic-bezier(.4, 0, 1, 1)", EASE_OUT = "cubic-bezier(.2, .7, .2, 1)", SLIDE = "cubic-bezier(.3, .7, .2, 1)";
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -60,6 +72,11 @@
   const pad2 = n => String(n).padStart(2, "0");
   const hm = m => pad2(Math.floor(m / 60)) + ":" + pad2(m % 60);
   const dur = m => (m % 60 ? `${m} 分钟` : `${m / 60} 小时`);
+  // 步进里打的字：认「90」「90 分钟」「1.5 小时」「2h」；只填数字时照框里原来的单位算（unit：1 是分钟、60 是小时）。返回分钟数，认不出返回 NaN
+  const parseDur = (v, unit) => {
+    const m = String(v).replace(/\s/g, "").match(/^(\d+(?:\.\d+)?)(分钟?|小时|时|min|m|h)?$/i); if (!m) return NaN;
+    return Math.round(+m[1] * (m[2] ? (/^(小时|时|h)$/i.test(m[2]) ? 60 : 1) : unit) * 1e6) / 1e6; // 1.1 小时是 66 分钟，别让浮点误差弄成不是整数
+  };
   const whenText = t => (t.every ? `每隔 ${dur(t.every)}` : `每天 ${t.at}`);
   const ago = m => (m < 2880 ? `${+(m / 60).toFixed(1)} 小时` : `${Math.round(m / 1440)} 天`);
   // 认 4:00、04:00、0400、21：30 这几种写法，一律补齐成 HH:MM（同程序 parseHM）
@@ -82,7 +99,7 @@
     const k = C.kind;
     if (!DATA[k]) {
       const s = SAMPLE[k] || SAMPLE.paper;
-      const D = { crash: s.crash, list: s.list.map(t => ({ ...t, id: ++seq })), order: [], saving: false,
+      const D = { crash: s.crash, list: s.list.map(t => ({ ...t, id: ++seq })), order: [], shut: new Set(), saving: false, // shut：收起着的文件夹（只是看的样子，不进基线）
         form: { type: "restart", mode: "at", at: "04:00", every: 60, args: "", group: "" } };
       fixOrder(D); commit(D);
       DATA[k] = D;
@@ -93,6 +110,7 @@
   function fixOrder(D) {
     D.order = D.order.filter(g => D.list.some(t => t.group === g));
     D.list.forEach(t => { if (t.group && !D.order.includes(t.group)) D.order.push(t.group); });
+    D.shut.forEach(g => { if (!D.order.includes(g)) D.shut.delete(g); }); // 文件夹没了就忘掉它收没收起（删掉以后又「放弃修改」找回来的，是展开着的）
   }
   // 存下来的样子（基线）：保存、放弃都照它。算改了几项同程序：一条任务的键是「类型、时刻、间隔、命令」加第几条一样的，值是在哪个文件夹——
   // 加一条、删一条各算一项，挪了文件夹算一项，删掉又加回一模一样的不算
@@ -130,17 +148,27 @@
       + `<span class="tk-what${cmd ? " mono" : ""}">${cmd ? esc(t.args) : ty.name}</span><span class="tk-dot" title="未保存"></span>`
       + `<button type="button" class="tk-more" data-tk="more" title="更多" aria-label="${esc(`${whenText(t)} ${cmd ? t.args : ty.name}`)}：移至文件夹、删除"><i data-ic="more"></i></button></div>`;
   };
-  const folderRow = (g, n) => `<div class="tk-fd" role="listitem" data-key="${esc("f:" + g)}"><i data-ic="folder" class="tk-fi"></i><span class="tk-fn">${esc(g)}</span><span class="tk-fc">${n}</span></div>`;
+  // 文件夹那一行：左边一大块是按钮（点了收起 / 展开，末尾的尖角跟着转），右边小点和「···」（重命名、删除文件夹；悬停才出来，同任务行）
+  const folderInner = (g, n, open) => `<button type="button" class="tk-fh" data-tk="fold" aria-expanded="${open}"><i data-ic="folder" class="tk-fi"></i><span class="tk-fn">${esc(g)}</span>`
+    + `<span class="tk-fc">${n}</span><i data-ic="chevronDown" class="tk-fv"></i></button><span class="tk-dot" title="未保存"></span>`
+    + `<button type="button" class="tk-more" data-tk="fmore" title="更多" aria-label="${esc(`文件夹「${g}」`)}：重命名、删除"><i data-ic="more"></i></button>`;
+  const folderRow = (g, n, shut, draft) => `<div class="tk-fd${shut ? " shut" : ""}${draft ? " draft" : ""}" role="listitem" data-key="${esc("f:" + g)}">${folderInner(g, n, !shut)}</div>`;
   // 列表里该有的每一行（键、怎么画、已经在的怎么只改变了的那几处）：不放文件夹的在上（同程序），文件夹按 D.order 排在下面
   function want(D) {
     const W = [], dr = drafts(D), task = t => W.push({ key: keyOf(t), make: () => taskRow(t, dr.has(t.id)), patch: el => patchTask(el, t, dr.has(t.id)) });
     D.list.filter(t => !t.group).forEach(task);
     D.order.forEach(g => {
-      const ts = D.list.filter(t => t.group === g);
-      W.push({ key: "f:" + g, make: () => folderRow(g, ts.length), patch: el => { const c = el.querySelector(".tk-fc"); if (c.textContent !== String(ts.length)) c.textContent = ts.length; } });
-      ts.forEach(task);
+      const ts = D.list.filter(t => t.group === g), shut = D.shut.has(g), draft = ts.some(t => dr.has(t.id));
+      W.push({ key: "f:" + g, make: () => folderRow(g, ts.length, shut, draft), patch: el => patchFolder(el, ts.length, shut, draft) });
+      if (!shut) ts.forEach(task); // 收起着的：里面的行不画
     });
     return W;
+  }
+  function patchFolder(el, n, shut, draft) {
+    el.classList.toggle("shut", shut); el.classList.toggle("draft", draft); // 小点只在收起着时亮（样式里管），展开时各行自己有
+    const c = el.querySelector(".tk-fc"), h = el.querySelector(".tk-fh"); if (!h) return; // 正在重命名：那一行里只有框，改完会整行重写
+    if (c.textContent !== String(n)) c.textContent = n;
+    if (h.getAttribute("aria-expanded") !== String(!shut)) h.setAttribute("aria-expanded", !shut);
   }
   function patchTask(el, t, draft) {
     el.classList.toggle("draft", draft);
@@ -226,7 +254,7 @@
     const live = [...list.children].filter(el => !el.classList.contains("tk-out"));
     const have = new Map(live.map(el => [el.dataset.key, el]));
     const W = want(D), keys = new Set(W.map(w => w.key));
-    live.forEach(el => { if (!keys.has(el.dataset.key)) drop(el); });
+    live.forEach(el => { if (!keys.has(el.dataset.key)) (inShut(D, el) ? fold : drop)(el); });
     let prev = null; const born = [];
     for (const w of W) {
       let el = have.get(w.key);
@@ -234,6 +262,7 @@
         w.patch(el);
         if (prev && !(prev.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)) prev.after(el); // 留下来的先后本来不会乱，保险
       } else {
+        list.querySelectorAll(".tk-out").forEach(o => { if (o.dataset.key === w.key) o.remove(); }); // 同一行还在往外走（刚收起又展开）：旧的那个作废
         const tpl = document.createElement("template"); tpl.innerHTML = w.make(); el = tpl.content.firstElementChild;
         if (prev) prev.after(el); else list.prepend(el);
         C.KIT.hydrate(el); born.push(el);
@@ -262,6 +291,18 @@
       { opacity: 0, transform: "translateX(32px)", height: h, marginBottom: "0px", offset: .55, easing: SLIDE },
       { opacity: 0, transform: "translateX(32px)", height: "0px", marginBottom: "-2px" },
     ], { duration: 320, fill: "forwards" }).onfinish = () => { el.remove(); paintList(); };
+  }
+  // 收起文件夹：里面的行一起往上 5 像素淡掉（0.09 秒），再收起高度；不往右划（那是「拿掉」）。展开时走上面的 grow
+  const inShut = (D, el) => { const t = D.list.find(x => x.id === +el.dataset.id); return !!t && D.shut.has(t.group) && keyOf(t) === el.dataset.key; };
+  function fold(el) {
+    el.classList.add("tk-out");
+    const h = el.offsetHeight + "px", o = getComputedStyle(el).opacity; // 刚展开还没淡完又收起：从眼下的样子接着走
+    el.getAnimations().forEach(a => a.cancel());
+    el.animate([
+      { opacity: o, transform: "none", height: h, marginBottom: "0px", easing: EASE_IN },
+      { opacity: 0, transform: "translateY(-5px)", height: h, marginBottom: "0px", offset: .3, easing: SLIDE },
+      { opacity: 0, transform: "translateY(-5px)", height: "0px", marginBottom: "-2px" },
+    ], { duration: 300, fill: "forwards" }).onfinish = () => { el.remove(); paintList(); };
   }
   const rowOf = id => listEl()?.querySelector(`.tk-row[data-id="${id}"]:not(.tk-out)`);
   function revealRow(id) {
@@ -313,6 +354,10 @@
     const down = STEPS.some(x => x < F.every && x >= lo), up = STEPS.some(x => x > F.every);
     mi.setAttribute("aria-disabled", !down); setTip(mi, down ? "缩短间隔" : `${TYPES[F.type].name}最短间隔为 ${dur(lo)}`);
     pl.setAttribute("aria-disabled", !up); setTip(pl, up ? "延长间隔" : `最长间隔为 ${dur(MAX_EVERY)}，更长周期请选「每天」`);
+    // 中间的数点进去就地打字（kit.js 第 7 条）。最短间隔跟着类型走、步进又会整个重画（每天 ↔ 每隔），所以每次画都重新交一遍
+    setTip(v, "点击输入间隔，如「90 分钟」「1.5 小时」");
+    C.KIT.numEdit(v, { get: () => F.every, set: n => { F.every = n; paintStepper(D); }, min: lo, max: MAX_EVERY, int: true, label: "间隔",
+      text: dur, parse: s => parseDur(s, F.every % 60 ? 1 : 60), hint: `请输入 ${dur(lo)}～${dur(MAX_EVERY)}之间的间隔，如「90 分钟」「1.5 小时」` });
   }
   function paintFolderBtn(D) {
     const v = root()?.querySelector(".tk-selv"); if (!v) return;
@@ -323,8 +368,11 @@
   // ---- 做事：草图里不发请求，改这里的数据、换变了的那几处 ----
   function insert(D, t) {
     const had = D.list.find(x => same(x, t));
-    if (had) { flash(had.id); return false; } // 同样的已经有了：不重复加，那一行闪一下
-    t.id = ++seq; D.list.push(t); changed(D, t.id);
+    if (had) { // 同样的已经有了：不重复加，那一行闪一下（在收起的文件夹里就先展开，等那一行长出来再闪）
+      if (D.shut.delete(had.group)) { sync(D); setTimeout(() => flash(had.id), 200); } else flash(had.id);
+      return false;
+    }
+    t.id = ++seq; D.list.push(t); D.shut.delete(t.group); changed(D, t.id); // 加进收起的文件夹：先展开，不然看不见加到哪了
     return true;
   }
   function addFromForm(D) {
@@ -346,9 +394,47 @@
     if ((t.group || "") === g) return;
     D.list = D.list.filter(x => x !== t); // 挪到那个文件夹的最后
     if (g) t.group = g; else delete t.group;
-    D.list.push(t); changed(D, t.id);
+    D.list.push(t); D.shut.delete(g); changed(D, t.id);
   }
   function remove(D, t) { D.list = D.list.filter(x => x !== t); changed(D); }
+  // ---- 文件夹：收起 / 展开、重命名、整个删除（作者 11-28 定要；程序没有） ----
+  const folderOf = el => el.closest(".tk-fd").dataset.key.slice(2);
+  const folderEl = g => [...(listEl()?.children || [])].find(el => el.dataset.key === "f:" + g && !el.classList.contains("tk-out"));
+  function toggleFold(D, g) { if (!D.shut.delete(g)) D.shut.add(g); sync(D); }
+  // 重命名：名字就地变成框（同菜单里「新建文件夹…」那个框，最多 32 个字），图标和字的位置不动
+  function renameFolder(D, g) {
+    const fd = folderEl(g); if (!fd) return;
+    fd.classList.add("edit"); listEl().classList.add("renaming"); // renaming：别的行先不接鼠标，见样式
+    fd.innerHTML = `<label class="tk-fe"><i data-ic="folder"></i><input maxlength="32" value="${esc(g)}" autocomplete="off" spellcheck="false" aria-label="文件夹名称"><span class="tk-msg"></span></label>`;
+    C.KIT.hydrate(fd); const inp = fd.querySelector("input"); inp.focus(); inp.select();
+  }
+  // how："enter" 回车、"blur" 点了别处、"esc"。空着、和别的文件夹同名：回车时拦下（框标红、晃一下、右边一句红字），点别处就照原样放回去（同步进打字）。
+  // 同名不当成合并：新建时同名是「挪进那一个」，重命名撞上多半是手误，两个文件夹悄悄并成一个不好再分开
+  function renameEnd(D, inp, how) {
+    const box = inp.closest(".tk-fe"), fd = box.closest(".tk-fd"); if (box._done) return;
+    const g = folderOf(fd), v = inp.value.trim();
+    const bad = how === "esc" || v === g ? "" : !v ? "请填写名称" : D.order.includes(v) ? "已存在同名文件夹" : "";
+    if (bad && how === "enter") { box.classList.add("bad"); box.querySelector(".tk-msg").textContent = bad; shake(box); return; }
+    box._done = true; // 下面换掉这个框时还会来一次 blur
+    const to = how === "esc" || bad ? g : v;
+    if (to !== g) { // 行都还是原来那几行，只把键换成新名字的：不然 sync 会当成旧的全拿掉、新的全加上，整个文件夹划走再长出来
+      D.list.forEach(t => { if (t.group !== g) return; const el = rowOf(t.id); t.group = to; if (el) el.dataset.key = keyOf(t); });
+      D.order[D.order.indexOf(g)] = to; if (D.shut.delete(g)) D.shut.add(to);
+      if (D.form.group === g) { D.form.group = to; paintFolderBtn(D); }
+      fd.dataset.key = "f:" + to;
+    }
+    fd.classList.remove("edit"); listEl()?.classList.remove("renaming"); fd.innerHTML = folderInner(to, D.list.filter(t => t.group === to).length, !D.shut.has(to)); C.KIT.hydrate(fd);
+    if (how !== "blur") fd.querySelector(".tk-fh").focus({ preventScroll: true });
+    if (to !== g) changed(D);
+  }
+  // 整个删除：连同里面的任务。先问一句（危险，默认落在「取消」）；删了也只是进草稿，点保存才生效、「放弃修改」能找回来
+  async function removeFolder(D, g) {
+    const n = D.list.filter(t => t.group === g).length;
+    const k = await C.KIT.confirm({ ic: "trash", tone: "dgr", title: `删除文件夹「${esc(g)}」`, body: `将删除该文件夹及其中的 ${n} 项任务，保存后生效。`,
+      btns: [{ k: "cancel", label: "取消" }, { k: "del", label: "删除", tone: "dgr" }] });
+    if (k !== "del") return;
+    D.list = D.list.filter(t => t.group !== g); changed(D);
+  }
   function stepEvery(D, d) {
     const F = D.form, lo = MIN_EVERY[F.type];
     const next = d > 0 ? STEPS.find(x => x > F.every) : [...STEPS].reverse().find(x => x < F.every && x >= lo);
@@ -375,15 +461,16 @@
     const o = +getComputedStyle(old).opacity; old.getAnimations().forEach(a => a.cancel());
     old.animate([{ opacity: o }, { opacity: 0, transform: `translateX(${-5 * dir}px)` }], { duration: 90, easing: EASE_IN, fill: "forwards" }).onfinish = show;
   }
+  // 返回 Promise<存成了没有>：外壳离开前选「保存」时要等它（kit.js 第 6 条）。D.saving 平时是 false，正在存时是那个 Promise，再调给同一个
   function save(D) {
-    if (D.saving || !dirtyCount(D)) return;
-    D.saving = true;
+    if (D.saving) return D.saving;
+    if (!dirtyCount(D)) return Promise.resolve(true);
     const s = root().querySelector(".tk-save"); s.innerHTML = `${C.KIT.icon("spinner", "tk-spin")}保存`;
-    setTimeout(() => { // 草图里装作等了一下请求
+    return D.saving = new Promise(done => setTimeout(() => { // 草图里装作等了一下请求
       D.saving = false; commit(D);
       const b = root()?.querySelector(".tk-save"); if (b) b.textContent = "保存";
-      sync(D); paintBar(D);
-    }, 450);
+      sync(D); paintBar(D); done(true);
+    }, 450));
   }
   function discard(D) {
     if (!dirtyCount(D)) return;
@@ -457,6 +544,13 @@
         openMenu(b, folderItems(names, D.form.group) + newItem, d => { D.form.group = d.mv; paintFolderBtn(D); }, true);
         break;
       }
+      case "fold": toggleFold(D, folderOf(b)); break;
+      case "fmore": {
+        const g = folderOf(b);
+        openMenu(b, menuItem("data-ren", "pencil", "重命名") + `<div class="tk-sep"></div><div class="tk-it tk-dgr" role="menuitem" data-del><i data-ic="trash"></i><span>删除文件夹</span></div>`,
+          d => { if ("del" in d) removeFolder(D, g); else renameFolder(D, g); });
+        break;
+      }
       case "more": {
         const t = D.list.find(x => x.id === +b.closest(".tk-row").dataset.id); if (!t) return;
         openMenu(b, `<div class="tk-hd">移至文件夹</div>${folderItems(D.order, t.group || "")}${newItem}<div class="tk-sep"></div>`
@@ -467,15 +561,25 @@
     }
   }
   function onInput(e) {
+    const fe = e.target.closest(".tk-fe"); if (fe) { fe.classList.remove("bad"); return; }
     const w = e.target.closest(".tk-iw"); if (!w) return;
     const F = data().form; w.classList.remove("bad");
     if (w.classList.contains("tk-at")) F.at = e.target.value; else if (w.classList.contains("tk-cmd")) F.args = e.target.value;
   }
-  function onKey(e) { if (e.key === "Enter" && e.target.closest(".tk-iw")) { e.preventDefault(); addFromForm(data()); } }
-  function onBlur(e) { // 离开时刻框时补齐成 HH:MM（同程序）
+  function onKey(e) {
+    if (e.target.closest(".tk-fe")) { // 文件夹重命名：回车确定（输入法选字的回车不算），Esc 不改
+      if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); renameEnd(data(), e.target, "enter"); }
+      else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); renameEnd(data(), e.target, "esc"); }
+      return;
+    }
+    if (e.key === "Enter" && e.target.closest(".tk-iw")) { e.preventDefault(); addFromForm(data()); }
+  }
+  function onBlur(e) { // 离开时刻框时补齐成 HH:MM（同程序）；文件夹重命名的框点了别处算确定
+    if (e.target.closest?.(".tk-fe")) { renameEnd(data(), e.target, "blur"); return; }
     if (!e.target.closest(".tk-at")) return;
     const v = parseHM(e.target.value); if (v) e.target.value = data().form.at = v;
   }
 
-  window.DETAIL_TABS.tasks = { html, mount };
+  // dirty / save / discard：外壳离开这一页之前用（kit.js 第 6 条）。项数就是保存条上的那个数；还没画过（C 是空的）算干净
+  window.DETAIL_TABS.tasks = { html, mount, dirty: () => (C ? dirtyCount(data()) : 0), save: () => save(data()), discard: () => discard(data()) };
 })();

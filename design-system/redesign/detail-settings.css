@@ -67,7 +67,6 @@
 .st-wb { min-width: 168px; }
 .st-wb { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 8px 0 12px; border-radius: 10px; box-sizing: border-box; min-width: 0; background: var(--surface); }
 .st-wb .st-b { height: 44px; margin: 0; padding: 0 8px 0 0; flex: 1; }
-.st-wb .st-b:hover { background: none; }
 .st-wb .st-bl { font-size: 13.5px; font-weight: 600; }
 /* 去「玩家」：圆的（胶囊不按同心算），和块的右边离 8 */
 .st-ib.st-go { border-radius: 14px; }
@@ -124,6 +123,8 @@
 .st-stp button[aria-disabled="true"], .st-mstp button:disabled { opacity: .3; cursor: default; }
 .st-stp .ico, .st-mstp .ico { width: 14px; height: 14px; }
 .st-sv, .st-msv { min-width: 0; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+/* 中间的数点进去就地打字（kit.js 第 7 条）：占满两个按钮之间，和按钮一样 28 高、圆角 4（10 − 6），悬停的淡底和打字的框都是这一块，进出不跳 */
+.st-sv.kit-numt, .st-msv.kit-numt { flex: 1; height: 28px; border-radius: 4px; line-height: 28px; text-align: center; }
 
 /* 分段选：同向导第三步（40 高、圆角 10；选中块离外框 4 = 边 1 + 内边距 3，圆角 6，滑过去） */
 .st-seg { position: relative; display: flex; height: 40px; padding: 3px; border-radius: 10px; box-sizing: border-box; min-width: 0; background: var(--field); border: 1px solid var(--border); }
@@ -151,10 +152,10 @@
 .st-sel.bad { border-color: color-mix(in srgb, var(--danger-text) 70%, var(--border)); }
 .st-sel.bad .st-sub { color: var(--danger-text); }
 
-/* 开关一格：36 高；开关 36 × 20、滑块 16，在字的左边（同向导、控制台、「定时任务」）；悬停的底往两边各伸 8，字和上面格子里的字对齐 */
+/* 开关一格：36 高；开关 36 × 20、滑块 16，在字的左边（同向导、控制台、「定时任务」），字和上面格子里的字对齐。
+   整格悬停不再出底色（11-28 作者定「开关只认开关本身」，点名字不切换；整格变色会让人以为整格能点） */
 .st-b { display: flex; align-items: center; gap: 10px; height: 36px; margin: 0 -8px; padding: 0 8px; min-width: 0; border: 0; border-radius: 10px; background: none; text-align: left;
-        font: inherit; font-size: 13px; color: var(--text); cursor: pointer; transition: background .15s, opacity .2s; }
-.st-b:hover { background: var(--hover); }
+        font: inherit; font-size: 13px; color: var(--text); cursor: pointer; transition: opacity .2s; }
 .st-sw { position: relative; width: 36px; height: 20px; border-radius: 10px; flex: none; background: color-mix(in srgb, var(--text) 18%, transparent); transition: background .2s; }
 .st-sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 8px; background: var(--text); transition: transform .26s cubic-bezier(.3, .7, .2, 1); }
 .st-b.on .st-sw { background: var(--accent-solid); }
@@ -162,7 +163,6 @@
 .st-bl { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* 游戏规则开关：停着、启动中时灰掉，悬停说原因（同程序「服务器启动后可切换」） */
 .st-b[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
-.st-b[aria-disabled="true"]:hover { background: none; }
 
 /* MOTD：左边输入框（调色板按钮在框里），右边预览（恒深底，同程序 motd-preview；左右各占两列） */
 .st-motd { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
@@ -211,6 +211,7 @@
 .st-mbar.drag { cursor: grabbing; }
 .st-mstp { width: 132px; flex: none; }
 .st-mstp.warn .st-msv { color: var(--warning-text); }
+.st-mstp.warn .st-msv .kit-num { color: var(--text); } /* 黄的是现在那个数；正在打的字不跟着黄，免得和填错的红框混在一起 */
 .st-mpre { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
 .st-mp { height: 28px; padding: 0 12px; border-radius: 14px; border: 1px solid var(--border); background: none; color: var(--muted); font: inherit; font-size: 12px; font-weight: 500;
          cursor: pointer; transition: background .15s, color .15s, border-color .15s; }

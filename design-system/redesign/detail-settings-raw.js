@@ -19,6 +19,7 @@
 //   · 最下面一条 52 高、圆角 18 的保存条（同「定时任务」，规范里吸在面板底部的那种）：右边有改动时「N 项修改未保存」「放弃修改」，「保存」亮起来；
 //     左边在服务器开着、又有改动时写「保存后要重启才生效」（警告色，页头已经写着运行中，前半句省了），存过以后换成「已保存，重启服务器以后生效」和「立即重启」。
 //     这条在面板里，面板底边离窗口底 86，底部胶囊压不到它（计划书里「多字段表单的吸底保存条和底部胶囊怎么相处」，这里的答案）。
+// 离开前拦未保存（作者 11-28 定）：登记 dirty / save / discard（文件末尾），外壳在换标签、换子页、刷新、跳页前问「有未保存的修改」。
 // 键名、中文名、说明、默认值都照程序的 props-catalog.js 现取（程序表单的唯一数据源），按这台服务器的 Minecraft 版本挑当时有的键，照服务端的写法按字母排；
 // 值是各键的默认值，只把和别的标签对得上的几项改了：端口、最大人数同页头那台服务器；Paper、Forge 控制台里是离线模式（online-mode=false）；
 // 白名单同「玩家」（Paper、Forge 开着，原版 26.2 文件里没写这一项）。草图专用：地址加 &raw=none 看配置文件还没生成的样子。
@@ -248,24 +249,29 @@
   }
 
   // ---- 做事：草图里不发请求，改这里的数据、换变了的那几处 ----
+  // 返回 Promise<存成了没有>：外壳离开前选「保存」时要等它（kit.js 第 6 条；这一页的值照原文收，没有会拦下的）。
+  // D.saving 平时是 false，正在存时是那个 Promise，再调给同一个
   function save(D) {
-    if (D.saving || !dirtyKeys(D).length) return;
-    D.saving = true;
+    if (D.saving) return D.saving;
+    if (!dirtyKeys(D).length) return Promise.resolve(true);
     const s = root().querySelector(".rw-save"); s.innerHTML = `${C.KIT.icon("spinner", "rw-spin")}保存`;
-    setTimeout(() => { // 草图里装作等了一下请求；只提交改过的项（同程序）
+    return D.saving = new Promise(done => setTimeout(() => { // 草图里装作等了一下请求；只提交改过的项（同程序）
       const changed = dirtyKeys(D);
       D.saving = false; D.base = { ...D.cur };
       if (C.st === "running") D.pending = true; // 运行中不会重读 server.properties，改了哪一项都要重启
-      const r = root(); if (!r) return;
-      r.querySelector(".rw-save").textContent = "保存";
-      changed.forEach(k => r.querySelector(`.rw-row[data-k="${CSS.escape(k)}"]`)?.classList.remove("mod"));
-      paintBar(D);
-    }, 450);
+      const r = root();
+      if (r) {
+        r.querySelector(".rw-save").textContent = "保存";
+        changed.forEach(k => r.querySelector(`.rw-row[data-k="${CSS.escape(k)}"]`)?.classList.remove("mod"));
+        paintBar(D);
+      }
+      done(true);
+    }, 450));
   }
-  function discard(D) {
-    const r = root(); if (!r) return;
+  function discard(D) { // 页面不在了（外壳替这一页丢草稿时）也要把值放回去
+    const r = root();
     dirtyKeys(D).forEach(k => {
-      const el = r.querySelector(`.rw-row[data-k="${CSS.escape(k)}"]`);
+      const el = r?.querySelector(`.rw-row[data-k="${CSS.escape(k)}"]`);
       if (el) setVal(D, el, k, D.base[k]); else D.cur[k] = D.base[k];
     });
     paintBar(D);
@@ -279,8 +285,9 @@
 
   // ---- 事件（绑在这一页的根上，换标签时跟着内容一起扔掉） ----
   let qT = 0;
+  const ready = () => (C && !none() && CAT ? data() : null); // 这一页的数据；配置文件还没生成、目录还没取回来、还没画过时是空的
   function onClick(e) {
-    const D = !none() && CAT ? data() : null; if (!D) return;
+    const D = ready(); if (!D) return;
     if (e.target.closest(".rw-cx")) { e.preventDefault(); const inp = root().querySelector(".rw-q"); clearQ(D, inp); inp.focus(); return; }
     const sb = e.target.closest("[data-rw-b]");
     if (sb) { if (!sb.classList.contains("on")) { const rowEl = sb.closest(".rw-row"); setVal(D, rowEl, rowEl.dataset.k, sb.dataset.rwB); paintBar(D); } return; }
@@ -291,7 +298,7 @@
     else if (b.dataset.rw === "restart") restart(D);
   }
   function onInput(e) {
-    const D = !none() && CAT ? data() : null; if (!D) return;
+    const D = ready(); if (!D) return;
     if (e.target.classList.contains("rw-q")) {
       D.q = e.target.value; e.target.closest(".rw-cs").classList.toggle("has", !!D.q);
       clearTimeout(qT); qT = setTimeout(() => filter(D, true), 180); return;
@@ -302,10 +309,15 @@
     paintBar(D);
   }
   function onKey(e) {
-    const D = !none() && CAT ? data() : null; if (!D) return;
+    const D = ready(); if (!D) return;
     if (e.target.classList.contains("rw-q") && e.key === "Escape" && e.target.value) { e.preventDefault(); e.stopPropagation(); clearQ(D, e.target); return; }
     if (e.target.classList.contains("rw-v") && e.key === "Enter") { e.preventDefault(); e.target.blur(); } // 回车只是改完这一格；保存在下面
   }
 
-  window.DETAIL_TABS["settings/raw"] = { html, mount };
+  // dirty / save / discard：外壳离开这一页之前用（kit.js 第 6 条）。「常用」「启动与内存」在 detail-settings.js 里共用一份 leaveHooks；
+  // 这一页是另一个文件、保存和放弃也是自己的，就这三行，不为它另开全局的共用件
+  window.DETAIL_TABS["settings/raw"] = { html, mount,
+    dirty: () => { const D = ready(); return D ? dirtyKeys(D).length : 0; },
+    save: () => { const D = ready(); return D ? save(D) : true; },
+    discard: () => { const D = ready(); if (D) discard(D); } };
 })();

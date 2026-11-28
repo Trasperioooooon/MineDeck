@@ -45,6 +45,15 @@
 // 草图专用：&mem=3000 看不是 0.5 GB 整数倍的内存，&mem=20480 看超过上限；&ram=8|16|32|48|64|128 换本机内存（同向导右上角，默认 32）；
 // &jvm=aikar 让这台服务器一开始就带着 Aikar's Flags（默认都没有自定义参数，和控制台第一行的启动命令对得上）。&notice=2 以上时现在用的 Java 找不到（同页头提示）。
 //
+// ======== 作者 11-28 审完以后加的两样（两页都有） ========
+//   · 离开前拦未保存：两页各登记 dirty / save / discard（文件末尾，leaveHooks 包出来的），外壳在换标签、换子页、刷新、跳页前问「有未保存的修改」。
+//     选「保存」时有填错的框就留在这页：「常用」是整数框、端口（cmCheck），「启动与内存」是正改着、标着红的那一行参数（jvCheck）。
+//     「启动与内存」的端口点了要换去「常用」，所以它自己先问这一句，过了才记下「光标落在端口上」，被取消就什么都不留。
+//   · 步进中间的数点进去就地打字（KIT.numEdit，本文件的 numEdit 包了一层）：
+//     「常用」的步进框里是不带单位的整数（单位写在悬停和填错的提示里——空服暂停平时写「5 分钟」，存的是秒），范围是档位的两头，不在档位上的照收，
+//     之后点加减往那个方向落到最近一档；更大的数（比如最大人数上千）去「全部配置」填。
+//     内存按 GB 认，也认带「GB」「MB」的写法；小于 0.5 GB、超过上限算填错，别的数同拖动一样四舍五入到 0.5 GB 的档上。
+//
 // 外壳的接口见 detail.html 的 content()：html(ctx) 返回内容面板里的那一块，mount(ctx) 换上去、图标换好以后跑；数据留在这个文件里，换标签回来不丢，没存的改动也在。
 (() => {
   window.DETAIL_TABS = window.DETAIL_TABS || {};
@@ -126,18 +135,29 @@
     el.getAnimations({ subtree: true }).forEach(a => a.cancel());
     el.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "translateY(-5px)" }], { duration: 90, easing: EASE_IN }).onfinish = show;
   }
+  // 返回 Promise<存成了没有>（被拦下是 false）：外壳离开前选「保存」时要等它（kit.js 第 6 条）。D.saving 平时是 false，正在存时是那个 Promise，再调给同一个
   function save(pg) {
-    const D = pg.D(); if (D.saving || !pg.count(D)) return;
-    if (pg.check && !pg.check(D)) return; // 有不对的：拦下，框已经标红、晃过了
-    D.saving = true;
+    const D = pg.D(); if (D.saving) return D.saving;
+    if (!pg.count(D)) return Promise.resolve(true);
+    if (pg.check && !pg.check(D)) return Promise.resolve(false); // 有不对的：拦下，框已经标红、晃过了
     const s = pg.root().querySelector(".st-save"); s.innerHTML = `${C.KIT.icon("spinner", "st-spin")}保存`;
-    setTimeout(() => { // 草图里装作等了一下请求
+    return D.saving = new Promise(done => setTimeout(() => { // 草图里装作等了一下请求
       D.saving = false; pg.commit(D);
       if (C.st === "running") D.pending = true; // 运行中不会重读：改了哪一项都要重启（同程序：目录里每一项都是 restart: true；启动与内存也是）
       const r = pg.root(); if (r) r.querySelector(".st-save").textContent = "保存";
-      paintBar(pg);
-    }, 450);
+      paintBar(pg); done(true);
+    }, 450));
   }
+  // 外壳离开这一页之前用的三样（kit.js 第 6 条），两页一样：项数就是保存条上的那个数；数据还没到（还没画过、目录没取回来）算干净
+  const leaveHooks = pg => ({
+    dirty: () => { const D = C && pg.D(); return D ? pg.count(D) : 0; },
+    save: () => save(pg),
+    discard: () => { const D = pg.D(); if (D) pg.discard(D); },
+  });
+  // 步进中间的数点进去就地打字（kit.js 第 7 条；作者 11-28 定凡是步进都这样）。两页的步进都走这里：o 同 KIT.numEdit 的，text、parse 必给。
+  // 范围各自在 parse 里查（越界返回 NaN），不交给 kit 的 min / max：现有的值可以在范围外（超过上限的内存、别处填的数），
+  // 点进去没改就回车不该算填错，所以框里的字没动时原样返回现在的数
+  const numEdit = (el, o) => C.KIT.numEdit(el, { ...o, parse: raw => (raw === o.text(o.get()) ? o.get() : o.parse(raw)) });
   function restart(pg) { // 草图里装作重启了一下：好了以后那句淡掉
     const D = pg.D(); if (D.restarting) return;
     D.restarting = true; const el = pg.root()?.querySelector(".st-note"); if (el) { el.innerHTML = noteHTML(D, "pending"); C.KIT.hydrate(el); }
@@ -231,18 +251,19 @@
   // 和别的标签对得上的几项（同「全部配置」的 OVERRIDE；null = 文件里没有这一项）
   const OVERRIDE = { paper: { "online-mode": "false", "white-list": "true" }, forge: { "online-mode": "false", "white-list": "true" }, vanilla: { "white-list": null } };
   const secs = v => (v < 60 ? `${v} 秒` : v % 3600 === 0 ? `${v / 3600} 小时` : v % 60 === 0 ? `${v / 60} 分钟` : `${v} 秒`);
-  // 步进的档位（范围小、一下一档的）。档位是草图定的，现有值不在档位上时照样显示，一动落到相邻的档；范围照服务端（视距、模拟距离 3~32）
+  // 步进的档位（范围小、一下一档的）。档位是草图定的，现有值不在档位上时照样显示，一动落到相邻的档；范围照服务端（视距、模拟距离 3~32）。
+  // unit 是存进文件的那个数的单位（就地打字时填的是它，见 wireSteps；平时显示的字由 fmt 定，可以换算成别的单位）
   const STEP = {
-    "player-idle-timeout": { lad: [0, 5, 10, 15, 20, 30, 45, 60, 90, 120], fmt: v => (v <= 0 ? "不踢出" : `${v} 分钟`) },
-    "spawn-protection": { lad: [0, 1, 2, 4, 8, 16, 24, 32, 48, 64], fmt: v => (v <= 0 ? "不保护" : `${v} 格`) },
-    "max-players": { lad: [1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 16, 20, 24, 30, 32, 40, 50, 64, 80, 100, 128, 200, 500, 1000], fmt: v => `${v} 人` },
-    "view-distance": { lad: range(3, 32), fmt: v => `${v} 区块` },
-    "simulation-distance": { lad: range(3, 32), fmt: v => `${v} 区块` },
-    "entity-broadcast-range-percentage": { lad: [10, 25, 50, 75, 100, 125, 150, 200, 300, 500], fmt: v => `${v}%` },
-    "pause-when-empty-seconds": { lad: [0, 10, 30, 60, 120, 300, 600, 1800, 3600], fmt: v => (v <= 0 ? "不暂停" : secs(v)) },
-    "status-heartbeat-interval": { lad: [0, 5, 10, 15, 30, 60, 120, 300, 600], fmt: v => (v <= 0 ? "不推送" : secs(v)) },
-    "chat-spam-threshold-seconds": { lad: [1, 2, 3, 5, 10, 15, 20, 30, 60], fmt: v => `${v} 秒` },
-    "command-spam-threshold-seconds": { lad: [1, 2, 3, 5, 10, 15, 20, 30, 60], fmt: v => `${v} 秒` },
+    "player-idle-timeout": { lad: [0, 5, 10, 15, 20, 30, 45, 60, 90, 120], unit: "分钟", fmt: v => (v <= 0 ? "不踢出" : `${v} 分钟`) },
+    "spawn-protection": { lad: [0, 1, 2, 4, 8, 16, 24, 32, 48, 64], unit: "格", fmt: v => (v <= 0 ? "不保护" : `${v} 格`) },
+    "max-players": { lad: [1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 16, 20, 24, 30, 32, 40, 50, 64, 80, 100, 128, 200, 500, 1000], unit: "人", fmt: v => `${v} 人` },
+    "view-distance": { lad: range(3, 32), unit: "区块", fmt: v => `${v} 区块` },
+    "simulation-distance": { lad: range(3, 32), unit: "区块", fmt: v => `${v} 区块` },
+    "entity-broadcast-range-percentage": { lad: [10, 25, 50, 75, 100, 125, 150, 200, 300, 500], unit: "%", fmt: v => `${v}%` },
+    "pause-when-empty-seconds": { lad: [0, 10, 30, 60, 120, 300, 600, 1800, 3600], unit: "秒", fmt: v => (v <= 0 ? "不暂停" : secs(v)) },
+    "status-heartbeat-interval": { lad: [0, 5, 10, 15, 30, 60, 120, 300, 600], unit: "秒", fmt: v => (v <= 0 ? "不推送" : secs(v)) },
+    "chat-spam-threshold-seconds": { lad: [1, 2, 3, 5, 10, 15, 20, 30, 60], unit: "秒", fmt: v => `${v} 秒` },
+    "command-spam-threshold-seconds": { lad: [1, 2, 3, 5, 10, 15, 20, 30, 60], unit: "秒", fmt: v => `${v} 秒` },
   };
   const LEVELS = [["1", "1"], ["2", "2"], ["3", "3"], ["4", "4"]];
   const SEGS = { "op-permission-level": LEVELS, "function-permission-level": LEVELS, "text-filtering-version": [["0", "0"], ["1", "1"]] };
@@ -292,7 +313,7 @@
   const PG_CM = {
     root: cmRoot, D: () => cmData(), count: D => cmDirty(D).length,
     idleNote: () => (C.QS.get("raw") === "none" ? "nofile" : ""),
-    check: D => cmCheck(D),
+    check: D => cmCheck(D), discard: D => cmDiscard(D),
     commit: D => { D.base = { ...D.cur }; cmRoot()?.querySelectorAll(".mod").forEach(el => el.classList.remove("mod")); },
   };
 
@@ -403,6 +424,7 @@
     placeChip(false);
     filter(D, false);
     paintNote(PG_CM, true);
+    wireSteps(D);
     r.addEventListener("click", cmClick);
     r.addEventListener("input", cmInput);
     r.addEventListener("keydown", cmKey);
@@ -494,6 +516,17 @@
     const dn = stepTo(s, v, -1) !== undefined, up = stepTo(s, v, 1) !== undefined;
     setAttr(mi, "aria-disabled", !dn); setTip(mi, dn ? "减小" : `已达最小值（${s.fmt(s.lad[0])}）`);
     setAttr(pl, "aria-disabled", !up); setTip(pl, up ? "增大" : `已达最大值（${s.fmt(s.lad[s.lad.length - 1])}）`);
+  }
+  // 步进打字：框里是不带单位的整数（单位写在悬停和填错的提示里），范围是档位的两头，不在档位上的照收。步进只在挂上去时画一次、之后只换字，所以这里交一次就够
+  function wireSteps(D) {
+    D.items.filter(p => p.spec.ctl === "step").forEach(p => {
+      const el = fieldEl(p.key), sv = el?.querySelector(".st-sv"); if (!sv) return;
+      const s = p.spec, lo = s.lad[0], hi = s.lad[s.lad.length - 1];
+      setTip(sv, `点击输入数值（单位：${s.unit}）`);
+      numEdit(sv, { get: () => num(D.cur[p.key]), set: n => { setVal(D, p.key, String(n)); paintStep(el, p, D.cur[p.key]); }, label: p.label,
+        text: n => (Number.isNaN(n) ? "" : String(n)), parse: raw => { const n = num(raw.replace(s.unit, "")); return n >= lo && n <= hi ? n : NaN; },
+        hint: `请输入 ${lo}～${hi} 之间的整数（单位：${s.unit}）` });
+    });
   }
   function paintBad(el, p, v) {
     const iw = el.querySelector(".st-iw"), m = el.querySelector(".st-msg"), bad = badOf(p, v); if (!iw || !m) return;
@@ -707,6 +740,7 @@
   const jvRoot = () => document.querySelector(".cp > .st-jv:not(.fade-out)");
   const PG_JV = {
     root: jvRoot, D: () => jvData(), count: jvDirty,
+    check: () => jvCheck(), discard: D => jvDiscard(D),
     commit: D => {
       const dl = D.java !== D.base.java && D.javas[D.java].download;
       D.base = { xmx: D.xmx, java: D.java, build: D.build, args: jvArgs(D) };
@@ -777,6 +811,8 @@
     ctx.thinBar(r.querySelector(".st-jlw"));
     paintMem(D); paintJava(D); paintBuild(D); paintArgsUI(D);
     paintNote(PG_JV, true);
+    numEdit(r.querySelector(".st-msv"), { get: () => D.xmx, set: n => setMem(D, n), text: memTxt, parse: memParse, label: "内存分配",
+      hint: `请输入 0.5～${gbTxt(MEM.cap)} 之间的数值；单位默认为 GB，也可写作「4096 MB」` });
     r.addEventListener("click", jvClick);
     r.addEventListener("input", jvInput);
     r.addEventListener("keydown", jvKey);
@@ -811,8 +847,10 @@
     setText(st.querySelector(".st-msv"), memTxt(v));
     mi.disabled = v <= 512; pl.disabled = v >= M.cap;
     st.classList.toggle("warn", over || big);
-    setTip(st, (v % 512 ? `当前值 ${v} MB 非 0.5 GB 整数倍，调整时将对齐至相邻的 0.5 GB 档位\n` : "")
-      + (over ? `超过当前可用内存 ${gbTxt(M.avail)}，可能导致卡顿或内存分配失败` : big ? "分配内存过大可能加剧 Java 垃圾回收（GC）停顿，导致游戏周期性掉帧。" : ""));
+    const warn = (v % 512 ? `当前值 ${v} MB 非 0.5 GB 整数倍，调整时将对齐至相邻的 0.5 GB 档位\n` : "")
+      + (over ? `超过当前可用内存 ${gbTxt(M.avail)}，可能导致卡顿或内存分配失败` : big ? "分配内存过大可能加剧 Java 垃圾回收（GC）停顿，导致游戏周期性掉帧。" : "");
+    setTip(st, warn);
+    setTip(st.querySelector(".st-msv"), warn + (warn && !warn.endsWith("\n") ? "\n" : "") + "点击输入数值（单位：GB）"); // 中间的数能点进去打字，它自己有悬停，上面那几句也带着
     setTip(pl, pl.disabled ? `已达当前可用上限 ${gbTxt(M.cap)}` : "增加 0.5 GB"); setTip(mi, over ? `降至可用上限 ${gbTxt(M.cap)}` : "减少 0.5 GB");
     // 图例：系统已占、分配（只有颜色，数在步进里）、剩余（= 可用 − 分配，和格子上淡的那一截一样长）
     setHTML(r.querySelector(".st-mleg"), `<span><i class="used"></i>系统已占 <b>${gs(M.used)}</b></span><span><i class="alloc"></i>分配</span><span><i class="free"></i>剩余 <b>${gs(Math.max(0, M.avail - v))}</b></span>`);
@@ -836,6 +874,13 @@
   }
   // 一下：不是 0.5 GB 整数倍时，减号落到下面最近的一档、加号落到上面最近的一档；超过上限时减号一下回到上限
   const memStep = (v, d) => (d > 0 && v >= MEM.cap ? v : d < 0 && v > MEM.cap ? MEM.cap : d < 0 ? Math.max(512, Math.ceil(v / 512) * 512 - 512) : Math.min(MEM.cap, Math.floor(v / 512) * 512 + 512));
+  // 步进里打的字：按 GB 认，也认带「GB」「MB」的写法（进框时写的就是步进上那几个字，3000 MB 还是「3000 MB」）。
+  // 小于 0.5 GB、超过上限算填错（返回 NaN）；别的数同拖动一样四舍五入到 0.5 GB 的档上（这页的规矩：一动才落到档上）
+  function memParse(raw) {
+    const m = raw.replace(/\s/g, "").match(/^(\d+(?:\.\d+)?)(gb?|mb?)?$/i); if (!m) return NaN;
+    const mb = +m[1] * (/^m/i.test(m[2] || "") ? 1 : 1024);
+    return mb < 512 || mb > MEM.cap ? NaN : Math.round(mb / 512) * 512;
+  }
   function setMem(D, v) {
     if (v === D.xmx) return;
     D.xmx = v; paintMem(D); paintAikar(D); paintPreview(D); paintBar(PG_JV);
@@ -1023,9 +1068,13 @@
         b.classList.add("done"); b.innerHTML = C.KIT.icon("check");
         clearTimeout(b._t); b._t = setTimeout(() => { b.classList.remove("done"); b.innerHTML = C.KIT.icon("copy"); }, 1200); break;
       }
-      case "port": { // 去「设置 → 常用」，光标落在端口上（同程序）：点左边标签栏里的子页，外壳照常换内容
-        cmFocus = "server-port"; closeMenu(); closePop();
-        const s = document.querySelector('#snav .subs [data-s="common"]'); if (s) s.click(); else cmFocus = ""; break;
+      case "port": { // 去「设置 → 常用」，光标落在端口上（同程序）：点左边标签栏里的子页，外壳照常换内容。
+        // 这页有没保存的改动时外壳会先问、可能被取消，取消了外壳不会告诉这里；所以自己先问这一句（同一个 KIT.leave），
+        // 过了才记下 cmFocus——到外壳再查时已经干净，不会问第二遍。不然取消以后 cmFocus 留着，下次进「常用」会莫名落到端口上
+        closeMenu(); closePop();
+        const s = document.querySelector('#snav .subs [data-s="common"]'); if (!s) break;
+        C.KIT.leave(window.DETAIL_TABS["settings/jvm"]).then(ok => { if (ok) { cmFocus = "server-port"; s.click(); } });
+        break;
       }
       case "aikar": if (!b.classList.contains("has")) applyAikar(D); break;
       case "clear": clearArgs(D); break;
@@ -1036,6 +1085,12 @@
       case "save": save(PG_JV); break;
       case "restart": restart(PG_JV); break;
     }
+  }
+  // 保存前：有一行参数正改着、填得不对（标着红）就拦下——那一行晃一下、光标落回去（同「常用」保存时的拦法）
+  function jvCheck() {
+    const el = jvRoot()?.querySelector(".st-jr.bad"); if (!el) return true;
+    el.scrollIntoView({ block: "nearest" }); shake(el); el.querySelector(".st-jin")?.focus({ preventScroll: true });
+    return false;
   }
   function jvDiscard(D) {
     D.xmx = D.base.xmx; D.java = D.base.java; D.build = D.base.build;
@@ -1068,6 +1123,6 @@
   }
   function jvBlur(e) { if (e.target.classList?.contains("st-jin")) commitRow(jvData(), e.target); }
 
-  window.DETAIL_TABS["settings/common"] = { html: cmHTML, mount: cmMount };
-  window.DETAIL_TABS["settings/jvm"] = { html: jvHTML, mount: jvMount };
+  window.DETAIL_TABS["settings/common"] = { html: cmHTML, mount: cmMount, ...leaveHooks(PG_CM) };
+  window.DETAIL_TABS["settings/jvm"] = { html: jvHTML, mount: jvMount, ...leaveHooks(PG_JV) };
 })();
