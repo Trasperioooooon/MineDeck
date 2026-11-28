@@ -2,10 +2,12 @@ package inst
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"minedeck/internal/app"
 )
@@ -21,9 +23,20 @@ func newest(files ...string) []string {
 	return out
 }
 
+// tickingBackupClock 给备份起名的时钟每取一次走一秒：接连做的几份文件名时间一定不同、先做的排在后面。
+// 真的时钟在 Windows 上一个刻度可能有十几毫秒，两份落进同一刻度时就按标签排，和做的先后对不上。
+func tickingBackupClock(t *testing.T) {
+	t.Helper()
+	old := backupNow
+	t.Cleanup(func() { backupNow = old })
+	now := time.Date(2026, 11, 29, 4, 0, 0, 0, time.Local)
+	backupNow = func() time.Time { now = now.Add(time.Second); return now }
+}
+
 // 定时备份做得再多，也挤不掉手动备份：定时的只留最新的 ScheduledBackupKeep 份，手动的一份不少。
 func TestScheduledBackupsDoNotPushOutOthers(t *testing.T) {
 	m, dir := tempInstance(t)
+	tickingBackupClock(t)
 	setConfig(t, func(c *app.Config) { c.BackupKeep, c.ScheduledBackupKeep = 2, 3 })
 	bdir := filepath.Join(app.BackupsDir, "s")
 	others := []string{"20200101-000000.000000000-更新模组前.zip", "20200102-000000.000000000-还原前自动.zip"}
@@ -50,6 +63,7 @@ func TestScheduledBackupsDoNotPushOutOthers(t *testing.T) {
 // 手动备份做得再多，也挤不掉定时备份；老版本做的「定时」备份（文件名带不带纳秒都有）照旧认作定时备份。
 func TestOtherBackupsDoNotPushOutScheduled(t *testing.T) {
 	m, dir := tempInstance(t)
+	tickingBackupClock(t)
 	setConfig(t, func(c *app.Config) { c.BackupKeep, c.ScheduledBackupKeep = 2, 3 })
 	bdir := filepath.Join(app.BackupsDir, "s")
 	legacy := []string{"20200101-040000-定时.zip", "20200102-040000.000000000-定时.zip", "20200103-040000.123456789-定时.zip"}
@@ -70,6 +84,37 @@ func TestOtherBackupsDoNotPushOutScheduled(t *testing.T) {
 	want := append(newest(manual[2:]...), newest(legacy...)...)
 	if got := backupFiles(t, m); !slices.Equal(got, want) {
 		t.Fatalf("手动备份应只留最新 2 份、老的定时备份 3 份都在：\n得到 %v\n应为 %v", got, want)
+	}
+}
+
+// 升级：以前把 backupKeep 调到 30 的人，定时备份本来和别的合起来能留到 30 份。定时的份数没设过时取 24 和 backupKeep 里大的，
+// 升级以后第一次定时备份不该因为缺省的 24 删掉已有的几份。
+func TestUpgradeKeepsScheduledBackupsUpToOldKeep(t *testing.T) {
+	m, dir := tempInstance(t)
+	setConfig(t, func(c *app.Config) { c.BackupKeep = 30 })
+	bdir := filepath.Join(app.BackupsDir, "s")
+	var old []string
+	for d := 1; d <= 25; d++ { // 升级以前：25 份定时备份加 5 份手动备份，正好 30 份
+		old = append(old, fmt.Sprintf("202001%02d-040000.000000000-定时.zip", d))
+	}
+	for d := 1; d <= 5; d++ {
+		old = append(old, fmt.Sprintf("202002%02d-120000.000000000-手动.zip", d))
+	}
+	for _, f := range old {
+		zipWorld(t, dir, f, filepath.Join(bdir, f))
+	}
+	f, err := m.createScheduledBackup("s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := backupFiles(t, m)
+	for _, o := range old {
+		if !slices.Contains(got, o) {
+			t.Fatalf("升级以后第一次定时备份删掉了已有的 %s（定时的份数没设过，应按 30 留）：共 %d 份", o, len(got))
+		}
+	}
+	if len(got) != 31 || !slices.Contains(got, f) {
+		t.Fatalf("应为原有的 30 份加新做的一份：%d 份", len(got))
 	}
 }
 

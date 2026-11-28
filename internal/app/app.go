@@ -53,7 +53,7 @@ type Config struct {
 	TosAccepted bool     `json:"tosAccepted,omitempty"` // 用户协议与免责声明是否已同意（未同意则每次启动重新弹引导卡）
 
 	// ScheduledBackupKeep 每实例保留的定时备份份数（定时任务做的备份单独计数，不占 BackupKeep）。0 = 没设过，
-	// 生效的份数见 ScheduledBackupKeep()，不回填进配置。
+	// 生效的份数见 ScheduledBackupKeepOf（读配置时不回填）；app.config.set 改 BackupKeep 时会把当时生效的值记进来。
 	ScheduledBackupKeep int `json:"scheduledBackupKeep,omitempty"`
 
 	// InstanceDirs 单独登记的服务器文件夹（接管进来的）。启动时直接读它里面的 instance.json，不扫它的上一层：
