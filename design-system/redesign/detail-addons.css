@@ -48,10 +48,20 @@
 .ad-ib[aria-disabled="true"], .ad-tg[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
 .ad-btn { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 12px; border-radius: 14px; box-sizing: border-box; flex: none;
           border: 1px solid var(--border); background: var(--control); color: var(--text); font: inherit; font-size: 12.5px; font-weight: 500; white-space: nowrap; cursor: pointer; }
-.ad-btn:hover { background: var(--control-hov); }
+.ad-btn:hover:not([aria-disabled="true"]) { background: var(--control-hov); }
+.ad-btn[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.ad-btn .ico { width: 13px; height: 13px; }
+.ad-btn.pri { border-color: transparent; background: var(--accent-solid); color: var(--on-accent); font-weight: 600; }
+.ad-btn.pri:hover:not([aria-disabled="true"]) { background: var(--accent-solid-hov); }
+/* 「更新」「全部更新」的位置：没有可更新的时候是空的，不占那一格间距 */
+.ad-ups { display: flex; flex: none; }
+.ad-ups:empty { display: none; }
 .ad-tag { flex: none; display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 9px; border: 0; font: inherit; font-size: 11px; font-weight: 500; line-height: 18px;
           white-space: nowrap; background: color-mix(in srgb, var(--text) 9%, transparent); color: var(--muted); }
 .ad-tag.warn { background: var(--warning-subtle); color: var(--warning-text); }
+/* 可更新（强调色）、已更新（成功色）；版本号用等宽数字，前后两个版本一样宽时不跳 */
+.ad-tag.new { background: var(--accent-subtle); color: var(--accent-text); font-variant-numeric: tabular-nums; }
+.ad-tag.ok { background: var(--success-subtle); color: var(--success-text); font-variant-numeric: tabular-nums; }
 button.ad-tag { cursor: pointer; } button.ad-tag.warn:hover { background: color-mix(in srgb, var(--warning) 26%, transparent); }
 
 /* ---- 列表：细滚动条（同「玩家」、向导那套），细条放在栏右边那 8 像素里 ---- */
@@ -171,16 +181,34 @@ button.ad-tag { cursor: pointer; } button.ad-tag.warn:hover { background: color-
 .ad-crow:hover .ad-cx { opacity: 1; }
 .ad-cx:hover { color: var(--text); background: var(--hover); }
 .ad-cx .ico { width: 13px; height: 13px; }
-.ad-crow.ad-flash { animation: ad-flash .9s cubic-bezier(.2, .7, .2, 1); }
+/* 闪一下：清单里已经有的本地文件又拖了一次；已安装里刚更新完的那几行（一起更新的一起闪） */
+.ad-crow.ad-flash, .ad-row.ad-flash { animation: ad-flash .9s cubic-bezier(.2, .7, .2, 1); }
 @keyframes ad-flash { 0%, 30% { background: var(--accent-subtle); } 100% { background: transparent; } }
-/* 空清单那段话：最后一行真被拿掉以后才淡进来（同向导） */
-.ad-cempty { margin: auto 0; text-align: center; color: var(--faint); font-size: 12px; line-height: 20px; padding: 0 14px; animation: ad-cempty .26s cubic-bezier(.2, .7, .2, 1); }
-.ad-cempty b { display: block; margin-bottom: 4px; font-size: 13px; font-weight: 600; color: var(--muted); }
+/* 下面那句换成警告的（冲突、未找到的前置、草稿里与服务器不符的）；未找到的那一行装不了，图标和名字淡下去 */
+.ad-why.warn { color: var(--warning-text); }
+.ad-crow.lost > .ad-mt, .ad-crow.lost .ad-n { opacity: .55; }
+/* 「可选前置」小标题和下面的行：行尾的 ＋ 一直在（不是悬停才出），带一圈细边，同卡片上的 ＋ */
+.ad-csub { flex: none; height: 24px; margin-top: 6px; padding: 0 6px; font-size: 12.5px; font-weight: 500; line-height: 24px; color: var(--muted); overflow: hidden; }
+.ad-crow.opt .ad-cx { opacity: 1; color: var(--text); box-shadow: inset 0 0 0 1px var(--border); }
+/* 新建时选择的尚未安装：清单最上面一块，警告色的底（只是提醒），圆角 10；里面的行不单独拿掉、悬停不变色，两颗按钮各占一半 */
+.ad-draft { flex: none; display: flex; flex-direction: column; gap: 2px; padding: 8px; border-radius: 10px; box-sizing: border-box; overflow: hidden; background: var(--warning-subtle); }
+.ad-dh { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 2px; min-width: 0; font-size: 12.5px; font-weight: 600; line-height: 18px; }
+.ad-dh .ico { width: 15px; height: 15px; flex: none; color: var(--warning-text); }
+.ad-dh span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ad-draft .ad-crow { padding: 0 2px; }
+.ad-draft .ad-crow:hover { background: none; }
+.ad-da { display: flex; gap: 6px; margin-top: 6px; }
+.ad-da .ad-btn { flex: 1 1 0; min-width: 0; justify-content: center; }
+/* 空清单那句淡字：最后一行真被拿掉以后才淡进来（同向导；向导里的第二句作者 11-28 定详情页不要） */
+.ad-cempty { margin: auto 0; text-align: center; color: var(--faint); font-size: 12.5px; line-height: 20px; padding: 0 14px; animation: ad-cempty .26s cubic-bezier(.2, .7, .2, 1); }
 .ad-clw .list:has(.ad-crow) .ad-cempty { display: none; }
 @keyframes ad-cempty { from { opacity: 0; transform: translateY(4px); } }
-.ad-cnote { flex: none; font-size: 12px; color: var(--muted); padding: 0 6px; display: flex; gap: 6px; align-items: center; }
+/* 拖入框上面的那几句，一句一行；提醒的（冲突、未找到）用警告色 */
+.ad-cnote { flex: none; font-size: 12px; line-height: 18px; color: var(--muted); padding: 0 6px; display: flex; flex-direction: column; gap: 2px; }
 .ad-cnote:empty { display: none; }
-.ad-cnote .ico { width: 14px; height: 14px; color: var(--faint); }
+.ad-cnl { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.ad-cnl .ico { width: 14px; height: 14px; flex: none; color: var(--faint); }
+.ad-cnl.warn, .ad-cnl.warn .ico { color: var(--warning-text); }
 /* 拖入框（虚线，圆角 10）和「全部安装」（40 高、圆角 10，离栏边 8 同心；清单空着时灰掉） */
 .ad-drop { flex: none; height: 44px; border-radius: 10px; border: 1px dashed var(--border); display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 12.5px;
            color: var(--muted); cursor: pointer; transition: color .2s, border-color .2s, background .2s; }
