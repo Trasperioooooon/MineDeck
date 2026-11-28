@@ -486,16 +486,16 @@ function skBar() {
     + `<a href="?${qa}" class="${AI_ON ? "" : "on"}" title="没配 AI 时横幅上没有「让 AI 分析」">没配 AI</a>`;
 }
 
-// ---- 常驻提示（程序里的原话；结论是胶囊上露的，全文在浮层里） ----
+// ---- 常驻提示（原是程序里的原话，11-28 照 Gemini 改成书面口吻，程序跟着草图改；结论是胶囊上露的，全文在浮层里） ----
 const NOTICES = [
-  { id: "fail", short: `上次没能启动：端口 ${S.port} 被「空岛生存」占着`, fix: `改成 ${S.port + 1} 并启动`, copy: true, close: true,
-    full: `上次没能启动：端口 ${S.port} 被你的服务器「空岛生存」占着，两台不能同时开` },
-  { id: "java", short: "找不到这台服务器配的 Java", fix: "更换 Java",
-    full: `找不到这台服务器配的 Java（<span class="mono">C:\\Program Files\\Java\\jdk-21\\bin\\java.exe</span>），现在启动会失败。可能是那个 Java 被卸载或挪走了` },
+  { id: "fail", short: `上次启动失败：端口 ${S.port} 被「空岛生存」占用`, fix: `改成 ${S.port + 1} 并启动`, copy: true, close: true,
+    full: `上次启动失败：端口 ${S.port} 被服务器「空岛生存」占用，两台服务器无法同时运行。` },
+  { id: "java", short: "未找到该服务器配置的 Java", fix: "更换 Java",
+    full: `未找到该服务器配置的 Java（<span class="mono">C:\\Program Files\\Java\\jdk-21\\bin\\java.exe</span>），当前无法启动。可能已被卸载或移动。` },
   { id: "pending", short: "有 3 个整合包文件没装上", fix: "处理",
-    full: "这台服务器有 3 个整合包文件没装上，缺了它们服务器可能启动不了，或者玩家进不去。" },
+    full: "该服务器有 3 个整合包文件没装上，缺失可能导致无法启动或玩家无法进入。" },
   { id: "need", short: "有模组要求 Java 21，当前为 Java 17", fix: "更换 Java",
-    full: "有模组要求 Java 21，这台服务器现在是 Java 17，启动可能失败。可在「设置 → 启动与内存」里换 Java。" },
+    full: "有模组要求 Java 21，当前服务器使用 Java 17，可能导致启动失败。可在「设置 → 启动与内存」中更换 Java。" },
 ];
 let shown = NOTICES.slice(0, nNotice);
 function ntcPill() {
@@ -602,7 +602,7 @@ function folders() {
 // 命令行（补全、翻历史、回车发送）。功能照着画全；改了做法的写在开头注释和计划书里，等作者定。
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const DIAG = ["err", "multi", "warn", "crash", "java"].includes(QS.get("diag")) ? QS.get("diag") : "";
-const FAIL_LINE = `[MineDeck] 没能启动：端口 ${S.port} 被你的服务器「空岛生存」占着，先停掉它，或者给这台换个端口`; // inst/portcheck.go 的原话
+const FAIL_LINE = `[MineDeck] 启动失败：端口 ${S.port} 被服务器「空岛生存」占用，请先停止该服务器，或为本服务器更换端口`; // 原是 inst/portcheck.go 的原话，11-28 跟页头常驻提示一起改成书面口吻，程序跟着改
 const AI_ON = QS.get("ai") !== "0";
 const CON = { auto: true, fs: 12.5, enc: "auto", q: "", hist: [], hi: -1, draft: "", sugg: [], si: -1, extra: [], dgOpen: false, dgClosed: false, jredl: "" };
 // 示例日志都取自仓库里 internal/diag/testdata 的真日志（去掉了几行专门用来考规则的玩家聊天；端口、版本号换成这台服务器的）；代理端那几行照 Velocity 的格式
@@ -679,17 +679,18 @@ function consoleLog() {
   return L;
 }
 // 本地规则的结论：标题、结论、详情、怎么修都照 internal/diag/rules.go、diag.go 的原话，证据是上面日志里的行
-const F_MISSING = { title: "缺少前置模组", summary: "少装了前置模组，或者前置的版本不对：geckolib、create",
-  details: ["mowziesmobs 需要 geckolib（版本 [4.2,)），但没有装", "createaddition 需要 create（版本 [0.5.1.f,0.5.2)），装的是 0.5.0.i，版本不对"],
-  fixes: ["按模组 ID 去 Modrinth 搜这个前置（选和服务器一样的加载器和 MC 版本），装进 mods 文件夹", "版本不对的，换成满足版本范围的那一版", "好友的客户端也要装同样的前置"],
+// 四条报错的字原是 internal/diag/rules.go 的原话，11-28 照 Gemini 清单的方向改成书面口吻（Gemini 只给了方向，句子主会话补的），程序跟着草图改
+const F_MISSING = { title: "缺少前置模组", summary: "缺少前置模组或版本不匹配：geckolib、create",
+  details: ["mowziesmobs 需要 geckolib（版本 [4.2,)），但未安装", "createaddition 需要 create（版本 [0.5.1.f,0.5.2)），当前为 0.5.0.i，版本不匹配"],
+  fixes: ["按模组 ID 在 Modrinth 搜索该前置（选择与服务器相同的加载器和 Minecraft 版本），放入 mods 文件夹", "版本不匹配的，更换为满足版本范围的版本", "玩家的客户端也需安装相同的前置"],
   evidence: [FORGE_MISSING[5].trim(), FORGE_MISSING[6].trim()] };
-const F_MISMATCH = { title: "好友进不来（模组对不上）", warn: true, summary: "TesterA 连服时因为客户端和服务端的模组对不上被断开了", details: ["客户端和服务端装的模组对不上"],
-  fixes: ["让好友把整合包（或模组）更新到和服务端一致，加载器也要一样（NeoForge / Forge）", "服务端最近加了模组的，把新模组也发给好友装上"], evidence: [MISMATCH] };
-const F_CRASH = { title: "服务器异常退出", summary: "服务器自己退出了，本地规则没认出具体原因。",
-  fixes: ["看看控制台里退出前最后几行 ERROR 和异常", "配置了 AI 的话，可以让 AI 结合崩溃报告分析"], evidence: ["服务器进程已退出（exit status 1）"] };
-const F_WATCHDOG = { title: "卡死被看门狗关掉", summary: "服务器的一次 tick 卡了 60.00 秒，看门狗认为它死机了，把服务器强制关掉了",
-  fixes: ["看崩溃报告里「Server thread」的堆栈，找出卡住主线程的模组，更新或禁用它", "生成新地形太重时，可以先预生成区块，或减小视距（view-distance）",
-    "最后的办法：在 server.properties 里把 max-tick-time 设成 -1（关掉看门狗；卡住时不会自动重启）"], evidence: [WATCHDOG[1], WATCHDOG[2]] };
+const F_MISMATCH = { title: "玩家无法加入（模组不一致）", warn: true, summary: "TesterA 连接时因客户端与服务端的模组不一致被断开", details: ["客户端与服务端安装的模组不一致"],
+  fixes: ["请玩家将整合包（或模组）更新至与服务端一致，加载器也需相同（NeoForge / Forge）", "服务端近期新增了模组的，需将新模组一并发给玩家安装"], evidence: [MISMATCH] };
+const F_CRASH = { title: "服务器异常退出", summary: "服务器异常退出，本地规则未识别出具体原因",
+  fixes: ["查看控制台退出前最后的 ERROR 及异常堆栈", "若已配置 AI，可让 AI 结合崩溃报告分析"], evidence: ["服务器进程已退出（exit status 1）"] };
+const F_WATCHDOG = { title: "主线程无响应，已被看门狗强制停止", summary: "服务器单次 tick 耗时 60.00 秒，看门狗判定其无响应，已强制停止服务器",
+  fixes: ["查看崩溃报告中「Server thread」的堆栈，找出阻塞主线程的模组，更新或禁用该模组", "生成新地形负载过重时，可先预生成区块，或调低视距（view-distance）",
+    "最后手段：在 server.properties 中将 max-tick-time 设为 -1（关闭看门狗；服务器卡住时将不会自动重启）"], evidence: [WATCHDOG[1], WATCHDOG[2]] };
 // Java 起不来：规则是新加的（程序没有），字照全局设置 Java 那页和详情页「启动与内存」的说法；横幅上直接给「重新下载 Java 17」，怎么修里另有「换一个 Java」
 const F_JAVA = { title: "Java 无法启动", java: 17, summary: "Java 17（MineDeck 下载的）缺少 bin\\server\\jvm.dll，文件可能被杀毒软件删除或磁盘出错",
   fixes: ["重新下载 Java 17：先下载到临时位置，检查通过后再替换，服务器设置不用改", "或在「设置 → 启动与内存」中换一个 Java"], evidence: [JAVA_BAD[1], JAVA_BAD[2]] };
