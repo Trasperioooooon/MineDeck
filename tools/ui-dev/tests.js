@@ -5616,8 +5616,17 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         const bkRow = await page.$eval('.row-item:has([data-pick="backups"]) .ri-sub', e => e.textContent);
         assert(bkRow.includes("所有备份都放在这里") && !bkRow.includes("服务器开着时做的备份"), "备份那一行：" + bkRow);
         await page.fill("#set-bk-keep", "7");
-        await byName("button", "保存备份保留份数").click(); await settle(300);
-        assert((await cfgNow()).backupKeep === 7 && await toastHas("保留最近 7 份"), "保留份数存下了：" + (await cfgNow()).backupKeep);
+        await byName("button", "保存手动备份保留份数").click(); await settle(300);
+        assert((await cfgNow()).backupKeep === 7 && await toastHas("保留最近 7 份手动备份"), "保留份数存下了：" + (await cfgNow()).backupKeep);
+        // 定时备份单独的份数（2026-11-29）：下一行，没设过时是 24；两项的悬停写清各管哪些备份；存下来不动手动的
+        assert(await page.isVisible("#set-sched-backup-keep") && await page.inputValue("#set-sbk-keep") === "24", "定时备份的保留份数在下一行，没设过时是 24：" + await page.inputValue("#set-sbk-keep"));
+        const keepTips = await page.evaluate(() => [$("#set-backup-keep").title, $("#set-sched-backup-keep").title]);
+        assert(keepTips[0].includes("还原前自动") && keepTips[0].includes("定时任务做的备份按下一项") && keepTips[1].includes("定时任务做的备份") && keepTips[1].includes("手动备份按上一项"),
+          "两项的悬停写清各管哪些备份：" + JSON.stringify(keepTips));
+        await page.fill("#set-sbk-keep", "48");
+        await byName("button", "保存定时备份保留份数").click(); await settle(300);
+        const kc = await cfgNow();
+        assert(kc.scheduledBackupKeep === 48 && kc.backupKeep === 7 && await toastHas("保留最近 48 份定时备份"), "定时备份的份数存下了、手动的不变：" + JSON.stringify(kc));
         // 改备份文件夹：马上生效，提示里能撤销；原来是默认，撤销后换回默认（配置里是空串，不是把默认路径写进去）
         await L2({ pickDir: "E:\\MC备份" });
         await byName("button", "更改备份存放文件夹…").click(); await settle(400);
@@ -5645,7 +5654,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         assert(await page.isVisible("#st-same") && (await page.textContent("#st-same")).includes("同一个文件夹"), "同一个文件夹时要提示");
         await byName("button", "撤销：换回原来的备份存放文件夹").last().click(); await settle(400);
         assert(!(await page.$("#st-same")), "撤销以后提示消失");
-      } finally { await L2({ pickDir: null }); await putCfg({ serversDir: "", backupsDir: "", backupKeep: 10 }); }
+      } finally { await L2({ pickDir: null }); await putCfg({ serversDir: "", backupsDir: "", backupKeep: 10, scheduledBackupKeep: 24 }); }
     });
 
     await run("beta.3 穿透与设置 R19：「设置 → AI」页顶用三行写清 AI 助手、游戏内 AI、AI 伙伴各在哪儿用，带去服务器列表的链接；额度和设置里都叫「AI 助手」", async () => {
@@ -8027,7 +8036,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
         // 备份页：写出放在哪、保留几份（只读），带路去「设置 → 存储位置」；没有能改份数的输入框了
         await open(PACK0, "world/backups");
         const w = await page.evaluate(() => ({ where: $("#bk-where").textContent.replace(/\s+/g, " "), href: $("#bk-keep-link").getAttribute("href"), input: !!document.querySelector("#bk-keep input, input#bk-keep") }));
-        assert(w.where.includes("D:\\MineDeck\\backups\\" + PACK0) && w.where.includes("保留最近 10 份") && w.href === "#/settings/storage" && !w.input, "备份放在哪：" + JSON.stringify(w));
+        assert(w.where.includes("D:\\MineDeck\\backups\\" + PACK0) && w.where.includes("手动备份保留最近 10 份") && w.where.includes("定时备份保留最近 24 份") && w.href === "#/settings/storage" && !w.input, "备份放在哪：" + JSON.stringify(w));
       } finally { await dState({ instReset: true }); }
     });
 
@@ -8742,7 +8751,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
     try {
       await page.goto(url(`#/inst/${inst}/tasks`)); await settle();
       const tip = await page.getAttribute("#sc-pre-backup", "title");
-      assert(tip.includes("保留最近 10 份") && tip.includes("删掉最旧的") && tip.includes("「存档」") && tip.includes("停着时不备份"), "每小时存档的悬停：" + tip);
+      assert(tip.includes("定时备份保留最近 24 份") && tip.includes("约为最近 1 天") && tip.includes("删掉最旧的定时备份") && tip.includes("手动备份另行计数") && tip.includes("「存档」") && tip.includes("停着时不备份"), "每小时存档的悬停：" + tip);
       assert((await page.getAttribute("#sc-pre-sweep", "title")).includes("kill @e[type=item]"), "每小时扫地的悬停应写出命令");
       const since = reqs.length;
       await page.click("#sc-pre-backup"); await page.click("#sc-pre-sweep"); await settle(150);
@@ -8779,7 +8788,7 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.selectOption("#sc-mode", "every"); await page.selectOption("#sc-type", "backup");
       assert(await page.isVisible("#sc-every") && await page.isVisible("#sc-unit") && !(await page.isVisible("#sc-at")) && !(await page.isVisible('[data-later="10"]')), "「每隔」：间隔和单位，没有时刻和快捷时间");
       const hint = await page.textContent("#sc-hint");
-      assert(hint.includes("每个整点") && hint.includes("只留最近 10 份"), "每隔多久的备份提示：" + hint);
+      assert(hint.includes("每个整点") && hint.includes("定时备份只留最近 24 份") && hint.includes("约为最近 1 天") && hint.includes("手动备份另行计数"), "每隔多久的备份提示：" + hint);
       await page.fill("#sc-every", "10"); await page.selectOption("#sc-unit", "1"); await page.click("#sc-add");
       assert((await page.textContent("#sc-err")).includes("定时备份最短每隔 30 分钟") && await page.$("#sc-every.invalid"), "太短：" + await page.textContent("#sc-err"));
       await page.fill("#sc-every", "13"); await page.selectOption("#sc-unit", "60"); await page.click("#sc-add");
@@ -8787,7 +8796,10 @@ const assert = (c, msg) => { if (!c) throw new Error(msg); };
       await page.fill("#sc-every", "abc"); await page.click("#sc-add");
       assert((await page.textContent("#sc-err")).includes("整数"), "不是数字：" + await page.textContent("#sc-err"));
       assert((await schedView(page)).bar === "所有修改已保存", "写错的都不该加进去");
-      await page.fill("#sc-every", "30"); await page.selectOption("#sc-unit", "1"); await page.fill("#sc-group", "存档"); await page.click("#sc-add");
+      assert(!(await page.textContent("#sc-hint")).includes("约为"), "间隔不是数字时不说能覆盖多久：" + await page.textContent("#sc-hint"));
+      await page.fill("#sc-every", "30"); await page.selectOption("#sc-unit", "1");
+      assert((await page.textContent("#sc-hint")).includes("约为最近 12 小时"), "间隔改成 30 分钟，24 份约为最近 12 小时：" + await page.textContent("#sc-hint"));
+      await page.fill("#sc-group", "存档"); await page.click("#sc-add");
       assert((await page.textContent("#sc-err")) === "" && !(await page.$("#sc-every.invalid")), "加上以后错误消失");
       await page.selectOption("#sc-mode", "at"); await page.fill("#sc-at", "3:00"); await page.click("#sc-add"); // 文件夹框还是「存档」
       let v = await schedView(page);

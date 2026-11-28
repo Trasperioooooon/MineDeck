@@ -18,6 +18,8 @@ const err = (res, code, msg, hint, extra) => { res.writeHead(code, { "Content-Ty
 const readBody = req => req._bodyPromise || (req._bodyPromise = new Promise(r => { let b = ""; req.on("data", c => b += c); req.on("end", () => { try { r(JSON.parse(b || "{}")); } catch { r({}); } }); }));
 // 同 ops/catalog 的 maskWebhook：只留协议和主机（含端口），后面常带着令牌，换成 ***；解析不了的整个遮掉，空串还是空串
 const maskWebhook = u => { if (!u) return ""; try { const x = new URL(u); return x.host ? `${x.protocol}//${x.host}/***` : "***"; } catch { return "***"; } };
+// 生效的定时备份保留份数（同 app.ScheduledBackupKeepOf）：设过就按设的；没设过取 24 和 backupKeep 里大的
+const schedKeepOf = c => Math.min(1000, c.scheduledBackupKeep > 0 ? c.scheduledBackupKeep : Math.max(24, c.backupKeep > 0 ? c.backupKeep : 10));
 // 同 publicConfig：从局域网打开时（state.local 为 false）Webhook 地址只给遮掉的
 const publicCfg = state => (state.local ? state.config : { ...state.config, webhookUrl: maskWebhook(state.config.webhookUrl) });
 
@@ -3085,7 +3087,7 @@ function handler(state, ui, portOf) {
           clearTimeout(timer);
         }
       }
-      if (p === "/api/app") return ok(res, { version: state.version, updateChannel: updateChannelOf(state), ...(state.startupUpdate ? { startupUpdate: state.startupUpdate } : {}), base: "D:\\MineDeck", ramMb: 16384, availRamMb: 9216, port: portOf(), serversRoot: state.config.serversDir || "D:\\MineDeck\\servers", backupsRoot: state.config.backupsDir || "D:\\MineDeck\\backups", config: publicCfg(state), local: state.local, lanSet: state.lanSet, lanActive: state.lanActive, cfKeySet: !!state.cfKey && !state.cfKeyBroken, cfKeyBroken: state.cfKeyBroken, autoStart: state.autoStart, ips: ["172.22.48.1", "192.168.1.23", "10.0.0.5"] });
+      if (p === "/api/app") return ok(res, { version: state.version, updateChannel: updateChannelOf(state), ...(state.startupUpdate ? { startupUpdate: state.startupUpdate } : {}), base: "D:\\MineDeck", ramMb: 16384, availRamMb: 9216, port: portOf(), serversRoot: state.config.serversDir || "D:\\MineDeck\\servers", backupsRoot: state.config.backupsDir || "D:\\MineDeck\\backups", config: publicCfg(state), scheduledBackupKeep: schedKeepOf(state.config), local: state.local, lanSet: state.lanSet, lanActive: state.lanActive, cfKeySet: !!state.cfKey && !state.cfKeyBroken, cfKeyBroken: state.cfKeyBroken, autoStart: state.autoStart, ips: ["172.22.48.1", "192.168.1.23", "10.0.0.5"] });
       if (p === "/api/bg") return ok(res, { images: [] });
       if (p === "/api/ops/log") {
         const q = u.searchParams, lim = Math.min(+q.get("limit") || 100, 1000);
@@ -3122,6 +3124,13 @@ function handler(state, ui, portOf) {
           else if (v && !(/^https?:\/\/[^/?#]/.test(v) && (() => { try { return !!new URL(v).hostname; } catch { return false; } })())) return err(res, 400, "Webhook 地址的格式不对，要写成 https://主机名/路径 这样");
           else b.webhookUrl = v;
         }
+        // 同 appops.go：两种保留份数超出 1~1000 按边界算；改 backupKeep 时定时备份的份数还没设过，先把它现在的值记下来
+        const clampKeep = k => Math.min(1000, Math.max(1, Math.round(+k) || 1));
+        if ("backupKeep" in b) {
+          if (!state.config.scheduledBackupKeep && !("scheduledBackupKeep" in b)) state.config.scheduledBackupKeep = schedKeepOf(state.config);
+          b.backupKeep = clampKeep(b.backupKeep);
+        }
+        if ("scheduledBackupKeep" in b) b.scheduledBackupKeep = clampKeep(b.scheduledBackupKeep);
         if ("autoStart" in b) state.autoStart = !!b.autoStart;
         // 同 appops.go：局域网访问密码只存哈希、不进 config；开启局域网访问前必须已有密码（同一次请求里带上也算），否则整次拒绝
         const lanSetNow = state.lanSet || !!b.lanPassword;
@@ -3550,6 +3559,8 @@ function handler(state, ui, portOf) {
         // 还原以后实例的 worldFrom 记下这一份，state.lastRestore 是请求）
         if (sub === "backups" && !seg[5] && m === "POST") {
           const b = await readBody(req), label = String(b.label || "").trim();
+          // 同 inst.CreateBackup：「定时」留给定时任务做的备份，手动备份用它整次拒绝
+          if (label === "定时") return err(res, 400, "标签「定时」留给定时任务做的备份使用，请换一个标签");
           state.lastBackup = { inst: name, label };
           const it = { file: "20261115-210000.000000000" + (label ? "-" + label : "") + ".zip", sizeMb: 420.0, time: "2026-11-15 21:00:00", ...(label ? { label } : {}) };
           backupsOf(i).unshift(it);

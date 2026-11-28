@@ -4116,6 +4116,8 @@ async function renderDetail(name, path = "console") {
     const appInfo = await api("/api/app").catch(() => ({ config: {} }));
     if (stale(gen)) return;
     const keep = (appInfo.config && appInfo.config.backupKeep) || 10, local = appInfo.local !== false;
+    // 定时备份单独计数（后端 pruneBackups）：份数取 /api/app 顶层生效的值，没设过时 config 里没有这一项
+    const skeep = appInfo.scheduledBackupKeep || 24;
     const nice = t => String(t || "").replace(/(\d{1,2}:\d\d):\d\d$/, "$1"); // 2026-11-15 20:30:05 → 2026-11-15 20:30（本来就没有秒的不动）
     // 有「换地图」的服务器：页顶还要看换地图的记录（恢复点），才说得清现在的世界是不是导入的
     const hasMap = !!(window.MDWorldImport && MDWorldImport.applies(info));
@@ -4160,11 +4162,11 @@ async function renderDetail(name, path = "console") {
         <div class="bk-where" id="bk-where">
           <span>${olds.length ? "新的备份放在" : "备份放在"} <span class="mono" id="bk-dir">${esc(info.backupDir || "")}</span></span>
           ${local && info.backupDir ? `<button type="button" class="btn sm ghost" id="bk-open">${icon("folder")} 打开</button>` : ""}
-          <span class="sep">·</span><span id="bk-keep">保留最近 <b>${keep}</b> 份（所有服务器共用）</span>
+          <span class="sep">·</span><span id="bk-keep" title="手动备份包括「立即备份世界」和还原前自动留的那份；定时备份是定时任务做的备份（标签「定时」）。两类分开计数，互不挤占。">手动备份保留最近 <b>${keep}</b> 份，定时备份保留最近 <b>${skeep}</b> 份（所有服务器共用）</span>
           <a class="quiet-link" href="#/settings/storage" id="bk-keep-link">到左下角软件「设置 → 存储位置」里改</a>
         </div>
         ${oldNote ? `<div class="bk-olds" id="bk-olds">${oldNote}</div>` : ""}
-        <div class="hint" style="margin-bottom:14px">服务器运行时也能备份：先暂停自动保存，压成压缩包，再恢复自动保存。超过保留份数时删掉最旧的。移出列表或删除服务器都不会删掉备份。
+        <div class="hint" style="margin-bottom:14px">服务器运行时也能备份：先暂停自动保存，压成压缩包，再恢复自动保存。手动备份和定时备份分开计数，超过各自的保留份数时删掉同一类里最旧的。移出列表或删除服务器都不会删掉备份。
           还原时服务器得停着，开着时点「还原」会先帮你保存世界、停服，还原完不会自动开服。还原前会先把当前世界自动备份一份（标签「还原前自动」），再把世界换成选的那一份；核心、${window.MDModCart && MDModCart.applies(info) ? MDModCart.tabLabel(info.core) + "和" : ""}设置都不动。定时备份在「定时任务」里加。</div>
         <div class="group has-ico bk-list">${(list || []).map(b => {
           const title = b.label || b.file, who = b.label ? `${b.label}（${nice(b.time)}）` : b.file;
@@ -4761,8 +4763,9 @@ async function renderPolicyTab(body, name, gen, appInfo) {
       <div class="field-err" id="sc-err"></div>
       ${saveBar("保存策略")}</div>`;
   let paintBar = () => {};
-  // 备份留几份是全局设置（同「世界与备份 → 备份」页）：每小时一份会越积越多，预设和提示里写清只留几份、旧的会删掉
-  let keep = 10;
+  // 定时备份留几份是全局设置（「设置 → 存储位置」，和手动备份的份数分开算）：每小时一份会越积越多，
+  // 预设和提示里写清只留几份、旧的会删掉。取 /api/app 顶层生效的 scheduledBackupKeep（没设过时 config 里没有）
+  let keep = 24;
 
   // 时间：「时:分」文本框（原来的 input[type=time] 两个小格太难点、太难改，见测试报告观察 1）。
   // 认 4:00、04:00、0400、21：30 这几种写法，一律补齐成 HH:MM——后端按 HH:MM 逐字比对当前时刻，9:05 不补零就永远不会触发
@@ -4874,7 +4877,14 @@ async function renderPolicyTab(body, name, gen, appInfo) {
   };
   const HINT = $("#sc-hint").textContent;
   const everyMode = () => $("#sc-mode").value === "every";
-  const everyHint = () => `从每天 0 点起算，每隔 1 小时就是每个整点执行。${$("#sc-type").value === "backup" ? `备份只留最近 ${keep} 份，更早的会删掉。` : ""}`;
+  // keep 份定时备份大约能覆盖多久（份数 × 间隔）：每小时一份、留 24 份就是最近 1 天
+  const fmtSpan = m => (m % 1440 === 0 ? `${m / 1440} 天` : m % 60 === 0 ? `${m / 60} 小时` : `${m} 分钟`);
+  const everyHint = () => {
+    const base = "从每天 0 点起算，每隔 1 小时就是每个整点执行。";
+    if ($("#sc-type").value !== "backup") return base;
+    const n = +$("#sc-every").value, step = Number.isInteger(n) && n > 0 ? n * +$("#sc-unit").value : 0;
+    return base + `定时备份只留最近 ${keep} 份${step ? `（按这个间隔约为最近 ${fmtSpan(keep * step)}）` : ""}，更早的定时备份会删掉；手动备份另行计数，不受影响。`;
+  };
   // 每天 / 每隔：换一种就换一组输入框。快捷时间只对「每天」有用：「每隔」时收起那几个按钮，这一行只剩说明，
   // 也就不再是一组「快捷时间」
   const paintMode = () => {
@@ -4893,12 +4903,15 @@ async function renderPolicyTab(body, name, gen, appInfo) {
     if (everyMode()) $("#sc-hint").textContent = everyHint();
   });
   const presetTip = {
-    backup: () => `每隔 1 小时备份一次世界，放进「存档」文件夹；服务器停着时不备份。保留最近 ${keep} 份（所有服务器共用），超过保留份数时删掉最旧的，手动备份也算在内。`,
+    backup: () => `每隔 1 小时备份一次世界，放进「存档」文件夹；服务器停着时不备份。定时备份保留最近 ${keep} 份（约为最近 ${fmtSpan(keep * 60)}，所有服务器共用），超过时删掉最旧的定时备份；手动备份另行计数，不受影响。`,
     sweep: () => "每隔 1 小时执行 kill @e[type=item]，清掉地上的掉落物，放进「扫地」文件夹；服务器没开时不执行。",
   };
   const paintKeep = () => { body.querySelectorAll("[data-preset]").forEach(b => { b.title = presetTip[b.dataset.preset](); }); if (everyMode()) $("#sc-hint").textContent = everyHint(); };
   paintKeep();
-  appInfo.then(a => { keep = (a && a.config && a.config.backupKeep) || 10; if (!stale(gen) && body.isConnected) paintKeep(); });
+  appInfo.then(a => { keep = (a && a.scheduledBackupKeep) || 24; if (!stale(gen) && body.isConnected) paintKeep(); });
+  // 间隔改了，说明里「约为最近多久」跟着变（只在「每隔」时显示这一句）
+  $("#sc-every").addEventListener("input", () => { if (everyMode()) $("#sc-hint").textContent = everyHint(); });
+  $("#sc-unit").addEventListener("change", () => { if (everyMode()) $("#sc-hint").textContent = everyHint(); });
   // 一键添加：和「添加」一样先进草稿，保存以后生效；同一条已经有了就不再加
   body.querySelectorAll("[data-preset]").forEach(b => b.onclick = () => {
     const p = PRESETS[b.dataset.preset], had = scheds.find(s => sameTask(s, p.s));
@@ -6122,6 +6135,7 @@ function storageRow(ico, title, path, desc, pick) { // 三行都有「打开」�
    - 两个存放文件夹改了即时生效，提示里带「撤销」，点了换回改之前配置里的值（原来是默认位置就换回默认），R16；
    - 备份保留份数（全局 backupKeep）放在这里（以前在单台服务器的备份页上，可用性走查 U18、R15）。
      详情页的备份页只读显示份数、链接到这里：地址是 #/settings/storage，这一行的 id 是 set-backup-keep；
+     下面一行是定时备份单独的份数（scheduledBackupKeep，2026-11-29），id 是 set-sched-backup-keep；
    - 服务器和备份设成同一个文件夹时提示，R20；备份那一行写「所有备份都放在这里」，U29 */
 const sameDir = (a, b) => !!a && !!b && a.replace(/[\\/]+$/, "").toLowerCase() === b.replace(/[\\/]+$/, "").toLowerCase();
 function setStorage(body, info) {
@@ -6131,6 +6145,8 @@ function setStorage(body, info) {
   const ROOT = { servers: "serversRoot", backups: "backupsRoot" };
   const NAME = { servers: "服务器存放文件夹", backups: "备份存放文件夹" };
   let keep = cfg.backupKeep || 10;
+  // 定时备份的份数取 /api/app 顶层生效的值：没设过时 config 里没有这一项，生效的份数由后端算（app.ScheduledBackupKeepOf）
+  let skeep = info.scheduledBackupKeep || 24;
   // 改了以后按后端的说法重画（恢复默认时要后端给出默认的位置）；取不到时用自己知道的
   const refresh = async (which, value) => {
     try {
@@ -6172,10 +6188,15 @@ function setStorage(body, info) {
       (same ? `<div class="warn-card" id="st-same" role="status"><div class="wc-title">${icon("warn")} 服务器和备份放在了同一个文件夹</div>
         <div class="wc-note">这样也能用，但备份会和服务器文件夹混在一起，不好找；硬盘坏了，服务器和备份会一起没了。建议给备份另选一个文件夹，最好在另一块硬盘上。</div></div>` : "") +
       `<div class="hint">更改存放文件夹只能在这台电脑上操作；用手机远程管理时，需要到主机上更改。</div>` +
-      settingsHead("备份保留份数", "") +
-      group(riRow({ ico: "clock", title: "每台服务器保留几份备份", attrs: `id="set-backup-keep"`,
-        sub: "再做一份新的备份时，超出这个数的最旧那几份会删掉（「还原前自动」留的那份也算在里面）。所有服务器共用这一个数，改了下次备份时生效。",
-        field: `<input type="number" id="set-bk-keep" min="1" max="1000" value="${keep}" style="max-width:120px" aria-label="每台服务器保留几份备份"><span class="ri-unit">份</span><button class="btn" id="set-bk-keep-save" aria-label="保存备份保留份数">保存</button>` }), { ico: true });
+      settingsHead("备份保留份数", "手动备份和定时备份分开计数，各留各的份数，互不挤占。") +
+      group(riRow({ ico: "camera", title: "每台服务器保留几份手动备份",
+        attrs: `id="set-backup-keep" title="管手动备份：「立即备份世界」和 AI 助手做的备份，以及还原前自动留的那份。定时任务做的备份按下一项计数。"`,
+        sub: "再做一份新的备份时，超出这个数的最旧那几份会删掉（「还原前自动」留的那份也算在里面，定时任务做的备份不算）。所有服务器共用这一个数，改了下次备份时生效。",
+        field: `<input type="number" id="set-bk-keep" min="1" max="1000" value="${keep}" style="max-width:120px" aria-label="每台服务器保留几份手动备份"><span class="ri-unit">份</span><button class="btn" id="set-bk-keep-save" aria-label="保存手动备份保留份数">保存</button>` }) +
+        riRow({ ico: "clock", title: "每台服务器保留几份定时备份",
+          attrs: `id="set-sched-backup-keep" title="管定时备份：定时任务做的备份（标签「定时」），包括「每小时存档」。手动备份按上一项计数。"`,
+          sub: "只算定时任务做的备份，不占上一项的份数。每隔 1 小时备份一次时，保留 24 份约为最近 1 天。超出这个数的最旧那几份会删掉；所有服务器共用这一个数，改了下次备份时生效。",
+          field: `<input type="number" id="set-sbk-keep" min="1" max="1000" value="${skeep}" style="max-width:120px" aria-label="每台服务器保留几份定时备份"><span class="ri-unit">份</span><button class="btn" id="set-sbk-keep-save" aria-label="保存定时备份保留份数">保存</button>` }), { ico: true });
     body.querySelectorAll("[data-open]").forEach(b => b.onclick = () =>
       api("/api/openpath", { method: "POST", body: { path: b.dataset.open } }).catch(e => toastErr("无法打开文件夹", e)));
     body.querySelectorAll("[data-pick]").forEach(b => b.onclick = async () => {
@@ -6196,7 +6217,14 @@ function setStorage(body, info) {
       await api("/api/config", { method: "PUT", body: { backupKeep: n } });
       keep = cfg.backupKeep = n;
       if (!stale(gen)) $("#set-bk-keep").value = n;
-      toast(`已设置每台服务器保留最近 ${n} 份备份（下次备份时生效）`);
+      toast(`已设置每台服务器保留最近 ${n} 份手动备份（下次备份时生效）`);
+    }, gen);
+    bindSaveInput($("#set-sbk-keep"), $("#set-sbk-keep-save"), async v => {
+      const n = Math.max(1, Math.min(1000, Math.round(+v) || 24));
+      await api("/api/config", { method: "PUT", body: { scheduledBackupKeep: n } });
+      skeep = info.scheduledBackupKeep = cfg.scheduledBackupKeep = n;
+      if (!stale(gen)) $("#set-sbk-keep").value = n;
+      toast(`已设置每台服务器保留最近 ${n} 份定时备份（下次备份时生效）`);
     }, gen);
   };
   draw();
