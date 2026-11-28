@@ -19,6 +19,8 @@
 //   · 停着、启动中时没有在线的人，在线那一栏是程序的原话「暂无玩家在线」；踢人只出现在在线的人那一行，所以没有要灰掉的踢人键（写进了汇报，等作者定）。
 //     别的（加、删、设管理员、封、解封、白名单开关）照程序，三种状态都能用。
 //   · 踢掉、封掉一个在线的人，页头的在线人数、控制台补全里的在线玩家跟着变（外壳的 ctx.setOnline）。
+//   · 作者 11-28 定：踢出、封禁都先弹确认框（共用的 KIT.confirm，危险的那种、默认落在「取消」；程序是点了就做）；
+//     在线玩家每人多一颗封禁（程序没有，原来只能在封禁名单里打名字），在王冠和踢出中间。封禁名单里打名字加进去也要确认；已经在名单里的照旧只闪一下、不弹框。解除封禁不确认。
 // 白名单、管理员、封禁名单里的名字是编的；在线的人用外壳给的 ctx.online（和页头、控制台日志对得上），都在白名单里。
 // 外壳的接口见 detail.html 的 content()：html(ctx) 返回内容面板里的那一块，mount(ctx) 在换上去、图标换好以后跑；换标签回来会再调一次，数据留在这个文件里不丢。
 (() => {
@@ -27,6 +29,7 @@
   Object.assign(window.EXTRA_ICONS = window.EXTRA_ICONS || {}, {
     crown: `<path d="${CROWN}"/><path d="M3.7 13.4h8.6"/>`, crownOn: `<path d="${CROWN}" fill="currentColor"/><path d="M3.7 13.4h8.6"/>`,
     kick: '<path d="M9.3 2.8H4.1a1.3 1.3 0 00-1.3 1.3v7.8a1.3 1.3 0 001.3 1.3h5.2"/><path d="M10.9 5.4L13.5 8l-2.6 2.6M13.3 8H6.6"/>',
+    ban: '<circle cx="8" cy="8" r="5.4"/><path d="M4.2 4.2l7.6 7.6"/>', // 封禁：圆圈加一道斜杠（11-28 在线玩家加封禁键时补的）
   });
   window.DETAIL_TABS = window.DETAIL_TABS || {};
 
@@ -68,6 +71,7 @@
     const op = has(P.ops, n), run = running();
     return `<div class="pl-row" data-pl-name="${esc(n)}"><span class="pl-nm">${esc(n)}</span>`
       + `<button type="button" class="pl-ib pl-op${op ? " on" : ""}" title="${op ? "取消管理员" : "设为管理员"}" aria-pressed="${op}" aria-label="${esc(n)} 是管理员"><i data-ic="${op ? "crownOn" : "crown"}"></i></button>`
+      + `<button type="button" class="pl-ib pl-ban" title="封禁玩家" aria-label="封禁 ${esc(n)}"><i data-ic="ban"></i></button>`
       + `<button type="button" class="pl-ib pl-kick"${run ? "" : ' aria-disabled="true"'} title="${run ? "踢出玩家" : "仅服务器运行中可踢出玩家"}" aria-label="踢出 ${esc(n)}"><i data-ic="kick"></i></button></div>`;
   }
   const listRow = (k, n) => `<div class="pl-row" data-pl-name="${esc(n)}"><span class="pl-nm">${esc(n)}</span>`
@@ -167,6 +171,15 @@
       case "kick": if (running()) leave(n); break;
     }
   }
+  // 踢出、封禁先确认（作者 11-28 定）。名字只可能是字母、数字、下划线，照旧转义
+  function confirmAct(action, n) {
+    const kick = action === "kick", on = running() && has(P.online, n);
+    const body = kick ? `${esc(n)} 将被断开连接，之后仍可重新进入服务器。`
+      : on ? `${esc(n)} 将被踢出服务器并加入封禁名单，解除封禁前无法进入。` : `${esc(n)} 将加入封禁名单，解除封禁前无法进入服务器。`;
+    KIT.confirm({ ic: kick ? "kick" : "ban", tone: "dgr", title: `${kick ? "踢出" : "封禁"} ${esc(n)}`, body,
+      btns: [{ k: "cancel", label: "取消" }, { k: "ok", label: kick ? "踢出" : "封禁", tone: "dgr" }] })
+      .then(k => { if (k === "ok") act(action, n); });
+  }
   const shake = el => el.animate([{ transform: "none" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "none" }],
     { duration: 360, easing: "cubic-bezier(.3, .7, .2, 1)" });
   function submit(box) {
@@ -175,7 +188,7 @@
     if (!v) return;
     if (!NAME_OK.test(v)) { box.classList.add("bad"); shake(box); return; }
     inp.value = ""; box.classList.remove("has");
-    act(L[k].addAct, v);
+    if (k === "ban" && !has(P.ban, v)) confirmAct("ban", v); else act(L[k].addAct, v); // 已经封了的照旧只闪一下，不弹框
   }
 
   // ---- 事件（绑在这一页的根上，换标签时跟着内容一起扔掉） ----
@@ -197,7 +210,8 @@
     const n = row.dataset.plName;
     if (b.classList.contains("pl-x")) act(L[b.dataset.plRm].rmAct, n);
     else if (b.classList.contains("pl-op")) act(has(P.ops, n) ? "deop" : "op", n);
-    else if (b.classList.contains("pl-kick")) act("kick", n);
+    else if (b.classList.contains("pl-kick")) confirmAct("kick", n);
+    else if (b.classList.contains("pl-ban")) confirmAct("ban", n);
   }
   function onKey(e) {
     const box = e.target.closest?.(".pl-add"); if (!box || e.target.tagName !== "INPUT") return;
